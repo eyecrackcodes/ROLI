@@ -1,0 +1,35 @@
+{
+  "title": "DSB CRM Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "required": ["crmUsername", "crmPassword"],
+  "properties": {
+    "crmUsername": {
+      "title": "CRM Username",
+      "type": "string",
+      "description": "Login username for crm.digitalseniorbenefits.com",
+      "editor": "textfield"
+    },
+    "crmPassword": {
+      "title": "CRM Password",
+      "type": "string",
+      "description": "Login password for CRM",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "scrapeDate": {
+      "title": "Scrape Date",
+      "type": "string",
+      "description": "Date to scrape in YYYY-MM-DD format. Defaults to today.",
+      "editor": "textfield",
+      "default": ""
+    },
+    "loginUrl": {
+      "title": "Login URL",
+      "type": "string",
+      "description": "CRM login page URL",
+      "editor": "textfield",
+      "default": "https://crm.digitalseniorbenefits.com/login"
+    }
+  }
+}

@@ -1,0 +1,290 @@
+{
+  "name": "DSB Daily Scrape Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,11,13,15,17,19 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 2hrs 9AM-7PM CST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/MIlgC3KEFTXzIcnMt/runs?token=YOUR_APIFY_TOKEN",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ crmUsername: 'YOUR_CRM_USERNAME', crmPassword: 'YOUR_CRM_PASSWORD', scrapeDate: (() => { const d = new Date(); const day = d.getDay(); if (day === 0) d.setDate(d.getDate() - 2); else if (day === 6) d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10); })() }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "start-apify-run",
+      "name": "Start Apify Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 100]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "minutes"
+      },
+      "id": "wait-for-actor",
+      "name": "Wait 3 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [520, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $node['Start Apify Run'].json.data.id }}?token=YOUR_APIFY_TOKEN",
+        "options": {}
+      },
+      "id": "check-run-status",
+      "name": "Check Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "run-succeeded",
+              "leftValue": "={{ $json.data.status }}",
+              "rightValue": "SUCCEEDED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-run-done",
+      "name": "Run Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [960, 100]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "minutes"
+      },
+      "id": "wait-retry",
+      "name": "Wait & Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [960, 320]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{ $node['Check Run Status'].json.data.defaultDatasetId }}/items?format=json&token=YOUR_APIFY_TOKEN",
+        "options": {}
+      },
+      "id": "fetch-dataset",
+      "name": "Fetch Dataset Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the ingestion payload for the Supabase edge function\nconst agents = $input.all().map(item => item.json);\n\nconst today = new Date();\nconst scrapeDate = today.toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents\n  }\n}];"
+      },
+      "id": "build-payload",
+      "name": "Build Ingestion Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://bcibmmbxrjfiulofserv.supabase.co/functions/v1/ingest-daily-scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "post-to-supabase",
+      "name": "POST to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1640, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-success",
+      "name": "Ingestion OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1860, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "={{ 'DSB Scrape SUCCESS: ' + $json.inserted + ' agents ingested for ' + $json.scrape_date }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "success-log",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2100, -100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "={{ 'DSB Scrape FAILED: ' + JSON.stringify($json.errors || $json) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error-log",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2100, 100]
+    }
+  ],
+  "connections": {
+    "Every 2hrs 9AM-7PM CST": {
+      "main": [
+        [{ "node": "Start Apify Run", "type": "main", "index": 0 }]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Start Apify Run", "type": "main", "index": 0 }]
+      ]
+    },
+    "Start Apify Run": {
+      "main": [
+        [{ "node": "Wait 3 Minutes", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait 3 Minutes": {
+      "main": [
+        [{ "node": "Check Run Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Run Status": {
+      "main": [
+        [{ "node": "Run Succeeded?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Succeeded?": {
+      "main": [
+        [{ "node": "Fetch Dataset Items", "type": "main", "index": 0 }],
+        [{ "node": "Wait & Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait & Retry": {
+      "main": [
+        [{ "node": "Check Run Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Dataset Items": {
+      "main": [
+        [{ "node": "Build Ingestion Payload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Ingestion Payload": {
+      "main": [
+        [{ "node": "POST to Supabase", "type": "main", "index": 0 }]
+      ]
+    },
+    "POST to Supabase": {
+      "main": [
+        [{ "node": "Ingestion OK?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ingestion OK?": {
+      "main": [
+        [{ "node": "Log Success", "type": "main", "index": 0 }],
+        [{ "node": "Log Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chicago"
+  }
+}
