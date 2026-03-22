@@ -8,6 +8,7 @@ import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
+import { SiteSummary } from "@/components/SiteSummary";
 import { MonthlyAgent, AgentStatus, GATE_THRESHOLDS } from "@/lib/types";
 import type { Tier } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -287,6 +288,10 @@ export default function MonthlyStackRank() {
           EXPORT
         </Button>
       </div>
+
+      {(monthlyT1.length > 0 || monthlyT2.length > 0 || monthlyT3.length > 0) && (
+        <SiteSummary agents={[...monthlyT1, ...monthlyT2, ...monthlyT3]} showProfit />
+      )}
 
       <Tabs defaultValue="t3" className="w-full">
         <TabsList className="bg-card border border-border">

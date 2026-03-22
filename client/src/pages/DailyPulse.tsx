@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
+import { SiteSummary } from "@/components/SiteSummary";
 import { getPaceColor } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -384,6 +385,10 @@ export default function DailyPulse() {
           <div>{data.windowStart} → {data.windowEnd}</div>
         </div>
       </div>
+
+      {hasData && (
+        <SiteSummary agents={[...data.dailyT1, ...data.dailyT2, ...data.dailyT3]} />
+      )}
 
       {data.loading ? (
         <div className="border border-dashed border-border rounded-md p-12 flex items-center justify-center bg-card/30">
