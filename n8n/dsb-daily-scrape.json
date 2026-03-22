@@ -56,7 +56,6 @@
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://api.apify.com/v2/actor-runs/{{ $node['Start Apify Run'].json.data.id }}?token=YOUR_APIFY_TOKEN",
         "options": {}
       },
@@ -69,20 +68,13 @@
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
           "conditions": [
             {
               "id": "run-succeeded",
               "leftValue": "={{ $json.data.status }}",
               "rightValue": "SUCCEEDED",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
+              "operator": { "type": "string", "operation": "equals" }
             }
           ],
           "combinator": "and"
@@ -108,7 +100,6 @@
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://api.apify.com/v2/datasets/{{ $node['Check Run Status'].json.data.defaultDatasetId }}/items?format=json&token=YOUR_APIFY_TOKEN",
         "options": {}
       },
@@ -120,7 +111,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build the ingestion payload for the Supabase edge function\nconst agents = $input.all().map(item => item.json);\n\nconst today = new Date();\nconst scrapeDate = today.toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents\n  }\n}];"
+        "jsCode": "const agents = $input.all().map(item => item.json);\nconst today = new Date();\nconst day = today.getDay();\nif (day === 0) today.setDate(today.getDate() - 2);\nelse if (day === 6) today.setDate(today.getDate() - 1);\nconst scrapeDate = today.toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents\n  }\n}];"
       },
       "id": "build-payload",
       "name": "Build Ingestion Payload",
@@ -135,18 +126,13 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
+            { "name": "Content-Type", "value": "application/json" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": {
-          "timeout": 30000
-        }
+        "options": { "timeout": 30000 }
       },
       "id": "post-to-supabase",
       "name": "POST to Supabase",
@@ -157,20 +143,13 @@
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
           "conditions": [
             {
               "id": "check-success",
               "leftValue": "={{ $json.success }}",
               "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true"
-              }
+              "operator": { "type": "boolean", "operation": "true" }
             }
           ],
           "combinator": "and"
@@ -185,23 +164,34 @@
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "status",
-              "name": "status",
-              "value": "={{ 'DSB Scrape SUCCESS: ' + $json.inserted + ' agents ingested for ' + $json.scrape_date }}",
-              "type": "string"
-            }
+        "jsCode": "// Build Slack summary split by site (ATX=AUS, CLT=CHA)\nconst payload = $node['Build Ingestion Payload'].json;\nconst agents = payload.agents || [];\nconst scrapeDate = payload.scrape_date;\n\n// Fetch agent roster for site mapping\nconst rosterResp = await fetch(\n  'https://bcibmmbxrjfiulofserv.supabase.co/rest/v1/agents?select=name,site&is_active=eq.true',\n  { headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjaWJtbWJ4cmpmaXVsb2ZzZXJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTMzNzAsImV4cCI6MjA4OTY4OTM3MH0.IIuxX_m34M4QOPORUr7v04AO3aLgdQnvMhD8rOjVnhQ' }}\n);\nconst roster = await rosterResp.json();\nconst siteMap = {};\nfor (const r of roster) siteMap[r.name] = r.site === 'AUS' ? 'ATX' : 'CLT';\n\nconst sites = {\n  ATX: { sales: 0, premium: 0, agents: 0 },\n  CLT: { sales: 0, premium: 0, agents: 0 }\n};\n\nfor (const a of agents) {\n  const site = siteMap[a.agent_name] || 'CLT';\n  const s = sites[site];\n  const sales = (a.ib_sales||0) + (a.ob_sales||0) + (a.custom_sales||0);\n  const premium = (a.ib_premium||0) + (a.ob_premium||0) + (a.custom_premium||0);\n  s.sales += sales;\n  s.premium += premium;\n  s.agents++;\n}\n\nconst totalSales = sites.ATX.sales + sites.CLT.sales;\nconst totalPremium = sites.ATX.premium + sites.CLT.premium;\nconst atxCR = sites.ATX.agents > 0 ? ((sites.ATX.sales / sites.ATX.agents) * 100).toFixed(1) : '0';\nconst cltCR = sites.CLT.agents > 0 ? ((sites.CLT.sales / sites.CLT.agents) * 100).toFixed(1) : '0';\nconst time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' });\nconst fmt = (n) => '$' + Math.round(n).toLocaleString();\n\nconst message = {\n  text: `DSB Scrape — ${scrapeDate} @ ${time} CST`,\n  blocks: [\n    { type: 'header', text: { type: 'plain_text', text: `DSB Production Update — ${scrapeDate}`, emoji: true } },\n    { type: 'section', text: { type: 'mrkdwn', text: `*${agents.length} agents* scraped at *${time} CST*` } },\n    { type: 'divider' },\n    { type: 'section', fields: [\n      { type: 'mrkdwn', text: `*ATX (Austin)*\\n:chart_with_upwards_trend: *${sites.ATX.sales}* sales\\n:moneybag: *${fmt(sites.ATX.premium)}* premium\\n:busts_in_silhouette: ${sites.ATX.agents} agents` },\n      { type: 'mrkdwn', text: `*CLT (Charlotte)*\\n:chart_with_upwards_trend: *${sites.CLT.sales}* sales\\n:moneybag: *${fmt(sites.CLT.premium)}* premium\\n:busts_in_silhouette: ${sites.CLT.agents} agents` }\n    ]},\n    { type: 'divider' },\n    { type: 'section', text: { type: 'mrkdwn', text: `*Combined:* *${totalSales}* sales | *${fmt(totalPremium)}* premium` } },\n    { type: 'context', elements: [{ type: 'mrkdwn', text: `Scrape date: ${scrapeDate} | Next scrape in ~2 hours` }] }\n  ]\n};\n\nreturn [{ json: message }];"
+      },
+      "id": "build-slack-message",
+      "name": "Build Slack Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2100, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
           ]
         },
-        "options": {}
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 10000 }
       },
-      "id": "success-log",
-      "name": "Log Success",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [2100, -100]
+      "id": "send-slack",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2340, -100]
     },
     {
       "parameters": {
@@ -278,8 +268,13 @@
     },
     "Ingestion OK?": {
       "main": [
-        [{ "node": "Log Success", "type": "main", "index": 0 }],
+        [{ "node": "Build Slack Summary", "type": "main", "index": 0 }],
         [{ "node": "Log Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Slack Summary": {
+      "main": [
+        [{ "node": "Send to Slack", "type": "main", "index": 0 }]
       ]
     }
   },
