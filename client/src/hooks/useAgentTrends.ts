@@ -237,9 +237,11 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
 
   useEffect(() => {
     if (!agentName) return;
+    let cancelled = false;
     setLoading(true);
     Promise.all([fetchDayOverDay(), fetchIntraday(), fetchWeekly(), fetchWindows()])
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [agentName, fetchDayOverDay, fetchIntraday, fetchWeekly, fetchWindows]);
 
   const yesterday = daily.length >= 2 ? daily[daily.length - 2] : null;

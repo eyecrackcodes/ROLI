@@ -20,6 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Download, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 import { exportDailyPulse } from "@/lib/exportExcel";
 import type { Tier, DailyPulseAgent } from "@/lib/types";
 
@@ -331,7 +332,7 @@ export default function DailyPulse() {
     try {
       await exportDailyPulse(data.dailyT1, data.dailyT2, data.dailyT3, data.selectedDate, tiers);
     } catch {
-      // Export failed silently
+      toast.error("Export failed");
     }
   };
 

@@ -7,12 +7,14 @@ import { useState } from "react";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { StatusBadge } from "@/components/StatusBadge";
+import { AgentDrillDown } from "@/components/AgentDrillDown";
 import { MonthlyAgent, AgentStatus, GATE_THRESHOLDS } from "@/lib/types";
 import type { Tier } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
+import { toast } from "sonner";
 import { exportMonthlyStackRank } from "@/lib/exportExcel";
 
 function formatCurrency(val: number) {
@@ -53,7 +55,7 @@ function assignT1Status(agents: MonthlyAgent[]): (MonthlyAgent & { status: Agent
   }));
 }
 
-function T3StackRank() {
+function T3StackRank({ onAgentClick }: { onAgentClick?: (agent: MonthlyAgent) => void }) {
   const { monthlyT3, windowStart, windowEnd, workingDays } = useData();
   const agents = assignT3Status(monthlyT3);
 
@@ -98,7 +100,9 @@ function T3StackRank() {
                 )}
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums font-bold">{i + 1}</td>
-                <td className="px-3 py-2.5 font-semibold text-foreground">{agent.name}</td>
+                <td className="px-3 py-2.5 font-semibold text-foreground">
+                  <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.leadsDelivered}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.sales}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.closeRate.toFixed(1)}%</td>
@@ -118,7 +122,7 @@ function T3StackRank() {
   );
 }
 
-function T2StackRank() {
+function T2StackRank({ onAgentClick }: { onAgentClick?: (agent: MonthlyAgent) => void }) {
   const { monthlyT2, windowStart, windowEnd, workingDays } = useData();
   const agents = assignT2Status(monthlyT2);
 
@@ -160,7 +164,9 @@ function T2StackRank() {
                 )}
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums font-bold">{i + 1}</td>
-                <td className="px-3 py-2.5 font-semibold text-foreground">{agent.name}</td>
+                <td className="px-3 py-2.5 font-semibold text-foreground">
+                  <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCR ?? 0}%</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obCR ?? 0}%</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.leadCost)}</td>
@@ -179,7 +185,7 @@ function T2StackRank() {
   );
 }
 
-function T1StackRank() {
+function T1StackRank({ onAgentClick }: { onAgentClick?: (agent: MonthlyAgent) => void }) {
   const { monthlyT1, windowStart, windowEnd, workingDays } = useData();
   const agents = assignT1Status(monthlyT1);
 
@@ -221,7 +227,9 @@ function T1StackRank() {
                 )}
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums font-bold">{i + 1}</td>
-                <td className="px-3 py-2.5 font-semibold text-foreground">{agent.name}</td>
+                <td className="px-3 py-2.5 font-semibold text-foreground">
+                  <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.sales}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.closeRate.toFixed(1)}%</td>
@@ -243,6 +251,9 @@ function T1StackRank() {
 
 export default function MonthlyStackRank() {
   const { monthlyT1, monthlyT2, monthlyT3, windowStart, windowEnd } = useData();
+  const [drillAgent, setDrillAgent] = useState<MonthlyAgent | null>(null);
+
+  const handleAgentClick = (agent: MonthlyAgent) => setDrillAgent(agent);
 
   const handleExport = async () => {
     const windowName = `${windowStart} to ${windowEnd}`;
@@ -253,7 +264,9 @@ export default function MonthlyStackRank() {
         assignT3Status(monthlyT3),
         windowName
       );
-    } catch {}
+    } catch {
+      toast.error("Export failed");
+    }
   };
 
   return (
@@ -288,15 +301,23 @@ export default function MonthlyStackRank() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="t3" className="mt-4">
-          <T3StackRank />
+          <T3StackRank onAgentClick={handleAgentClick} />
         </TabsContent>
         <TabsContent value="t2" className="mt-4">
-          <T2StackRank />
+          <T2StackRank onAgentClick={handleAgentClick} />
         </TabsContent>
         <TabsContent value="t1" className="mt-4">
-          <T1StackRank />
+          <T1StackRank onAgentClick={handleAgentClick} />
         </TabsContent>
       </Tabs>
+
+      <AgentDrillDown
+        agentName={drillAgent?.name ?? null}
+        tier={drillAgent?.tier}
+        site={drillAgent?.site}
+        open={!!drillAgent}
+        onOpenChange={(open) => !open && setDrillAgent(null)}
+      />
     </div>
   );
 }
