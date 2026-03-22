@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAgents, type Agent } from "@/hooks/useAgents";
 import { useEvaluationWindows, type EvaluationWindow } from "@/hooks/useEvaluationWindows";
 import { useSystemConfig, type GateThresholds } from "@/hooks/useSystemConfig";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -606,6 +606,103 @@ function GateThresholdsTab() {
   );
 }
 
+// ---- Name Aliases Tab ----
+
+function NameAliasesTab() {
+  const [aliases, setAliases] = useState<Array<{ id: string; crm_name: string; canonical_name: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [newCrm, setNewCrm] = useState("");
+  const [newCanonical, setNewCanonical] = useState("");
+
+  const fetchAliases = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("agent_name_aliases")
+      .select("*")
+      .order("crm_name");
+    setAliases((data as typeof aliases) ?? []);
+    setLoading(false);
+  };
+
+  useState(() => { fetchAliases(); });
+
+  const handleAdd = async () => {
+    if (!newCrm.trim() || !newCanonical.trim()) { toast.error("Both fields required"); return; }
+    const { error } = await supabase
+      .from("agent_name_aliases")
+      .insert({ crm_name: newCrm.trim(), canonical_name: newCanonical.trim() });
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Alias added: ${newCrm.trim()} → ${newCanonical.trim()}`);
+    setNewCrm("");
+    setNewCanonical("");
+    fetchAliases();
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    await supabase.from("agent_name_aliases").delete().eq("id", id);
+    toast.success(`Alias removed: ${name}`);
+    fetchAliases();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-card border border-border rounded-md p-4 space-y-3">
+        <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground">
+          Add Name Alias
+        </h3>
+        <p className="text-[10px] font-mono text-muted-foreground">
+          When the CRM uses a different name than the roster, add an alias so data merges correctly.
+        </p>
+        <div className="flex gap-2 items-end">
+          <div className="flex-1 space-y-1">
+            <Label className="font-mono text-[10px] uppercase tracking-widest">CRM Name</Label>
+            <Input value={newCrm} onChange={(e) => setNewCrm(e.target.value)} placeholder="e.g. Jimmy Hoang" className="font-mono bg-background text-sm" />
+          </div>
+          <span className="text-muted-foreground font-mono text-sm pb-2">→</span>
+          <div className="flex-1 space-y-1">
+            <Label className="font-mono text-[10px] uppercase tracking-widest">Roster Name</Label>
+            <Input value={newCanonical} onChange={(e) => setNewCanonical(e.target.value)} placeholder="e.g. James Hoang" className="font-mono bg-background text-sm" />
+          </div>
+          <Button onClick={handleAdd} className="font-mono text-xs bg-blue-600 hover:bg-blue-700 gap-1">
+            <Plus className="h-3.5 w-3.5" />
+            ADD
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left">
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">CRM Name</th>
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">→</th>
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Roster Name</th>
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {aliases.map((a, i) => (
+              <tr key={a.id} className={cn("border-b border-border/50 hover:bg-accent/30", i % 2 === 0 ? "bg-transparent" : "bg-card/30")}>
+                <td className="px-3 py-2.5 font-mono text-foreground">{a.crm_name}</td>
+                <td className="px-3 py-2.5 text-muted-foreground">→</td>
+                <td className="px-3 py-2.5 font-mono font-semibold text-foreground">{a.canonical_name}</td>
+                <td className="px-3 py-2.5 text-right">
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(a.id, a.crm_name)} className="font-mono text-[10px] h-7 px-2 text-red-400 hover:text-red-300">
+                    DELETE
+                  </Button>
+                </td>
+              </tr>
+            ))}
+            {aliases.length === 0 && !loading && (
+              <tr><td colSpan={4} className="px-3 py-8 text-center text-muted-foreground font-mono text-sm">No aliases configured.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ---- Main Settings Page ----
 
 export default function Settings() {
@@ -649,6 +746,9 @@ export default function Settings() {
           <TabsTrigger value="gates" className="font-mono text-xs data-[state=active]:bg-accent">
             GATE THRESHOLDS
           </TabsTrigger>
+          <TabsTrigger value="aliases" className="font-mono text-xs data-[state=active]:bg-accent">
+            NAME ALIASES
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="roster" className="mt-4">
@@ -659,6 +759,9 @@ export default function Settings() {
         </TabsContent>
         <TabsContent value="gates" className="mt-4">
           <GateThresholdsTab />
+        </TabsContent>
+        <TabsContent value="aliases" className="mt-4">
+          <NameAliasesTab />
         </TabsContent>
       </Tabs>
     </div>
