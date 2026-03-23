@@ -140,3 +140,120 @@ Content-Type: application/json
 ## Upsert Behavior
 
 The endpoint uses `ON CONFLICT (scrape_date, agent_name)` — if you re-run the scraper for the same date, it will **update** existing records rather than creating duplicates.
+
+---
+
+## Intraday Snapshots Pipeline
+
+The intraday pipeline captures hourly snapshots of agent performance throughout the day, enabling the Intraday tab in Agent Trends.
+
+### Ingestion Methods
+
+#### Method A: Edge Function (Recommended)
+
+**Endpoint:**
+```
+POST https://bcibmmbxrjfiulofserv.supabase.co/functions/v1/ingest-intraday-scrape
+```
+
+**Headers:**
+```
+Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
+Content-Type: application/json
+```
+
+#### Method B: Direct Supabase RPC
+
+**Endpoint:**
+```
+POST https://bcibmmbxrjfiulofserv.supabase.co/rest/v1/rpc/ingest_intraday_scrape
+```
+
+**Headers:**
+```
+apikey: <SUPABASE_ANON_KEY>
+Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
+Content-Type: application/json
+```
+
+**Body (RPC wrapper):**
+```json
+{
+  "payload": {
+    "scrape_date": "2026-04-15",
+    "scrape_hour": 14,
+    "agents": [...]
+  }
+}
+```
+
+### Intraday Payload Schema
+
+```json
+{
+  "scrape_date": "2026-04-15",
+  "scrape_hour": 14,
+  "agents": [
+    {
+      "agent_name": "Alvin Fulmore",
+      "tier": "T3",
+      "ib_leads_delivered": 0,
+      "ob_leads_delivered": 18,
+      "ib_sales": 0,
+      "ob_sales": 1,
+      "custom_sales": 0,
+      "ib_premium": 0,
+      "ob_premium": 925,
+      "custom_premium": 0,
+      "total_dials": 120,
+      "talk_time_minutes": 145
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `scrape_date` | string | Yes | Date in YYYY-MM-DD format |
+| `scrape_hour` | integer | Yes | Hour of snapshot (0-23, Pacific Time) |
+| `agents` | array | Yes | Array of agent data objects |
+
+### Upsert Behavior
+
+Uses `ON CONFLICT (scrape_date, scrape_hour, agent_name)` — re-running the same hour updates existing records.
+
+### Recommended Scrape Schedule
+
+Run the intraday scraper every 2 hours during business hours (Pacific Time):
+
+| Hour | Label | Cron |
+|------|-------|------|
+| 10 | 10AM | `0 10 * * 1-5` |
+| 12 | 12PM | `0 12 * * 1-5` |
+| 14 | 2PM | `0 14 * * 1-5` |
+| 16 | 4PM | `0 16 * * 1-5` |
+| 18 | 6PM | `0 18 * * 1-5` |
+| 20 | 8PM | `0 20 * * 1-5` |
+
+### N8N Intraday Workflow Setup
+
+1. **Schedule Trigger** — Cron node firing at the hours above (Mon-Fri only)
+2. **Get Current Hour** — Code node: `const now = new Date(); return [{ json: { scrape_hour: now.getHours(), scrape_date: now.toISOString().slice(0, 10) } }];`
+3. **Run CRM Scraper** — Same Apify actor as daily, but capturing cumulative totals at that hour
+4. **Transform Data** — Map CRM output to the intraday payload schema (same fields as daily)
+5. **POST to Edge Function** — HTTP Request to `ingest-intraday-scrape`
+6. **Handle Response** — Check for errors, alert if agents failed
+
+### Response Format
+
+```json
+{
+  "success": true,
+  "scrape_date": "2026-04-15",
+  "scrape_hour": 14,
+  "total_agents": 88,
+  "inserted": 85,
+  "updated": 3,
+  "errors": []
+}
+```

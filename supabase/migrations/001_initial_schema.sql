@@ -82,6 +82,32 @@ CREATE INDEX idx_scrape_agent ON daily_scrape_data(agent_name);
 CREATE INDEX idx_scrape_date_range ON daily_scrape_data(scrape_date, tier);
 
 -- ============================================================
+-- Table: intraday_snapshots — Hourly CRM scraper snapshots
+-- ============================================================
+CREATE TABLE intraday_snapshots (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  scrape_date DATE NOT NULL,
+  scrape_hour INTEGER NOT NULL,
+  agent_name TEXT NOT NULL,
+  tier TEXT NOT NULL CHECK (tier IN ('T1', 'T2', 'T3')),
+  ib_leads_delivered INTEGER DEFAULT 0,
+  ob_leads_delivered INTEGER DEFAULT 0,
+  ib_sales INTEGER DEFAULT 0,
+  ob_sales INTEGER DEFAULT 0,
+  custom_sales INTEGER DEFAULT 0,
+  ib_premium DECIMAL(10,2) DEFAULT 0,
+  ob_premium DECIMAL(10,2) DEFAULT 0,
+  custom_premium DECIMAL(10,2) DEFAULT 0,
+  total_dials INTEGER DEFAULT 0,
+  talk_time_minutes DECIMAL(10,2) DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(scrape_date, scrape_hour, agent_name)
+);
+
+CREATE INDEX idx_intraday_date ON intraday_snapshots(scrape_date);
+CREATE INDEX idx_intraday_agent ON intraday_snapshots(agent_name, scrape_date);
+
+-- ============================================================
 -- Table: monthly_snapshots — Computed monthly aggregates
 -- ============================================================
 CREATE TABLE monthly_snapshots (
@@ -365,6 +391,79 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================================
+-- Function: ingest_intraday_scrape(payload JSONB)
+-- Upserts hourly intraday snapshots from N8N webhook
+-- ============================================================
+CREATE OR REPLACE FUNCTION ingest_intraday_scrape(payload JSONB)
+RETURNS JSONB AS $$
+DECLARE
+  v_scrape_date DATE;
+  v_scrape_hour INTEGER;
+  v_agent JSONB;
+  v_upserted INT := 0;
+  v_errors JSONB := '[]'::JSONB;
+BEGIN
+  v_scrape_date := (payload->>'scrape_date')::DATE;
+  v_scrape_hour := (payload->>'scrape_hour')::INTEGER;
+
+  FOR v_agent IN SELECT * FROM jsonb_array_elements(payload->'agents')
+  LOOP
+    BEGIN
+      INSERT INTO intraday_snapshots (
+        scrape_date, scrape_hour, agent_name, tier,
+        ib_leads_delivered, ob_leads_delivered,
+        ib_sales, ob_sales, custom_sales,
+        ib_premium, ob_premium, custom_premium,
+        total_dials, talk_time_minutes
+      ) VALUES (
+        v_scrape_date,
+        v_scrape_hour,
+        v_agent->>'agent_name',
+        v_agent->>'tier',
+        COALESCE((v_agent->>'ib_leads_delivered')::INT, 0),
+        COALESCE((v_agent->>'ob_leads_delivered')::INT, 0),
+        COALESCE((v_agent->>'ib_sales')::INT, 0),
+        COALESCE((v_agent->>'ob_sales')::INT, 0),
+        COALESCE((v_agent->>'custom_sales')::INT, 0),
+        COALESCE((v_agent->>'ib_premium')::DECIMAL, 0),
+        COALESCE((v_agent->>'ob_premium')::DECIMAL, 0),
+        COALESCE((v_agent->>'custom_premium')::DECIMAL, 0),
+        COALESCE((v_agent->>'total_dials')::INT, 0),
+        COALESCE((v_agent->>'talk_time_minutes')::DECIMAL, 0)
+      )
+      ON CONFLICT (scrape_date, scrape_hour, agent_name) DO UPDATE SET
+        tier = EXCLUDED.tier,
+        ib_leads_delivered = EXCLUDED.ib_leads_delivered,
+        ob_leads_delivered = EXCLUDED.ob_leads_delivered,
+        ib_sales = EXCLUDED.ib_sales,
+        ob_sales = EXCLUDED.ob_sales,
+        custom_sales = EXCLUDED.custom_sales,
+        ib_premium = EXCLUDED.ib_premium,
+        ob_premium = EXCLUDED.ob_premium,
+        custom_premium = EXCLUDED.custom_premium,
+        total_dials = EXCLUDED.total_dials,
+        talk_time_minutes = EXCLUDED.talk_time_minutes;
+
+      v_upserted := v_upserted + 1;
+
+    EXCEPTION WHEN OTHERS THEN
+      v_errors := v_errors || jsonb_build_object(
+        'agent', v_agent->>'agent_name',
+        'error', SQLERRM
+      );
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'scrape_date', v_scrape_date,
+    'scrape_hour', v_scrape_hour,
+    'upserted', v_upserted,
+    'errors', v_errors
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================
 -- Seed Data: Lead cost defaults
 -- ============================================================
 INSERT INTO lead_cost_config (tier, lead_channel, cost_per_lead, effective_date) VALUES
@@ -421,6 +520,7 @@ ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lead_cost_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE evaluation_windows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE daily_scrape_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intraday_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monthly_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tier_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_config ENABLE ROW LEVEL SECURITY;
@@ -430,9 +530,11 @@ CREATE POLICY "Allow all for authenticated" ON agents FOR ALL USING (true) WITH 
 CREATE POLICY "Allow all for authenticated" ON lead_cost_config FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all for authenticated" ON evaluation_windows FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all for authenticated" ON daily_scrape_data FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for authenticated" ON intraday_snapshots FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all for authenticated" ON monthly_snapshots FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all for authenticated" ON tier_movements FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all for authenticated" ON system_config FOR ALL USING (true) WITH CHECK (true);
 
--- Enable realtime for daily_scrape_data
+-- Enable realtime for daily_scrape_data and intraday_snapshots
 ALTER PUBLICATION supabase_realtime ADD TABLE daily_scrape_data;
+ALTER PUBLICATION supabase_realtime ADD TABLE intraday_snapshots;

@@ -105,6 +105,63 @@ export type Database = {
         }
         Relationships: []
       }
+      intraday_snapshots: {
+        Row: {
+          id: string
+          scrape_date: string
+          scrape_hour: number
+          agent_name: string
+          tier: string
+          ib_leads_delivered: number | null
+          ob_leads_delivered: number | null
+          ib_sales: number | null
+          ob_sales: number | null
+          custom_sales: number | null
+          ib_premium: number | null
+          ob_premium: number | null
+          custom_premium: number | null
+          total_dials: number | null
+          talk_time_minutes: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          scrape_date: string
+          scrape_hour: number
+          agent_name: string
+          tier: string
+          ib_leads_delivered?: number | null
+          ob_leads_delivered?: number | null
+          ib_sales?: number | null
+          ob_sales?: number | null
+          custom_sales?: number | null
+          ib_premium?: number | null
+          ob_premium?: number | null
+          custom_premium?: number | null
+          total_dials?: number | null
+          talk_time_minutes?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          scrape_date?: string
+          scrape_hour?: number
+          agent_name?: string
+          tier?: string
+          ib_leads_delivered?: number | null
+          ob_leads_delivered?: number | null
+          ib_sales?: number | null
+          ob_sales?: number | null
+          custom_sales?: number | null
+          ib_premium?: number | null
+          ob_premium?: number | null
+          custom_premium?: number | null
+          total_dials?: number | null
+          talk_time_minutes?: number | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       evaluation_windows: {
         Row: {
           created_at: string | null
@@ -358,6 +415,7 @@ export type Database = {
         }[]
       }
       ingest_daily_scrape: { Args: { payload: Json }; Returns: Json }
+      ingest_intraday_scrape: { Args: { payload: Json }; Returns: Json }
     }
     Enums: {
       [_ in never]: never

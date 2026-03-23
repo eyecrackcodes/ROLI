@@ -142,12 +142,18 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
     if (day === 6) today.setDate(today.getDate() - 1);
     const dateStr = today.toISOString().slice(0, 10);
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("intraday_snapshots")
       .select("scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
       .eq("agent_name", agentName)
       .eq("scrape_date", dateStr)
       .order("scrape_hour", { ascending: true });
+
+    if (error) {
+      console.error("[useAgentTrends] intraday fetch error:", error.message);
+      setIntraday([]);
+      return;
+    }
 
     const rows = (data ?? []) as IntradayRow[];
     setIntraday(rows.map((r) => ({
