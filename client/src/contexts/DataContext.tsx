@@ -105,11 +105,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [workingDays, setWorkingDays] = useState(23);
   const [workingDaysCompleted, setWorkingDaysCompleted] = useState(10);
   const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
+    const central = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+    const [y, m, dd] = central.split("-").map(Number);
+    const d = new Date(y, m - 1, dd);
     const day = d.getDay();
-    if (day === 0) d.setDate(d.getDate() - 2); // Sunday → Friday
-    if (day === 6) d.setDate(d.getDate() - 1); // Saturday → Friday
-    return d.toISOString().slice(0, 10);
+    if (day === 0) d.setDate(d.getDate() - 2);
+    if (day === 6) d.setDate(d.getDate() - 1);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   });
   const [activeWindow, setActiveWindow] = useState<EvaluationWindow | null>(null);
   const [loading, setLoading] = useState(false);

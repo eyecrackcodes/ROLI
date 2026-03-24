@@ -3,7 +3,7 @@
 // T3: Sort by Talk Time DESC | T2: Sort by Total Premium DESC | T1: Sort by Total Premium DESC
 // ============================================================
 
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
@@ -20,10 +20,104 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Download, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { exportDailyPulse } from "@/lib/exportExcel";
 import type { Tier, DailyPulseAgent } from "@/lib/types";
+
+type SortDir = "asc" | "desc";
+interface SortState { key: string; dir: SortDir }
+
+function useSort(defaultKey: string, defaultDir: SortDir = "desc") {
+  const [sort, setSort] = useState<SortState>({ key: defaultKey, dir: defaultDir });
+  const toggle = useCallback((key: string) => {
+    setSort((prev) => prev.key === key ? { key, dir: prev.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  }, []);
+  return { sort, toggle };
+}
+
+function SortHeader({ label, sortKey, current, onToggle, align = "right" }: {
+  label: string; sortKey: string; current: SortState; onToggle: (k: string) => void; align?: "left" | "right";
+}) {
+  const active = current.key === sortKey;
+  return (
+    <th
+      className={cn(
+        "px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors",
+        align === "right" && "text-right"
+      )}
+      onClick={() => onToggle(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active ? (current.dir === "desc" ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-30" />}
+      </span>
+    </th>
+  );
+}
+
+function sortAgents(agents: DailyPulseAgent[], sort: SortState): DailyPulseAgent[] {
+  const getValue = (a: DailyPulseAgent): number => {
+    switch (sort.key) {
+      case "name": return 0;
+      case "site": return 0;
+      case "ibCalls": return a.ibCalls ?? 0;
+      case "ibSales": return a.ibSales ?? 0;
+      case "ibCR": return (a.ibCalls ?? 0) > 0 ? ((a.ibSales ?? 0) / (a.ibCalls ?? 1)) * 100 : 0;
+      case "obLeads": return a.obLeads ?? 0;
+      case "obSales": return a.obSales ?? 0;
+      case "obCR": return (a.obLeads ?? 0) > 0 ? ((a.obSales ?? 0) / (a.obLeads ?? 1)) * 100 : 0;
+      case "dials": return a.dials ?? 0;
+      case "talkTime": return a.talkTimeMin ?? 0;
+      case "sales": return a.salesToday;
+      case "premium": return a.premiumToday;
+      case "totalPremium": return a.totalPremium;
+      case "bonus": return a.bonusSales ?? 0;
+      case "mtdSales": return a.mtdSales ?? 0;
+      case "mtdPace": return a.mtdPace ?? 0;
+      case "mtdROLI": return a.mtdROLI ?? 0;
+      case "leads": return (a.obLeads ?? 0) + (a.ibCalls ?? 0);
+      case "cr": {
+        const leads = (a.ibCalls ?? 0) + (a.obLeads ?? 0);
+        return leads > 0 ? (a.salesToday / leads) * 100 : 0;
+      }
+      default: return 0;
+    }
+  };
+
+  const getStr = (a: DailyPulseAgent): string => {
+    if (sort.key === "name") return a.name;
+    if (sort.key === "site") return a.site;
+    return "";
+  };
+
+  return [...agents].sort((a, b) => {
+    if (sort.key === "name" || sort.key === "site") {
+      const cmp = getStr(a).localeCompare(getStr(b));
+      return sort.dir === "asc" ? cmp : -cmp;
+    }
+    const va = getValue(a), vb = getValue(b);
+    return sort.dir === "asc" ? va - vb : vb - va;
+  });
+}
+
+function formatCR(sales: number, leads: number): string {
+  if (leads === 0) return "--";
+  return ((sales / leads) * 100).toFixed(1) + "%";
+}
+
+function CRBadge({ sales, leads }: { sales: number; leads: number }) {
+  if (leads === 0) return <span className="text-muted-foreground">--</span>;
+  const cr = (sales / leads) * 100;
+  return (
+    <span className={cn(
+      "font-bold",
+      cr >= 10 ? "text-emerald-400" : cr >= 5 ? "text-amber-400" : "text-red-400"
+    )}>
+      {cr.toFixed(1)}%
+    </span>
+  );
+}
 
 function formatCurrency(val: number) {
   return "$" + val.toLocaleString();
@@ -54,19 +148,22 @@ function PaceIndicator({ pace }: { pace: number }) {
 
 function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => void }) {
   const { dailyT3, workingDaysCompleted } = useData();
-  const sorted = [...dailyT3].sort((a, b) => (b.talkTimeMin ?? 0) - (a.talkTimeMin ?? 0));
+  const { sort, toggle } = useSort("talkTime");
+  const sorted = useMemo(() => sortAgents(dailyT3, sort), [dailyT3, sort]);
 
-  const totalPremium = sorted.reduce((s, a) => s + a.premiumToday, 0);
-  const totalSales = sorted.reduce((s, a) => s + a.salesToday, 0);
-  const avgTalkTime = sorted.length
-    ? sorted.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0) / sorted.length
+  const totalPremium = dailyT3.reduce((s, a) => s + a.premiumToday, 0);
+  const totalSales = dailyT3.reduce((s, a) => s + a.salesToday, 0);
+  const totalLeads = dailyT3.reduce((s, a) => s + (a.obLeads ?? 0), 0);
+  const avgTalkTime = dailyT3.length
+    ? dailyT3.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0) / dailyT3.length
     : 0;
 
   return (
     <div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
         <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
         <MetricCard label="Total Sales" value={totalSales} color="green" />
+        <MetricCard label="CR" value={formatCR(totalSales, totalLeads)} color="yellow" />
         <MetricCard label="Avg Talk Time" value={`${avgTalkTime.toFixed(0)} min`} />
         <MetricCard label="Day" value={`${workingDaysCompleted} of Window`} />
       </div>
@@ -75,15 +172,16 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
           <thead>
             <tr className="border-b border-border text-left">
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-12">#</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Agent</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Site</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Leads</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Dials</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Talk Time</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Sales</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Premium</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">MTD Sales</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">MTD Pace</th>
+              <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="Leads" sortKey="obLeads" current={sort} onToggle={toggle} />
+              <SortHeader label="Dials" sortKey="dials" current={sort} onToggle={toggle} />
+              <SortHeader label="Talk Time" sortKey="talkTime" current={sort} onToggle={toggle} />
+              <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
+              <SortHeader label="CR" sortKey="cr" current={sort} onToggle={toggle} />
+              <SortHeader label="Premium" sortKey="premium" current={sort} onToggle={toggle} />
+              <SortHeader label="MTD Sales" sortKey="mtdSales" current={sort} onToggle={toggle} />
+              <SortHeader label="MTD Pace" sortKey="mtdPace" current={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
@@ -100,10 +198,11 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
                   <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
                 </td>
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 25}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.dials ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{agent.talkTimeMin ?? 0} min</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.salesToday}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.salesToday} leads={agent.obLeads ?? 0} /></td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.premiumToday)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.mtdSales ?? 0}</td>
                 <td className="px-3 py-2.5 text-right">
@@ -120,31 +219,40 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
 
 function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => void }) {
   const { dailyT2 } = useData();
-  const sorted = [...dailyT2].sort((a, b) => b.totalPremium - a.totalPremium);
+  const { sort, toggle } = useSort("totalPremium");
+  const sorted = useMemo(() => sortAgents(dailyT2, sort), [dailyT2, sort]);
 
-  const totalPremium = sorted.reduce((s, a) => s + a.totalPremium, 0);
-  const totalSales = sorted.reduce((s, a) => s + a.salesToday, 0);
+  const totalPremium = dailyT2.reduce((s, a) => s + a.totalPremium, 0);
+  const totalSales = dailyT2.reduce((s, a) => s + a.salesToday, 0);
+  const totalIB = dailyT2.reduce((s, a) => s + (a.ibCalls ?? 0), 0);
+  const totalIBSales = dailyT2.reduce((s, a) => s + (a.ibSales ?? 0), 0);
+  const totalOB = dailyT2.reduce((s, a) => s + (a.obLeads ?? 0), 0);
+  const totalOBSales = dailyT2.reduce((s, a) => s + (a.obSales ?? 0), 0);
 
   return (
     <div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
         <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
         <MetricCard label="Total Sales" value={totalSales} color="green" />
-        <MetricCard label="Agents" value={sorted.length} />
+        <MetricCard label="IB CR" value={formatCR(totalIBSales, totalIB)} color="yellow" />
+        <MetricCard label="OB CR" value={formatCR(totalOBSales, totalOB)} color="yellow" />
+        <MetricCard label="Agents" value={dailyT2.length} />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left">
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-12">#</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Agent</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Site</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">IB Calls</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">IB Sales</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">OB Leads</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">OB Sales</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Premium</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">MTD ROLI</th>
+              <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="IB Calls" sortKey="ibCalls" current={sort} onToggle={toggle} />
+              <SortHeader label="IB Sales" sortKey="ibSales" current={sort} onToggle={toggle} />
+              <SortHeader label="IB CR" sortKey="ibCR" current={sort} onToggle={toggle} />
+              <SortHeader label="OB Leads" sortKey="obLeads" current={sort} onToggle={toggle} />
+              <SortHeader label="OB Sales" sortKey="obSales" current={sort} onToggle={toggle} />
+              <SortHeader label="OB CR" sortKey="obCR" current={sort} onToggle={toggle} />
+              <SortHeader label="Premium" sortKey="totalPremium" current={sort} onToggle={toggle} />
+              <SortHeader label="MTD ROLI" sortKey="mtdROLI" current={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
@@ -163,8 +271,10 @@ function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibSales ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.ibSales ?? 0} leads={agent.ibCalls ?? 0} /></td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obSales ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.obSales ?? 0} leads={agent.obLeads ?? 0} /></td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   <span className={cn(
@@ -185,31 +295,36 @@ function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
 
 function T1Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => void }) {
   const { dailyT1 } = useData();
-  const sorted = [...dailyT1].sort((a, b) => b.totalPremium - a.totalPremium);
+  const { sort, toggle } = useSort("totalPremium");
+  const sorted = useMemo(() => sortAgents(dailyT1, sort), [dailyT1, sort]);
 
-  const totalPremium = sorted.reduce((s, a) => s + a.totalPremium, 0);
-  const totalSales = sorted.reduce((s, a) => s + a.salesToday, 0);
+  const totalPremium = dailyT1.reduce((s, a) => s + a.totalPremium, 0);
+  const totalSales = dailyT1.reduce((s, a) => s + a.salesToday, 0);
+  const totalIB = dailyT1.reduce((s, a) => s + (a.ibCalls ?? 0), 0);
+  const totalIBSales = dailyT1.reduce((s, a) => s + (a.ibSales ?? 0), 0);
 
   return (
     <div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
         <MetricCard label="Total Sales" value={totalSales} color="green" />
-        <MetricCard label="Agents" value={sorted.length} />
+        <MetricCard label="IB CR" value={formatCR(totalIBSales, totalIB)} color="yellow" />
+        <MetricCard label="Agents" value={dailyT1.length} />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left">
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-12">#</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Agent</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Site</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">IB Calls</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Sales</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Premium</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Bonus</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Total</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">MTD ROLI</th>
+              <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="IB Calls" sortKey="ibCalls" current={sort} onToggle={toggle} />
+              <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
+              <SortHeader label="CR" sortKey="ibCR" current={sort} onToggle={toggle} />
+              <SortHeader label="Premium" sortKey="premium" current={sort} onToggle={toggle} />
+              <SortHeader label="Bonus" sortKey="bonus" current={sort} onToggle={toggle} />
+              <SortHeader label="Total" sortKey="totalPremium" current={sort} onToggle={toggle} />
+              <SortHeader label="MTD ROLI" sortKey="mtdROLI" current={sort} onToggle={toggle} />
             </tr>
           </thead>
           <tbody>
@@ -228,6 +343,7 @@ function T1Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.salesToday}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.ibSales ?? 0} leads={agent.ibCalls ?? 0} /></td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.premiumToday)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
@@ -319,12 +435,12 @@ export default function DailyPulse() {
   const handleAgentClick = (agent: DailyPulseAgent) => setDrillAgent(agent);
 
   const handleDateNav = (direction: -1 | 1) => {
-    const d = new Date(data.selectedDate);
+    const [y, m, dd] = data.selectedDate.split("-").map(Number);
+    const d = new Date(y, m - 1, dd);
     d.setDate(d.getDate() + direction);
-    // Skip weekends
     if (d.getDay() === 0) d.setDate(d.getDate() + direction);
     if (d.getDay() === 6) d.setDate(d.getDate() + direction);
-    data.setSelectedDate(d.toISOString().slice(0, 10));
+    data.setSelectedDate(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
   };
 
   const isWithinWindow = data.selectedDate >= data.windowStart && data.selectedDate <= data.windowEnd;
