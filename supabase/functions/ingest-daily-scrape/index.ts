@@ -57,65 +57,57 @@ Deno.serve(async (req) => {
     const now = new Date();
     const cstHour = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" })).getHours();
 
-    let inserted = 0;
-    let intradayCount = 0;
-    const errors: Array<{ agent: string; error: string }> = [];
+    const validAgents = payload.agents.filter((a) => {
+      if (!a.agent_name || !a.tier) return false;
+      if (!["T1", "T2", "T3"].includes(a.tier)) return false;
+      return true;
+    });
 
-    for (const agent of payload.agents) {
-      if (!agent.agent_name || !agent.tier) {
-        errors.push({ agent: agent.agent_name ?? "unknown", error: "Missing agent_name or tier" });
-        continue;
-      }
+    const dailyRecords = validAgents.map((a) => ({
+      scrape_date: payload.scrape_date,
+      agent_name: a.agent_name,
+      tier: a.tier,
+      ib_leads_delivered: a.ib_leads_delivered ?? 0,
+      ob_leads_delivered: a.ob_leads_delivered ?? 0,
+      custom_leads: a.custom_leads ?? 0,
+      ib_sales: a.ib_sales ?? 0,
+      ob_sales: a.ob_sales ?? 0,
+      custom_sales: a.custom_sales ?? 0,
+      ib_premium: a.ib_premium ?? 0,
+      ob_premium: a.ob_premium ?? 0,
+      custom_premium: a.custom_premium ?? 0,
+      total_dials: a.total_dials ?? 0,
+      talk_time_minutes: a.talk_time_minutes ?? 0,
+    }));
 
-      if (!["T1", "T2", "T3"].includes(agent.tier)) {
-        errors.push({ agent: agent.agent_name, error: `Invalid tier: ${agent.tier}` });
-        continue;
-      }
+    const intradayRecords = dailyRecords.map((r) => ({
+      ...r,
+      scrape_hour: cstHour,
+    }));
 
-      const fields = {
-        agent_name: agent.agent_name,
-        tier: agent.tier,
-        ib_leads_delivered: agent.ib_leads_delivered ?? 0,
-        ob_leads_delivered: agent.ob_leads_delivered ?? 0,
-        custom_leads: agent.custom_leads ?? 0,
-        ib_sales: agent.ib_sales ?? 0,
-        ob_sales: agent.ob_sales ?? 0,
-        custom_sales: agent.custom_sales ?? 0,
-        ib_premium: agent.ib_premium ?? 0,
-        ob_premium: agent.ob_premium ?? 0,
-        custom_premium: agent.custom_premium ?? 0,
-        total_dials: agent.total_dials ?? 0,
-        talk_time_minutes: agent.talk_time_minutes ?? 0,
-      };
+    const { error: dailyError } = await supabase
+      .from("daily_scrape_data")
+      .upsert(dailyRecords, { onConflict: "scrape_date,agent_name" });
 
-      const { error: upsertError } = await supabase
-        .from("daily_scrape_data")
-        .upsert({ scrape_date: payload.scrape_date, ...fields }, { onConflict: "scrape_date,agent_name" });
+    const { error: intradayError } = await supabase
+      .from("intraday_snapshots")
+      .upsert(intradayRecords, { onConflict: "scrape_date,scrape_hour,agent_name" });
 
-      if (upsertError) {
-        errors.push({ agent: agent.agent_name, error: upsertError.message });
-        continue;
-      }
-      inserted++;
+    const errors: Array<{ source: string; error: string }> = [];
+    if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
+    if (intradayError) errors.push({ source: "intraday_snapshots", error: intradayError.message });
 
-      const { error: intradayError } = await supabase
-        .from("intraday_snapshots")
-        .upsert(
-          { scrape_date: payload.scrape_date, scrape_hour: cstHour, ...fields },
-          { onConflict: "scrape_date,scrape_hour,agent_name" }
-        );
-
-      if (!intradayError) intradayCount++;
-    }
+    const skipped = payload.agents.length - validAgents.length;
 
     return new Response(
       JSON.stringify({
-        success: true,
+        success: errors.length === 0,
         scrape_date: payload.scrape_date,
         scrape_hour: cstHour,
         total_agents: payload.agents.length,
-        inserted,
-        intraday_snapshots: intradayCount,
+        upserted: validAgents.length,
+        skipped,
+        intraday_snapshots: intradayError ? 0 : validAgents.length,
         errors,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
