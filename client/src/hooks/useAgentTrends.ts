@@ -85,9 +85,28 @@ interface SnapshotRow {
 }
 
 const HOUR_LABELS: Record<number, string> = {
-  9: "9AM", 10: "10AM", 11: "11AM", 12: "12PM", 13: "1PM", 14: "2PM",
-  15: "3PM", 16: "4PM", 17: "5PM", 18: "6PM", 19: "7PM", 20: "8PM",
+  6: "6AM", 7: "7AM", 8: "8AM", 9: "9AM", 10: "10AM", 11: "11AM",
+  12: "12PM", 13: "1PM", 14: "2PM", 15: "3PM", 16: "4PM", 17: "5PM",
+  18: "6PM", 19: "7PM", 20: "8PM",
 };
+
+function todayCentral(): string {
+  const central = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const [y, m, dd] = central.split("-").map(Number);
+  const d = new Date(y, m - 1, dd);
+  const day = d.getDay();
+  if (day === 0) d.setDate(d.getDate() - 2);
+  if (day === 6) d.setDate(d.getDate() - 1);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+function daysAgoCST(n: number): string {
+  const central = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const [y, m, dd] = central.split("-").map(Number);
+  const d = new Date(y, m - 1, dd);
+  d.setDate(d.getDate() - n);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
 
 export function useAgentTrends(agentName: string | null, daysBack: number = 10) {
   const [daily, setDaily] = useState<DailyTrend[]>([]);
@@ -99,14 +118,13 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
   const fetchDayOverDay = useCallback(async () => {
     if (!isSupabaseConfigured || !agentName) return;
 
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - (daysBack * 1.5));
+    const startDate = daysAgoCST(Math.ceil(daysBack * 1.5));
 
     const { data } = await supabase
       .from("daily_scrape_data")
       .select("scrape_date, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
       .eq("agent_name", agentName)
-      .gte("scrape_date", startDate.toISOString().slice(0, 10))
+      .gte("scrape_date", startDate)
       .order("scrape_date", { ascending: true });
 
     const rows = (data ?? []) as DailyRow[];
@@ -136,11 +154,29 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
   const fetchIntraday = useCallback(async () => {
     if (!isSupabaseConfigured || !agentName) return;
 
-    const today = new Date();
-    const day = today.getDay();
-    if (day === 0) today.setDate(today.getDate() - 2);
-    if (day === 6) today.setDate(today.getDate() - 1);
-    const dateStr = today.toISOString().slice(0, 10);
+    const today = todayCentral();
+
+    // Try today first, then fall back to the latest date with intraday data
+    let dateStr = today;
+    const { data: checkToday } = await supabase
+      .from("intraday_snapshots")
+      .select("scrape_date")
+      .eq("agent_name", agentName)
+      .eq("scrape_date", today)
+      .limit(1);
+
+    if (!checkToday || checkToday.length === 0) {
+      const { data: latestRow } = await supabase
+        .from("intraday_snapshots")
+        .select("scrape_date")
+        .eq("agent_name", agentName)
+        .order("scrape_date", { ascending: false })
+        .limit(1);
+
+      if (latestRow && latestRow.length > 0) {
+        dateStr = (latestRow[0] as { scrape_date: string }).scrape_date;
+      }
+    }
 
     const { data, error } = await supabase
       .from("intraday_snapshots")
@@ -171,24 +207,24 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
   const fetchWeekly = useCallback(async () => {
     if (!isSupabaseConfigured || !agentName) return;
 
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 28);
+    const startDate = daysAgoCST(28);
 
     const { data } = await supabase
       .from("daily_scrape_data")
       .select("scrape_date, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, ib_leads_delivered, ob_leads_delivered")
       .eq("agent_name", agentName)
-      .gte("scrape_date", startDate.toISOString().slice(0, 10))
+      .gte("scrape_date", startDate)
       .order("scrape_date", { ascending: true });
 
     const rows = (data ?? []) as DailyRow[];
     const weekMap = new Map<string, { sales: number; premium: number; dials: number; totalLeads: number; totalSales: number; days: number }>();
 
     for (const r of rows) {
-      const d = new Date(r.scrape_date);
+      const [ry, rm, rd] = r.scrape_date.split("-").map(Number);
+      const d = new Date(ry, rm - 1, rd);
       const weekStart = new Date(d);
       weekStart.setDate(d.getDate() - d.getDay() + 1);
-      const weekKey = weekStart.toISOString().slice(0, 10);
+      const weekKey = weekStart.getFullYear() + "-" + String(weekStart.getMonth() + 1).padStart(2, "0") + "-" + String(weekStart.getDate()).padStart(2, "0");
       const existing = weekMap.get(weekKey) ?? { sales: 0, premium: 0, dials: 0, totalLeads: 0, totalSales: 0, days: 0 };
       existing.sales += r.ib_sales + r.ob_sales + r.custom_sales;
       existing.premium += r.ib_premium + r.ob_premium + r.custom_premium;
@@ -201,7 +237,8 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
 
     const weeks: WeeklyTrend[] = [];
     Array.from(weekMap.entries()).forEach(([weekKey, w]) => {
-      const d = new Date(weekKey);
+      const [wy, wm, wd] = weekKey.split("-").map(Number);
+      const d = new Date(wy, wm - 1, wd);
       const endOfWeek = new Date(d);
       endOfWeek.setDate(d.getDate() + 4);
       weeks.push({
@@ -251,11 +288,11 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
   }, [agentName, fetchDayOverDay, fetchIntraday, fetchWeekly, fetchWindows]);
 
   const yesterday = daily.length >= 2 ? daily[daily.length - 2] : null;
-  const today = daily.length >= 1 ? daily[daily.length - 1] : null;
+  const latestDay = daily.length >= 1 ? daily[daily.length - 1] : null;
 
   const deltas = {
-    salesVsYesterday: today && yesterday ? today.sales - yesterday.sales : null,
-    premiumVsYesterday: today && yesterday ? today.premium - yesterday.premium : null,
+    salesVsYesterday: latestDay && yesterday ? latestDay.sales - yesterday.sales : null,
+    premiumVsYesterday: latestDay && yesterday ? latestDay.premium - yesterday.premium : null,
     salesVsLastWeek: weekly.length >= 2 ? weekly[weekly.length - 1].sales - weekly[weekly.length - 2].sales : null,
     premiumVsLastWeek: weekly.length >= 2 ? weekly[weekly.length - 1].premium - weekly[weekly.length - 2].premium : null,
   };

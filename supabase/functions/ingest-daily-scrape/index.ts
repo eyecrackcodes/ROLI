@@ -54,8 +54,11 @@ Deno.serve(async (req) => {
       );
     }
 
+    const now = new Date();
+    const cstHour = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" })).getHours();
+
     let inserted = 0;
-    let updated = 0;
+    let intradayCount = 0;
     const errors: Array<{ agent: string; error: string }> = [];
 
     for (const agent of payload.agents) {
@@ -69,8 +72,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const record = {
-        scrape_date: payload.scrape_date,
+      const fields = {
         agent_name: agent.agent_name,
         tier: agent.tier,
         ib_leads_delivered: agent.ib_leads_delivered ?? 0,
@@ -86,24 +88,34 @@ Deno.serve(async (req) => {
         talk_time_minutes: agent.talk_time_minutes ?? 0,
       };
 
-      const { error: upsertError, count } = await supabase
+      const { error: upsertError } = await supabase
         .from("daily_scrape_data")
-        .upsert(record, { onConflict: "scrape_date,agent_name", count: "exact" });
+        .upsert({ scrape_date: payload.scrape_date, ...fields }, { onConflict: "scrape_date,agent_name" });
 
       if (upsertError) {
         errors.push({ agent: agent.agent_name, error: upsertError.message });
-      } else {
-        inserted++;
+        continue;
       }
+      inserted++;
+
+      const { error: intradayError } = await supabase
+        .from("intraday_snapshots")
+        .upsert(
+          { scrape_date: payload.scrape_date, scrape_hour: cstHour, ...fields },
+          { onConflict: "scrape_date,scrape_hour,agent_name" }
+        );
+
+      if (!intradayError) intradayCount++;
     }
 
     return new Response(
       JSON.stringify({
         success: true,
         scrape_date: payload.scrape_date,
+        scrape_hour: cstHour,
         total_agents: payload.agents.length,
         inserted,
-        updated,
+        intraday_snapshots: intradayCount,
         errors,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
