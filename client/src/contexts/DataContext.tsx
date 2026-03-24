@@ -46,6 +46,11 @@ interface SnapshotRow {
   rank_in_tier: number | null;
 }
 
+export interface DateRange {
+  start: string;
+  end: string;
+}
+
 interface DataContextType {
   dailyT1: DailyPulseAgent[];
   dailyT2: DailyPulseAgent[];
@@ -76,9 +81,24 @@ interface DataContextType {
   isConnected: boolean;
   refreshDaily: () => Promise<void>;
   refreshMonthly: () => Promise<void>;
+  availableDates: string[];
+  isRangeMode: boolean;
+  setIsRangeMode: (v: boolean) => void;
+  dateRange: DateRange;
+  setDateRange: (r: DateRange) => void;
 }
 
 const DataContext = createContext<DataContextType | null>(null);
+
+function todayCentral(): string {
+  const central = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const [y, m, dd] = central.split("-").map(Number);
+  const d = new Date(y, m - 1, dd);
+  const day = d.getDay();
+  if (day === 0) d.setDate(d.getDate() - 2);
+  if (day === 6) d.setDate(d.getDate() - 1);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
 
 function calcWorkingDaysCompleted(startDate: string, currentDate: string): number {
   const start = new Date(startDate);
@@ -93,6 +113,70 @@ function calcWorkingDaysCompleted(startDate: string, currentDate: string): numbe
   return count;
 }
 
+function buildPulseAgents(
+  rows: DailyScrapeRow[],
+  agentMap: Map<string, { name: string; site: string; tier: string }>,
+  mtdMap: Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>,
+  daysActiveMap?: Map<string, number>,
+): { t1: DailyPulseAgent[]; t2: DailyPulseAgent[]; t3: DailyPulseAgent[] } {
+  const t1: DailyPulseAgent[] = [];
+  const t2: DailyPulseAgent[] = [];
+  const t3: DailyPulseAgent[] = [];
+
+  const grouped = new Map<string, DailyScrapeRow[]>();
+  for (const row of rows) {
+    const existing = grouped.get(row.agent_name) ?? [];
+    existing.push(row);
+    grouped.set(row.agent_name, existing);
+  }
+
+  for (const [name, agentRows] of grouped) {
+    const agent = agentMap.get(name);
+    const site = agent?.site ?? "CHA";
+    const tier = (agentRows[0].tier as Tier) ?? (agent?.tier as Tier) ?? "T3";
+
+    const ibLeads = agentRows.reduce((s, r) => s + r.ib_leads_delivered, 0);
+    const obLeads = agentRows.reduce((s, r) => s + r.ob_leads_delivered, 0);
+    const ibSales = agentRows.reduce((s, r) => s + r.ib_sales, 0);
+    const obSales = agentRows.reduce((s, r) => s + r.ob_sales, 0);
+    const customSales = agentRows.reduce((s, r) => s + r.custom_sales, 0);
+    const ibPrem = agentRows.reduce((s, r) => s + r.ib_premium, 0);
+    const obPrem = agentRows.reduce((s, r) => s + r.ob_premium, 0);
+    const customPrem = agentRows.reduce((s, r) => s + r.custom_premium, 0);
+    const dials = agentRows.reduce((s, r) => s + r.total_dials, 0);
+    const talkTime = agentRows.reduce((s, r) => s + r.talk_time_minutes, 0);
+
+    const totalSales = ibSales + obSales + customSales;
+    const totalPremium = ibPrem + obPrem + customPrem;
+    const mtd = mtdMap.get(name);
+
+    const pulseAgent: DailyPulseAgent = {
+      name,
+      site,
+      tier,
+      ibCalls: ibLeads || undefined,
+      ibSales: ibSales || undefined,
+      obLeads: obLeads || undefined,
+      obSales: obSales || undefined,
+      dials: dials || undefined,
+      talkTimeMin: talkTime || undefined,
+      salesToday: totalSales,
+      premiumToday: totalPremium - customPrem,
+      bonusSales: customSales || undefined,
+      totalPremium,
+      mtdSales: mtd?.mtdSales,
+      mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
+      daysActive: daysActiveMap?.get(name),
+    };
+
+    if (tier === "T1") t1.push(pulseAgent);
+    else if (tier === "T2") t2.push(pulseAgent);
+    else t3.push(pulseAgent);
+  }
+
+  return { t1, t2, t3 };
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [dailyT1, setDailyT1] = useState<DailyPulseAgent[]>(sampleDailyT1);
   const [dailyT2, setDailyT2] = useState<DailyPulseAgent[]>(sampleDailyT2);
@@ -104,68 +188,107 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [windowEnd, setWindowEnd] = useState("2026-05-01");
   const [workingDays, setWorkingDays] = useState(23);
   const [workingDaysCompleted, setWorkingDaysCompleted] = useState(10);
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const central = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
-    const [y, m, dd] = central.split("-").map(Number);
-    const d = new Date(y, m - 1, dd);
-    const day = d.getDay();
-    if (day === 0) d.setDate(d.getDate() - 2);
-    if (day === 6) d.setDate(d.getDate() - 1);
-    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-  });
+  const [selectedDate, setSelectedDate] = useState(todayCentral);
   const [activeWindow, setActiveWindow] = useState<EvaluationWindow | null>(null);
   const [loading, setLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [isRangeMode, setIsRangeMode] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange>({ start: "", end: "" });
 
+  // Fetch available dates + evaluation window on mount, then smart-select date
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     (async () => {
       try {
-        const { data } = await supabase
-          .from("evaluation_windows")
-          .select("*")
-          .eq("is_active", true)
-          .single();
+        const [{ data: windowData }, { data: dateRows }] = await Promise.all([
+          supabase.from("evaluation_windows").select("*").eq("is_active", true).single(),
+          supabase.from("daily_scrape_data").select("scrape_date").order("scrape_date", { ascending: false }),
+        ]);
 
-        if (data) {
-          const w = data as EvaluationWindow;
+        if (windowData) {
+          const w = windowData as EvaluationWindow;
           setActiveWindow(w);
           setWindowStart(w.start_date);
           setWindowEnd(w.end_date);
           setWorkingDays(w.working_days);
-          setWorkingDaysCompleted(calcWorkingDaysCompleted(w.start_date, selectedDate));
-          setIsConnected(true);
         }
+
+        const uniqueDates = [...new Set((dateRows ?? []).map((r: { scrape_date: string }) => r.scrape_date))].sort().reverse();
+        setAvailableDates(uniqueDates);
+
+        if (uniqueDates.length > 0) {
+          const today = todayCentral();
+          const bestDate = uniqueDates.includes(today) ? today : uniqueDates[0];
+          setSelectedDate(bestDate);
+          setDateRange({ start: uniqueDates[uniqueDates.length - 1], end: uniqueDates[0] });
+          if (windowData) {
+            setWorkingDaysCompleted(calcWorkingDaysCompleted((windowData as EvaluationWindow).start_date, bestDate));
+          }
+        }
+
+        setIsConnected(true);
       } catch {
         // Fall back to sample data
       }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Recalculate working days completed when date changes
   useEffect(() => {
     if (windowStart) {
       setWorkingDaysCompleted(calcWorkingDaysCompleted(windowStart, selectedDate));
     }
   }, [selectedDate, windowStart]);
 
+  const fetchAgentMap = useCallback(async () => {
+    const { data: agents } = await supabase
+      .from("agents")
+      .select("name, site, tier")
+      .eq("is_active", true);
+    return new Map((agents ?? []).map((a: { name: string; site: string; tier: string }) => [a.name, a]));
+  }, []);
+
+  const fetchMtdMap = useCallback(async (endDate: string) => {
+    const mtdMap = new Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>();
+    if (!windowStart) return mtdMap;
+
+    const { data: mtdRows } = await supabase
+      .from("daily_scrape_data")
+      .select("agent_name, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, scrape_date")
+      .gte("scrape_date", windowStart)
+      .lte("scrape_date", endDate);
+
+    const grouped = new Map<string, DailyScrapeRow[]>();
+    for (const row of (mtdRows ?? []) as DailyScrapeRow[]) {
+      const existing = grouped.get(row.agent_name) ?? [];
+      existing.push(row);
+      grouped.set(row.agent_name, existing);
+    }
+    for (const [name, rows] of grouped) {
+      mtdMap.set(name, {
+        mtdSales: rows.reduce((s, r) => s + r.ib_sales + r.ob_sales + r.custom_sales, 0),
+        mtdDays: new Set(rows.map((r) => r.scrape_date)).size,
+        mtdPremium: rows.reduce((s, r) => s + r.ib_premium + r.ob_premium + r.custom_premium, 0),
+      });
+    }
+    return mtdMap;
+  }, [windowStart]);
+
   const refreshDaily = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     setLoading(true);
 
     try {
-      const { data: dailyRows } = await supabase
-        .from("daily_scrape_data")
-        .select("*")
-        .eq("scrape_date", selectedDate);
+      let query = supabase.from("daily_scrape_data").select("*");
 
-      const { data: agents } = await supabase
-        .from("agents")
-        .select("name, site, tier")
-        .eq("is_active", true);
+      if (isRangeMode && dateRange.start && dateRange.end) {
+        query = query.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
+      } else {
+        query = query.eq("scrape_date", selectedDate);
+      }
 
+      const { data: dailyRows } = await query;
       const typedRows = (dailyRows ?? []) as DailyScrapeRow[];
-      const typedAgents = (agents ?? []) as Array<{ name: string; site: string; tier: string }>;
 
       if (typedRows.length === 0) {
         setDailyT1([]);
@@ -175,66 +298,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const agentMap = new Map(typedAgents.map((a) => [a.name, a]));
+      const agentMap = await fetchAgentMap();
+      const endDate = isRangeMode ? dateRange.end : selectedDate;
+      const mtdMap = await fetchMtdMap(endDate);
 
-      let mtdMap = new Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>();
-      if (windowStart) {
-        const { data: mtdRows } = await supabase
-          .from("daily_scrape_data")
-          .select("agent_name, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, scrape_date")
-          .gte("scrape_date", windowStart)
-          .lte("scrape_date", selectedDate);
-
-        const typedMtd = (mtdRows ?? []) as DailyScrapeRow[];
-        const grouped = new Map<string, DailyScrapeRow[]>();
-        for (const row of typedMtd) {
-          const existing = grouped.get(row.agent_name) ?? [];
-          existing.push(row);
-          grouped.set(row.agent_name, existing);
+      let daysActiveMap: Map<string, number> | undefined;
+      if (isRangeMode) {
+        daysActiveMap = new Map();
+        const byAgent = new Map<string, Set<string>>();
+        for (const row of typedRows) {
+          const set = byAgent.get(row.agent_name) ?? new Set();
+          set.add(row.scrape_date);
+          byAgent.set(row.agent_name, set);
         }
-        Array.from(grouped.entries()).forEach(([name, rows]) => {
-          const totalSales = rows.reduce((s: number, r: DailyScrapeRow) => s + r.ib_sales + r.ob_sales + r.custom_sales, 0);
-          const totalPremium = rows.reduce((s: number, r: DailyScrapeRow) => s + r.ib_premium + r.ob_premium + r.custom_premium, 0);
-          const uniqueDays = new Set(rows.map((r: DailyScrapeRow) => r.scrape_date)).size;
-          mtdMap.set(name, { mtdSales: totalSales, mtdDays: uniqueDays, mtdPremium: totalPremium });
-        });
+        for (const [name, dates] of byAgent) {
+          daysActiveMap.set(name, dates.size);
+        }
       }
 
-      const t1: DailyPulseAgent[] = [];
-      const t2: DailyPulseAgent[] = [];
-      const t3: DailyPulseAgent[] = [];
-
-      for (const row of typedRows) {
-        const agent = agentMap.get(row.agent_name);
-        const site = agent?.site ?? "CHA";
-        const tier = (row.tier as Tier) ?? (agent?.tier as Tier) ?? "T3";
-        const totalSales = row.ib_sales + row.ob_sales + row.custom_sales;
-        const totalPremium = row.ib_premium + row.ob_premium + row.custom_premium;
-        const mtd = mtdMap.get(row.agent_name);
-
-        const pulseAgent: DailyPulseAgent = {
-          name: row.agent_name,
-          site,
-          tier,
-          ibCalls: row.ib_leads_delivered || undefined,
-          ibSales: row.ib_sales || undefined,
-          obLeads: row.ob_leads_delivered || undefined,
-          obSales: row.ob_sales || undefined,
-          dials: row.total_dials || undefined,
-          talkTimeMin: row.talk_time_minutes || undefined,
-          salesToday: totalSales,
-          premiumToday: totalPremium - (row.custom_premium ?? 0),
-          bonusSales: row.custom_sales || undefined,
-          totalPremium,
-          mtdSales: mtd?.mtdSales,
-          mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
-        };
-
-        if (tier === "T1") t1.push(pulseAgent);
-        else if (tier === "T2") t2.push(pulseAgent);
-        else t3.push(pulseAgent);
-      }
-
+      const { t1, t2, t3 } = buildPulseAgents(typedRows, agentMap, mtdMap, daysActiveMap);
       setDailyT1(t1);
       setDailyT2(t2);
       setDailyT3(t3);
@@ -244,7 +326,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, windowStart]);
+  }, [selectedDate, windowStart, isRangeMode, dateRange, fetchAgentMap, fetchMtdMap]);
 
   const refreshMonthly = useCallback(async () => {
     if (!isSupabaseConfigured || !activeWindow) return;
@@ -300,7 +382,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isSupabaseConfigured) refreshDaily();
-  }, [selectedDate, refreshDaily]);
+  }, [selectedDate, isRangeMode, dateRange, refreshDaily]);
 
   useEffect(() => {
     if (isSupabaseConfigured && activeWindow) refreshMonthly();
@@ -321,6 +403,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         },
         () => {
           refreshDaily();
+          // Refresh available dates when new data arrives
+          supabase
+            .from("daily_scrape_data")
+            .select("scrape_date")
+            .order("scrape_date", { ascending: false })
+            .then(({ data }) => {
+              if (data) {
+                const dates = [...new Set(data.map((r: { scrape_date: string }) => r.scrape_date))].sort().reverse();
+                setAvailableDates(dates);
+              }
+            });
         }
       )
       .subscribe();
@@ -362,6 +455,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         loadSampleData, clearData,
         loading, isConnected,
         refreshDaily, refreshMonthly,
+        availableDates, isRangeMode, setIsRangeMode,
+        dateRange, setDateRange,
       }}
     >
       {children}

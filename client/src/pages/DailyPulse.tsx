@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { exportDailyPulse } from "@/lib/exportExcel";
 import type { Tier, DailyPulseAgent } from "@/lib/types";
@@ -434,15 +434,33 @@ export default function DailyPulse() {
 
   const handleAgentClick = (agent: DailyPulseAgent) => setDrillAgent(agent);
 
-  const handleDateNav = (direction: -1 | 1) => {
-    const [y, m, dd] = data.selectedDate.split("-").map(Number);
-    const d = new Date(y, m - 1, dd);
-    d.setDate(d.getDate() + direction);
-    if (d.getDay() === 0) d.setDate(d.getDate() + direction);
-    if (d.getDay() === 6) d.setDate(d.getDate() + direction);
-    data.setSelectedDate(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+  const latestDate = data.availableDates.length > 0 ? data.availableDates[0] : null;
+  const oldestDate = data.availableDates.length > 0 ? data.availableDates[data.availableDates.length - 1] : null;
+  const windowName = data.activeWindow ? (data.activeWindow as { name?: string }).name ?? "Current" : "Current";
+
+  const navToDate = (direction: -1 | 1) => {
+    if (data.availableDates.length === 0) return;
+    const currentIdx = data.availableDates.indexOf(data.selectedDate);
+    if (currentIdx === -1) {
+      data.setSelectedDate(data.availableDates[0]);
+      return;
+    }
+    const nextIdx = currentIdx - direction;
+    if (nextIdx >= 0 && nextIdx < data.availableDates.length) {
+      data.setSelectedDate(data.availableDates[nextIdx]);
+    }
   };
 
+  const jumpToLatest = () => {
+    if (latestDate) data.setSelectedDate(latestDate);
+  };
+
+  const jumpToToday = () => {
+    const central = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+    data.setSelectedDate(central);
+  };
+
+  const isOnLatest = data.selectedDate === latestDate;
   const isWithinWindow = data.selectedDate >= data.windowStart && data.selectedDate <= data.windowEnd;
 
   const handleExport = async (tiers: Tier[]) => {
@@ -459,7 +477,10 @@ export default function DailyPulse() {
         <div>
           <h1 className="text-xl font-bold text-foreground">Daily Pulse Report</h1>
           <p className="text-sm text-muted-foreground font-mono mt-1">
-            End-of-day effort tracking and momentum indicators
+            {data.isRangeMode
+              ? `Aggregated view — ${data.dateRange.start} to ${data.dateRange.end}`
+              : "End-of-day effort tracking and momentum indicators"
+            }
           </p>
         </div>
         <Button
@@ -472,34 +493,140 @@ export default function DailyPulse() {
         </Button>
       </div>
 
-      {/* Window-aligned date navigation */}
-      <div className="flex items-center gap-3 bg-card border border-border rounded-md p-3">
-        <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-        <button
-          onClick={() => handleDateNav(-1)}
-          className="p-1 rounded hover:bg-accent text-muted-foreground"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <Input
-          type="date"
-          value={data.selectedDate}
-          onChange={(e) => data.setSelectedDate(e.target.value)}
-          className="font-mono bg-background w-40 text-center"
-        />
-        <button
-          onClick={() => handleDateNav(1)}
-          className="p-1 rounded hover:bg-accent text-muted-foreground"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-        <div className="flex-1" />
-        <div className="text-[10px] font-mono text-muted-foreground text-right">
-          <div className={cn(isWithinWindow ? "text-emerald-400" : "text-amber-400")}>
-            {isWithinWindow ? "WITHIN WINDOW" : "OUTSIDE WINDOW"}
+      {/* Smart date navigation */}
+      <div className="bg-card border border-border rounded-md p-3 space-y-3">
+        <div className="flex items-center gap-2">
+          {/* Mode toggle */}
+          <button
+            onClick={() => data.setIsRangeMode(!data.isRangeMode)}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-mono font-bold uppercase tracking-widest transition-colors border",
+              data.isRangeMode
+                ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                : "bg-card text-muted-foreground border-border hover:text-foreground"
+            )}
+          >
+            {data.isRangeMode ? <CalendarRange className="h-3.5 w-3.5" /> : <Calendar className="h-3.5 w-3.5" />}
+            {data.isRangeMode ? "Range" : "Single Day"}
+          </button>
+
+          <div className="h-5 w-px bg-border" />
+
+          {data.isRangeMode ? (
+            /* Range mode controls */
+            <div className="flex items-center gap-2 flex-1">
+              <Input
+                type="date"
+                value={data.dateRange.start}
+                onChange={(e) => data.setDateRange({ ...data.dateRange, start: e.target.value })}
+                className="font-mono bg-background w-36 text-center text-xs h-8"
+              />
+              <span className="text-xs font-mono text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={data.dateRange.end}
+                onChange={(e) => data.setDateRange({ ...data.dateRange, end: e.target.value })}
+                className="font-mono bg-background w-36 text-center text-xs h-8"
+              />
+              {data.activeWindow && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => data.setDateRange({ start: data.windowStart, end: latestDate ?? data.windowEnd })}
+                  className="font-mono text-[10px] h-7 px-2 text-muted-foreground hover:text-foreground"
+                >
+                  FULL WINDOW
+                </Button>
+              )}
+              {oldestDate && latestDate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => data.setDateRange({ start: oldestDate, end: latestDate })}
+                  className="font-mono text-[10px] h-7 px-2 text-muted-foreground hover:text-foreground"
+                >
+                  ALL DATA
+                </Button>
+              )}
+            </div>
+          ) : (
+            /* Single day controls */
+            <div className="flex items-center gap-1 flex-1">
+              <button
+                onClick={() => navToDate(-1)}
+                className="p-1 rounded hover:bg-accent text-muted-foreground"
+                title="Previous date with data"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <Input
+                type="date"
+                value={data.selectedDate}
+                onChange={(e) => data.setSelectedDate(e.target.value)}
+                className="font-mono bg-background w-40 text-center text-xs h-8"
+              />
+              <button
+                onClick={() => navToDate(1)}
+                className="p-1 rounded hover:bg-accent text-muted-foreground"
+                title="Next date with data"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+
+              <div className="h-5 w-px bg-border mx-1" />
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={jumpToToday}
+                className="font-mono text-[10px] h-7 px-2 text-muted-foreground hover:text-foreground"
+              >
+                TODAY
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={jumpToLatest}
+                disabled={isOnLatest}
+                className={cn(
+                  "font-mono text-[10px] h-7 px-2 gap-1",
+                  isOnLatest ? "text-emerald-400" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Zap className="h-3 w-3" />
+                LATEST
+              </Button>
+            </div>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Window + data info */}
+          <div className="text-[10px] font-mono text-muted-foreground text-right shrink-0">
+            <div className={cn(isWithinWindow ? "text-emerald-400" : "text-amber-400")}>
+              {windowName} Window
+            </div>
+            <div>
+              Data: {oldestDate ?? "none"} — {latestDate ?? "none"}
+              {data.availableDates.length > 0 && ` (${data.availableDates.length} days)`}
+            </div>
           </div>
-          <div>{data.windowStart} → {data.windowEnd}</div>
         </div>
+
+        {/* Smart fallback banner */}
+        {!data.isRangeMode && !hasData && !data.loading && latestDate && data.selectedDate !== latestDate && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/20">
+            <span className="text-xs font-mono text-amber-400">
+              No data for {data.selectedDate}.
+            </span>
+            <button
+              onClick={jumpToLatest}
+              className="text-xs font-mono font-bold text-amber-300 hover:text-amber-200 underline"
+            >
+              Jump to latest ({latestDate})
+            </button>
+          </div>
+        )}
       </div>
 
       {hasData && (
@@ -537,9 +664,16 @@ export default function DailyPulse() {
         <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
           <div className="text-4xl font-mono text-muted-foreground/20">---</div>
           <p className="text-sm font-mono text-muted-foreground text-center">
-            No data for <strong className="text-foreground">{data.selectedDate}</strong>.
-            Use the arrows to navigate to a date with scraped data.
+            No data for <strong className="text-foreground">{data.isRangeMode ? `${data.dateRange.start} to ${data.dateRange.end}` : data.selectedDate}</strong>.
           </p>
+          {latestDate && (
+            <button
+              onClick={jumpToLatest}
+              className="text-sm font-mono text-blue-400 hover:text-blue-300 underline"
+            >
+              Jump to latest data ({latestDate})
+            </button>
+          )}
         </div>
       )}
 

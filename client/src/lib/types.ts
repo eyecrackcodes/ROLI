@@ -78,6 +78,8 @@ export interface DailyPulseAgent {
   mtdSales?: number;
   mtdPace?: number;
   mtdROLI?: number;
+  // Range mode
+  daysActive?: number;
 }
 
 export interface MonthlyAgent {
