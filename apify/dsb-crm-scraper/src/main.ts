@@ -43,7 +43,7 @@ const TIERS: Array<{ tier: "T1" | "T2" | "T3"; agencyId: string }> = [
 ];
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
 
 function toMMDDYYYY(isoDate: string): string {
@@ -499,11 +499,10 @@ try {
   }
 
   const dataset = await Actor.openDataset();
-  for (const agent of agents) {
-    await dataset.pushData(agent);
-  }
+  await dataset.pushData(agents);
 
-  log.info("All agent data pushed to dataset. Actor complete.");
+  const { count } = await dataset.getInfo() ?? { count: 0 };
+  log.info(`Dataset verified: ${count} items stored (expected ${agents.length}). Actor complete.`);
 } catch (err) {
   log.error(`Actor failed: ${err instanceof Error ? err.message : err}`);
   throw err;

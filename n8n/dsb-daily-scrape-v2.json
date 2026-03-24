@@ -1,38 +1,12 @@
 {
-  "name": "DSB Daily Scrape Pipeline",
   "nodes": [
-    {
-      "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "cronExpression",
-              "expression": "0 9,11,13,15,17,19 * * 1-5"
-            }
-          ]
-        }
-      },
-      "id": "schedule-trigger",
-      "name": "Every 2hrs 9AM-7PM CST",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [0, 0]
-    },
-    {
-      "parameters": {},
-      "id": "manual-trigger",
-      "name": "Manual Trigger",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [0, 200]
-    },
     {
       "parameters": {
         "method": "POST",
         "url": "https://api.apify.com/v2/acts/MIlgC3KEFTXzIcnMt/runs?token=YOUR_APIFY_TOKEN",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ crmUsername: 'YOUR_CRM_USERNAME', crmPassword: 'YOUR_CRM_PASSWORD', scrapeDate: (() => { const d = new Date(); const day = d.getDay(); if (day === 0) d.setDate(d.getDate() - 2); else if (day === 6) d.setDate(d.getDate() - 1); return d.toISOString().slice(0,10); })() }) }}",
+        "jsonBody": "={{ JSON.stringify({ crmUsername: 'YOUR_CRM_USERNAME', crmPassword: 'YOUR_CRM_PASSWORD', scrapeDate: (() => { const central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }); const [y,m,dd] = central.split('-').map(Number); const d = new Date(y, m-1, dd); const day = d.getDay(); if (day === 0) d.setDate(d.getDate() - 2); else if (day === 6) d.setDate(d.getDate() - 1); const py = d.getFullYear(); const pm = String(d.getMonth()+1).padStart(2,'0'); const pd = String(d.getDate()).padStart(2,'0'); return py+'-'+pm+'-'+pd; })() }) }}",
         "options": {
           "timeout": 10000
         }
@@ -41,7 +15,7 @@
       "name": "Start Apify Run",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [300, 100]
+      "position": [304, 112]
     },
     {
       "parameters": {
@@ -52,7 +26,8 @@
       "name": "Wait 3 Minutes",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [520, 100]
+      "position": [528, 112],
+      "webhookId": "2c079141-6fd6-444f-ac21-b41cb3587aab"
     },
     {
       "parameters": {
@@ -63,18 +38,25 @@
       "name": "Check Run Status",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [740, 100]
+      "position": [752, 112]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
           "conditions": [
             {
               "id": "run-succeeded",
               "leftValue": "={{ $json.data.status }}",
               "rightValue": "SUCCEEDED",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -85,7 +67,7 @@
       "name": "Run Succeeded?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [960, 100]
+      "position": [960, 112]
     },
     {
       "parameters": {
@@ -96,11 +78,12 @@
       "name": "Wait & Retry",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [960, 320]
+      "position": [960, 370],
+      "webhookId": "21a261ff-88a8-4b96-9bc6-130d89244710"
     },
     {
       "parameters": {
-        "jsCode": "const runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\n\nif (!datasetId) {\n  return [{\n    json: {\n      error: true,\n      message: 'No defaultDatasetId found in run status response',\n      runId: runStatus?.data?.id || 'unknown',\n      status: runStatus?.data?.status || 'unknown'\n    }\n  }];\n}\n\nconst token = 'YOUR_APIFY_TOKEN';\nconst url = `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&token=${token}`;\n\nlet agents;\ntry {\n  agents = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    json: true,\n    timeout: 60000,\n  });\n} catch (err) {\n  return [{\n    json: {\n      error: true,\n      message: `Failed to fetch dataset: ${err.message}`,\n      datasetId,\n      url\n    }\n  }];\n}\n\nif (!agents || !Array.isArray(agents) || agents.length === 0) {\n  return [{\n    json: {\n      error: true,\n      message: `Dataset ${datasetId} returned ${agents ? agents.length : 0} items (empty)`,\n      datasetId\n    }\n  }];\n}\n\nconst today = new Date();\nconst day = today.getDay();\nif (day === 0) today.setDate(today.getDate() - 2);\nelse if (day === 6) today.setDate(today.getDate() - 1);\nconst scrapeDate = today.toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents\n  }\n}];"
+        "jsCode": "const runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\n\nif (!datasetId) {\n  return [{\n    json: {\n      error: true,\n      message: 'No defaultDatasetId in run status. runId=' + runId + ' status=' + (runStatus?.data?.status || 'unknown')\n    }\n  }];\n}\n\nconst token = 'YOUR_APIFY_TOKEN';\n\nasync function fetchDataset(dsId, attempt) {\n  const url = `https://api.apify.com/v2/datasets/${dsId}/items?token=${token}`;\n  const raw = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    encoding: 'utf-8',\n    returnFullResponse: false,\n    timeout: 60000,\n    headers: { 'Accept': 'application/json' },\n  });\n  let parsed = raw;\n  if (typeof raw === 'string') {\n    try { parsed = JSON.parse(raw); } catch (e) {\n      throw new Error(`JSON parse failed (attempt ${attempt}): ${raw.substring(0, 200)}`);\n    }\n  }\n  return parsed;\n}\n\nlet agents;\nlet lastErr;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    agents = await fetchDataset.call(this, datasetId, attempt);\n    if (Array.isArray(agents) && agents.length > 0) break;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  } catch (err) {\n    lastErr = err;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  }\n}\n\nif (lastErr && (!agents || !Array.isArray(agents) || agents.length === 0)) {\n  return [{\n    json: {\n      error: true,\n      message: `Fetch dataset failed after 3 attempts: ${lastErr.message}`,\n      datasetId, runId\n    }\n  }];\n}\n\nif (!agents || !Array.isArray(agents) || agents.length === 0) {\n  return [{\n    json: {\n      error: true,\n      message: `Dataset ${datasetId} empty after 3 attempts (runId=${runId}). Type=${typeof agents}`,\n      datasetId, runId\n    }\n  }];\n}\n\nconst central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst [cy,cm,cd] = central.split('-').map(Number);\nconst today = new Date(cy, cm-1, cd);\nconst day = today.getDay();\nif (day === 0) today.setDate(today.getDate() - 2);\nelse if (day === 6) today.setDate(today.getDate() - 1);\nconst scrapeDate = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents\n  }\n}];"
       },
       "id": "fetch-and-build",
       "name": "Fetch Dataset & Build Payload",
@@ -111,24 +94,31 @@
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
           "conditions": [
             {
-              "id": "has-error",
+              "id": "has-agents",
               "leftValue": "={{ $json.error }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "true" }
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
             }
           ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "check-dataset-error",
-      "name": "Dataset Error?",
+      "id": "check-dataset",
+      "name": "Dataset OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1420, 0]
+      "position": [1424, 0]
     },
     {
       "parameters": {
@@ -137,30 +127,42 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 30000 }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "post-to-supabase",
       "name": "POST to Supabase",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1640, -100]
+      "position": [1700, -100]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
           "conditions": [
             {
               "id": "check-success",
               "leftValue": "={{ $json.success }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "true" }
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
             }
           ],
           "combinator": "and"
@@ -171,7 +173,7 @@
       "name": "Ingestion OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1860, -100]
+      "position": [1924, -100]
     },
     {
       "parameters": {
@@ -181,7 +183,7 @@
       "name": "Build Slack Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2100, -200]
+      "position": [2180, -200]
     },
     {
       "parameters": {
@@ -190,19 +192,24 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 10000 }
+        "options": {
+          "timeout": 10000
+        }
       },
       "id": "send-slack",
       "name": "Send to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2340, -200]
+      "position": [2420, -200]
     },
     {
       "parameters": {
@@ -211,7 +218,7 @@
             {
               "id": "status",
               "name": "status",
-              "value": "={{ 'DSB Scrape FAILED: ' + JSON.stringify($json.errors || $json.message || $json) }}",
+              "value": "={{ 'DSB Scrape FAILED: ' + ($json.message || JSON.stringify($json.errors || $json)) }}",
               "type": "string"
             }
           ]
@@ -222,76 +229,181 @@
       "name": "Log Error",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1640, 100]
+      "position": [1700, 150]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: ':rotating_light: DSB Scrape Pipeline Error:\\n' + $json.status }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "send-error-slack",
+      "name": "Alert Slack Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1940, 150]
     }
   ],
   "connections": {
-    "Every 2hrs 9AM-7PM CST": {
-      "main": [
-        [{ "node": "Start Apify Run", "type": "main", "index": 0 }]
-      ]
-    },
-    "Manual Trigger": {
-      "main": [
-        [{ "node": "Start Apify Run", "type": "main", "index": 0 }]
-      ]
-    },
     "Start Apify Run": {
       "main": [
-        [{ "node": "Wait 3 Minutes", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Wait 3 Minutes",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Wait 3 Minutes": {
       "main": [
-        [{ "node": "Check Run Status", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Check Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Check Run Status": {
       "main": [
-        [{ "node": "Run Succeeded?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Run Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Run Succeeded?": {
       "main": [
-        [{ "node": "Fetch Dataset & Build Payload", "type": "main", "index": 0 }],
-        [{ "node": "Wait & Retry", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Fetch Dataset & Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait & Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Wait & Retry": {
       "main": [
-        [{ "node": "Check Run Status", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Check Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch Dataset & Build Payload": {
       "main": [
-        [{ "node": "Dataset Error?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Dataset OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Dataset Error?": {
+    "Dataset OK?": {
       "main": [
-        [{ "node": "Log Error", "type": "main", "index": 0 }],
-        [{ "node": "POST to Supabase", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "POST to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "POST to Supabase": {
       "main": [
-        [{ "node": "Ingestion OK?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Ingestion OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Ingestion OK?": {
       "main": [
-        [{ "node": "Build Slack Summary", "type": "main", "index": 0 }],
-        [{ "node": "Log Error", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Build Slack Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Build Slack Summary": {
       "main": [
-        [{ "node": "Send to Slack", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error": {
+      "main": [
+        [
+          {
+            "node": "Alert Slack Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
-  "settings": {
-    "executionOrder": "v1",
-    "timezone": "America/Chicago"
+  "pinData": {},
+  "meta": {
+    "instanceId": "89ecaea7644e2fc8bb00924fa95bf8f2f321b4752bc18483de9de5a764fee65c"
   }
 }
