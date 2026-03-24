@@ -11,6 +11,7 @@ import MonthlyStackRank from "./pages/MonthlyStackRank";
 import GateCalculator from "./pages/GateCalculator";
 import DataManager from "./pages/DataManager";
 import AgentTrends from "./pages/AgentTrends";
+import BonusTracker from "./pages/BonusTracker";
 import Settings from "./pages/Settings";
 
 function Router() {
@@ -20,6 +21,7 @@ function Router() {
         <Route path="/" component={DailyPulse} />
         <Route path="/stack-rank" component={MonthlyStackRank} />
         <Route path="/trends" component={AgentTrends} />
+        <Route path="/bonus" component={BonusTracker} />
         <Route path="/gates" component={GateCalculator} />
         <Route path="/data" component={DataManager} />
         <Route path="/settings" component={Settings} />

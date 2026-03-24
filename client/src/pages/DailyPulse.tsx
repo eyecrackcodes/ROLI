@@ -180,6 +180,7 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
               <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
               <SortHeader label="CR" sortKey="cr" current={sort} onToggle={toggle} />
               <SortHeader label="Premium" sortKey="premium" current={sort} onToggle={toggle} />
+              <SortHeader label="Bonus" sortKey="bonus" current={sort} onToggle={toggle} />
               <SortHeader label="MTD Sales" sortKey="mtdSales" current={sort} onToggle={toggle} />
               <SortHeader label="MTD Pace" sortKey="mtdPace" current={sort} onToggle={toggle} />
             </tr>
@@ -204,6 +205,7 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.salesToday}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.salesToday} leads={agent.obLeads ?? 0} /></td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.premiumToday)}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ? <span className="text-purple-400">{agent.bonusSales}</span> : <span className="text-muted-foreground">--</span>}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.mtdSales ?? 0}</td>
                 <td className="px-3 py-2.5 text-right">
                   <PaceIndicator pace={agent.mtdPace ?? 0} />
@@ -252,6 +254,7 @@ function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
               <SortHeader label="OB Sales" sortKey="obSales" current={sort} onToggle={toggle} />
               <SortHeader label="OB CR" sortKey="obCR" current={sort} onToggle={toggle} />
               <SortHeader label="Premium" sortKey="totalPremium" current={sort} onToggle={toggle} />
+              <SortHeader label="Bonus" sortKey="bonus" current={sort} onToggle={toggle} />
               <SortHeader label="MTD ROLI" sortKey="mtdROLI" current={sort} onToggle={toggle} />
             </tr>
           </thead>
@@ -276,6 +279,7 @@ function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obSales ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.obSales ?? 0} leads={agent.obLeads ?? 0} /></td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ? <span className="text-purple-400">{agent.bonusSales}</span> : <span className="text-muted-foreground">--</span>}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   <span className={cn(
                     (agent.mtdROLI ?? 0) >= 1.5 ? "text-emerald-400" :

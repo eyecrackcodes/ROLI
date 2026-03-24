@@ -73,6 +73,8 @@ export interface DailyPulseAgent {
   salesToday: number;
   premiumToday: number;
   bonusSales?: number;
+  bonusLeads?: number;
+  bonusPremium?: number;
   totalPremium: number;
   // MTD
   mtdSales?: number;

@@ -163,6 +163,8 @@ function buildPulseAgents(
       salesToday: totalSales,
       premiumToday: totalPremium - customPrem,
       bonusSales: customSales || undefined,
+      bonusLeads: agentRows.reduce((s, r) => s + (r.custom_leads ?? 0), 0) || undefined,
+      bonusPremium: customPrem || undefined,
       totalPremium,
       mtdSales: mtd?.mtdSales,
       mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
