@@ -21,9 +21,9 @@ export function TrendLineChart({ data, xKey, lines, height = 280, dualAxis, clas
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono" }} stroke="hsl(var(--muted-foreground))" />
-          <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono" }} stroke="hsl(var(--muted-foreground))" />
-          {dualAxis && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono" }} stroke="hsl(var(--muted-foreground))" />}
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
+          <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
+          {dualAxis && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />}
           <Tooltip
             contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11 }}
             labelStyle={{ color: "hsl(var(--foreground))" }}
@@ -64,8 +64,8 @@ export function TrendBarChart({ data, xKey, bars, height = 280, className }: Tre
       <ResponsiveContainer width="100%" height={height}>
         <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono" }} stroke="hsl(var(--muted-foreground))" />
-          <YAxis tick={{ fontSize: 10, fontFamily: "JetBrains Mono" }} stroke="hsl(var(--muted-foreground))" />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
+          <YAxis tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
           <Tooltip
             contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11 }}
             labelStyle={{ color: "hsl(var(--foreground))" }}
