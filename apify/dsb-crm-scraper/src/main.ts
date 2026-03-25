@@ -266,6 +266,7 @@ function getSaleMadePasses(tier: "T1" | "T2" | "T3"): SaleMadePass[] {
   // T2 hybrid — must split by type
   return [
     { typeFilter: "9", channel: "inbound", label: "Call In (IB)" },
+    { typeFilter: "18", channel: "inbound", label: "Web Call In (IB)" },
     { typeFilter: "1", channel: "outbound", label: "Exclusive (OB)" },
     { typeFilter: "custom", channel: "custom", label: "Custom" },
   ];
