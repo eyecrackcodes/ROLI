@@ -82,7 +82,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[95vw] max-h-[92vh] overflow-y-auto bg-background border-border p-8">
+      <DialogContent className="max-w-[calc(100vw-3rem)] w-[calc(100vw-3rem)] max-h-[92vh] overflow-y-auto bg-background border-border p-8">
         <DialogHeader className="pb-4 border-b border-border">
           <div className="flex items-center justify-between">
             <DialogTitle className="text-lg font-bold text-foreground">{agentName}</DialogTitle>
