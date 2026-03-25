@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
-import { useAgentTrends } from "@/hooks/useAgentTrends";
+import { useState, useEffect, useCallback } from "react";
+import { useAgentTrends, type IntradayPoint } from "@/hooks/useAgentTrends";
 import { useAgents, type Agent } from "@/hooks/useAgents";
 import { TrendLineChart, TrendBarChart, DeltaBadge, Sparkline } from "@/components/TrendChart";
 import { MetricCard } from "@/components/MetricCard";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -18,18 +19,107 @@ function formatCurrency(val: number) {
   return "$" + val.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
+const HOUR_LABELS: Record<number, string> = {
+  6: "6AM", 7: "7AM", 8: "8AM", 9: "9AM", 10: "10AM", 11: "11AM",
+  12: "12PM", 13: "1PM", 14: "2PM", 15: "3PM", 16: "4PM", 17: "5PM",
+  18: "6PM", 19: "7PM", 20: "8PM",
+};
+
 function IntradayTab({ agentName }: { agentName: string }) {
-  const { intraday, loading } = useAgentTrends(agentName);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [intraday, setIntraday] = useState<IntradayPoint[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !agentName) return;
+    (async () => {
+      const { data } = await supabase
+        .from("intraday_snapshots")
+        .select("scrape_date")
+        .eq("agent_name", agentName)
+        .order("scrape_date", { ascending: false });
+      const dates = [...new Set((data ?? []).map((r: { scrape_date: string }) => r.scrape_date))];
+      setAvailableDates(dates);
+      if (dates.length > 0 && !selectedDate) setSelectedDate(dates[0]);
+    })();
+  }, [agentName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchIntraday = useCallback(async () => {
+    if (!isSupabaseConfigured || !agentName || !selectedDate) return;
+    setLoading(true);
+    const { data } = await supabase
+      .from("intraday_snapshots")
+      .select("scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
+      .eq("agent_name", agentName)
+      .eq("scrape_date", selectedDate)
+      .order("scrape_hour", { ascending: true });
+
+    const rows = (data ?? []) as Array<{ scrape_hour: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; total_dials: number; talk_time_minutes: number }>;
+    const points: IntradayPoint[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const sales = r.ib_sales + r.ob_sales + r.custom_sales;
+      const premium = r.ib_premium + r.ob_premium + r.custom_premium;
+      const prevSales = i > 0 ? rows[i-1].ib_sales + rows[i-1].ob_sales + rows[i-1].custom_sales : 0;
+      const prevPremium = i > 0 ? rows[i-1].ib_premium + rows[i-1].ob_premium + rows[i-1].custom_premium : 0;
+      const prevDials = i > 0 ? rows[i-1].total_dials : 0;
+      points.push({
+        hour: r.scrape_hour,
+        hourLabel: HOUR_LABELS[r.scrape_hour] ?? `${r.scrape_hour}:00`,
+        sales, premium,
+        dials: r.total_dials,
+        talkTime: r.talk_time_minutes,
+        ibSales: r.ib_sales,
+        obSales: r.ob_sales,
+        deltaSales: sales - prevSales,
+        deltaPremium: premium - prevPremium,
+        deltaDials: r.total_dials - prevDials,
+      });
+    }
+    setIntraday(points);
+    setLoading(false);
+  }, [agentName, selectedDate]);
+
+  useEffect(() => { fetchIntraday(); }, [fetchIntraday]);
+
+  const navDate = (dir: -1 | 1) => {
+    const idx = availableDates.indexOf(selectedDate);
+    const next = idx - dir;
+    if (next >= 0 && next < availableDates.length) setSelectedDate(availableDates[next]);
+  };
 
   if (loading) return <p className="text-sm font-mono text-muted-foreground animate-pulse p-8 text-center">Loading...</p>;
 
+  const latest = intraday.length > 0 ? intraday[intraday.length - 1] : null;
+
   return (
     <div className="space-y-4">
+      {/* Date picker for intraday */}
+      <div className="flex items-center gap-2 bg-card border border-border rounded-md px-3 py-2">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Snapshot Date</span>
+        <button onClick={() => navDate(-1)} disabled={availableDates.indexOf(selectedDate) >= availableDates.length - 1} className="p-1 rounded hover:bg-accent text-muted-foreground disabled:opacity-30">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+        </button>
+        <select
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="font-mono text-xs bg-background border border-border rounded px-2 py-1 text-foreground"
+        >
+          {availableDates.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <button onClick={() => navDate(1)} disabled={availableDates.indexOf(selectedDate) <= 0} className="p-1 rounded hover:bg-accent text-muted-foreground disabled:opacity-30">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
+        <div className="flex-1" />
+        <span className="text-[10px] font-mono text-muted-foreground">{intraday.length} snapshot{intraday.length !== 1 ? "s" : ""} | {availableDates.length} day{availableDates.length !== 1 ? "s" : ""} available</span>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MetricCard label="Latest Sales" value={intraday.length > 0 ? intraday[intraday.length - 1].sales : 0} color="green" />
-        <MetricCard label="Latest Premium" value={intraday.length > 0 ? formatCurrency(intraday[intraday.length - 1].premium) : "$0"} color="blue" />
-        <MetricCard label="Snapshots Today" value={intraday.length} subtext="of 6 max" />
-        <MetricCard label="Latest Dials" value={intraday.length > 0 ? intraday[intraday.length - 1].dials : 0} />
+        <MetricCard label="Latest Sales" value={latest?.sales ?? 0} color="green" />
+        <MetricCard label="Latest Premium" value={latest ? formatCurrency(latest.premium) : "$0"} color="blue" />
+        <MetricCard label="Snapshots" value={intraday.length} subtext={`on ${selectedDate}`} />
+        <MetricCard label="Latest Dials" value={latest?.dials ?? 0} />
       </div>
       <div className="bg-card border border-border rounded-md p-4">
         <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-1">
