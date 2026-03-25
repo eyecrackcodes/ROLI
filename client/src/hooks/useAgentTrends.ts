@@ -28,6 +28,9 @@ export interface IntradayPoint {
   talkTime: number;
   ibSales: number;
   obSales: number;
+  deltaSales: number;
+  deltaPremium: number;
+  deltaDials: number;
 }
 
 export interface WeeklyTrend {
@@ -192,16 +195,30 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
     }
 
     const rows = (data ?? []) as IntradayRow[];
-    setIntraday(rows.map((r) => ({
-      hour: r.scrape_hour,
-      hourLabel: HOUR_LABELS[r.scrape_hour] ?? `${r.scrape_hour}:00`,
-      sales: r.ib_sales + r.ob_sales + r.custom_sales,
-      premium: r.ib_premium + r.ob_premium + r.custom_premium,
-      dials: r.total_dials,
-      talkTime: r.talk_time_minutes,
-      ibSales: r.ib_sales,
-      obSales: r.ob_sales,
-    })));
+    const points: IntradayPoint[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const sales = r.ib_sales + r.ob_sales + r.custom_sales;
+      const premium = r.ib_premium + r.ob_premium + r.custom_premium;
+      const dials = r.total_dials;
+      const prevSales = i > 0 ? rows[i - 1].ib_sales + rows[i - 1].ob_sales + rows[i - 1].custom_sales : 0;
+      const prevPremium = i > 0 ? rows[i - 1].ib_premium + rows[i - 1].ob_premium + rows[i - 1].custom_premium : 0;
+      const prevDials = i > 0 ? rows[i - 1].total_dials : 0;
+      points.push({
+        hour: r.scrape_hour,
+        hourLabel: HOUR_LABELS[r.scrape_hour] ?? `${r.scrape_hour}:00`,
+        sales,
+        premium,
+        dials,
+        talkTime: r.talk_time_minutes,
+        ibSales: r.ib_sales,
+        obSales: r.ob_sales,
+        deltaSales: sales - prevSales,
+        deltaPremium: premium - prevPremium,
+        deltaDials: dials - prevDials,
+      });
+    }
+    setIntraday(points);
   }, [agentName]);
 
   const fetchWeekly = useCallback(async () => {

@@ -3,6 +3,7 @@ import { useAgentTrends } from "@/hooks/useAgentTrends";
 import { useAgents, type Agent } from "@/hooks/useAgents";
 import { TrendLineChart, TrendBarChart, DeltaBadge, Sparkline } from "@/components/TrendChart";
 import { MetricCard } from "@/components/MetricCard";
+import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -31,33 +32,50 @@ function IntradayTab({ agentName }: { agentName: string }) {
         <MetricCard label="Latest Dials" value={intraday.length > 0 ? intraday[intraday.length - 1].dials : 0} />
       </div>
       <div className="bg-card border border-border rounded-md p-4">
-        <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">
+        <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-1">
           Intraday Progression — Sales & Premium
         </h3>
-        <TrendLineChart
-          data={intraday}
-          xKey="hourLabel"
-          lines={[
-            { key: "sales", color: "#34d399", name: "Sales", yAxisId: "left" },
-            { key: "premium", color: "#60a5fa", name: "Premium ($)", yAxisId: "right" },
-          ]}
-          dualAxis
-          height={300}
-        />
+        <p className="text-[10px] font-mono text-muted-foreground mb-3">Bars = new activity per snapshot | Lines = cumulative running total</p>
+        <ResponsiveContainer width="100%" height={320}>
+          <ComposedChart data={intraday} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+            <XAxis dataKey="hourLabel" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+            <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+            <Tooltip
+              contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11, color: "#e2e8f0" }}
+              labelStyle={{ color: "#e2e8f0" }}
+              itemStyle={{ color: "#e2e8f0" }}
+            />
+            <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8" }} />
+            <Bar dataKey="deltaSales" name="New Sales" fill="#34d399" yAxisId="left" radius={[4, 4, 0, 0]} opacity={0.7} />
+            <Bar dataKey="deltaPremium" name="New Premium" fill="#60a5fa" yAxisId="right" radius={[4, 4, 0, 0]} opacity={0.5} />
+            <Line type="monotone" dataKey="sales" name="Cumul. Sales" stroke="#34d399" yAxisId="left" strokeWidth={2.5} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="premium" name="Cumul. Premium" stroke="#60a5fa" yAxisId="right" strokeWidth={2.5} dot={{ r: 4 }} />
+          </ComposedChart>
+        </ResponsiveContainer>
       </div>
       <div className="bg-card border border-border rounded-md p-4">
-        <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">
+        <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-1">
           Intraday Effort — Dials & Talk Time
         </h3>
-        <TrendBarChart
-          data={intraday}
-          xKey="hourLabel"
-          bars={[
-            { key: "dials", color: "#a78bfa", name: "Dials" },
-            { key: "talkTime", color: "#fbbf24", name: "Talk Time (min)" },
-          ]}
-          height={240}
-        />
+        <p className="text-[10px] font-mono text-muted-foreground mb-3">Bars = new activity per snapshot | Lines = cumulative total</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <ComposedChart data={intraday} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+            <XAxis dataKey="hourLabel" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+            <Tooltip
+              contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11, color: "#e2e8f0" }}
+              labelStyle={{ color: "#e2e8f0" }}
+              itemStyle={{ color: "#e2e8f0" }}
+            />
+            <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8" }} />
+            <Bar dataKey="deltaDials" name="New Dials" fill="#a78bfa" yAxisId="left" radius={[4, 4, 0, 0]} opacity={0.7} />
+            <Line type="monotone" dataKey="dials" name="Cumul. Dials" stroke="#a78bfa" yAxisId="left" strokeWidth={2.5} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="talkTime" name="Cumul. Talk Time" stroke="#fbbf24" yAxisId="left" strokeWidth={2} dot={{ r: 3 }} strokeDasharray="5 5" />
+          </ComposedChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );

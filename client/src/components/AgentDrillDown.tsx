@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useAgentTrends } from "@/hooks/useAgentTrends";
 import { useData } from "@/contexts/DataContext";
 import { TrendLineChart, TrendBarChart, Sparkline, DeltaBadge } from "@/components/TrendChart";
+import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import {
   Dialog,
   DialogContent,
@@ -265,18 +266,27 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
               </div>
 
               {intraday.length > 0 && (
-                <div className="bg-card border border-border rounded-md p-4">
-                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">Intraday Progression</h3>
-                  <TrendLineChart
-                    data={intraday}
-                    xKey="hourLabel"
-                    lines={[
-                      { key: "sales", color: "#34d399", name: "Sales", yAxisId: "left" },
-                      { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
-                    ]}
-                    dualAxis
-                    height={280}
-                  />
+                <div className="bg-card border border-border rounded-md p-4 lg:col-span-2">
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-1">Intraday Progression</h3>
+                  <p className="text-[9px] font-mono text-muted-foreground mb-3">Bars = new activity per snapshot | Lines = cumulative running total</p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <ComposedChart data={intraday} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                      <XAxis dataKey="hourLabel" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+                      <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11, color: "#e2e8f0" }}
+                        labelStyle={{ color: "#e2e8f0" }}
+                        itemStyle={{ color: "#e2e8f0" }}
+                      />
+                      <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8" }} />
+                      <Bar dataKey="deltaSales" name="New Sales" fill="#34d399" yAxisId="left" radius={[4, 4, 0, 0]} opacity={0.7} />
+                      <Bar dataKey="deltaDials" name="New Dials" fill="#a78bfa" yAxisId="left" radius={[4, 4, 0, 0]} opacity={0.5} />
+                      <Line type="monotone" dataKey="sales" name="Cumulative Sales" stroke="#34d399" yAxisId="left" strokeWidth={2.5} dot={{ r: 4 }} />
+                      <Line type="monotone" dataKey="premium" name="Cumulative Premium" stroke="#60a5fa" yAxisId="right" strokeWidth={2.5} dot={{ r: 4 }} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 </div>
               )}
 
