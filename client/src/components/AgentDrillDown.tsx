@@ -82,7 +82,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[1400px] w-[96vw] max-h-[92vh] overflow-y-auto bg-background border-border p-8">
+      <DialogContent className="max-w-[95vw] w-[95vw] max-h-[92vh] overflow-y-auto bg-background border-border p-8">
         <DialogHeader className="pb-4 border-b border-border">
           <div className="flex items-center justify-between">
             <DialogTitle className="text-lg font-bold text-foreground">{agentName}</DialogTitle>
@@ -247,12 +247,12 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                     { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
                   ]}
                   dualAxis
-                  height={220}
+                  height={280}
                 />
               </div>
 
-              <div className="bg-card border border-border rounded-md p-3">
-                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Effort Trend</h3>
+              <div className="bg-card border border-border rounded-md p-4">
+                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">Effort Trend</h3>
                 <TrendBarChart
                   data={daily}
                   xKey="date"
@@ -260,13 +260,13 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                     { key: "dials", color: "#a78bfa", name: "Dials" },
                     { key: "talkTime", color: "#fbbf24", name: "Talk Time (min)" },
                   ]}
-                  height={220}
+                  height={280}
                 />
               </div>
 
               {intraday.length > 0 && (
-                <div className="bg-card border border-border rounded-md p-3">
-                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Intraday Progression</h3>
+                <div className="bg-card border border-border rounded-md p-4">
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">Intraday Progression</h3>
                   <TrendLineChart
                     data={intraday}
                     xKey="hourLabel"
@@ -275,19 +275,19 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                       { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
                     ]}
                     dualAxis
-                    height={220}
+                    height={280}
                   />
                 </div>
               )}
 
               {weekly.length > 0 && (
-                <div className="bg-card border border-border rounded-md p-3">
-                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Weekly</h3>
+                <div className="bg-card border border-border rounded-md p-4">
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">Weekly</h3>
                   <TrendBarChart
                     data={weekly}
                     xKey="weekLabel"
                     bars={[{ key: "sales", color: "#34d399", name: "Sales" }]}
-                    height={220}
+                    height={280}
                   />
                 </div>
               )}
