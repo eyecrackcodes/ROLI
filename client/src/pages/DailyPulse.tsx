@@ -213,6 +213,22 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-border bg-card/60 font-bold text-foreground">
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 text-xs uppercase tracking-widest text-muted-foreground">Total</td>
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalLeads}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.dials ?? 0), 0)}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0)} min</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalSales}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalSales} leads={totalLeads} /></td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT3.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.mtdSales ?? 0), 0)}</td>
+              <td className="px-3 py-2.5" />
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -291,6 +307,22 @@ function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-border bg-card/60 font-bold text-foreground">
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 text-xs uppercase tracking-widest text-muted-foreground">Total</td>
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalIB}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalIBSales}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalIBSales} leads={totalIB} /></td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalOB}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalOBSales}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalOBSales} leads={totalOB} /></td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT2.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
+              <td className="px-3 py-2.5" />
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -362,6 +394,20 @@ function T1Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-border bg-card/60 font-bold text-foreground">
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 text-xs uppercase tracking-widest text-muted-foreground">Total</td>
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalIB}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalSales}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalIBSales} leads={totalIB} /></td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(dailyT1.reduce((s, a) => s + a.premiumToday, 0))}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT1.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
+              <td className="px-3 py-2.5" />
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
