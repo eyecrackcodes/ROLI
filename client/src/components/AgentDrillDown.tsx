@@ -82,7 +82,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[520px] sm:w-[600px] lg:w-[680px] bg-background border-border overflow-y-auto">
+      <SheetContent className="w-[90vw] sm:w-[700px] lg:w-[800px] bg-background border-border overflow-y-auto p-6">
         <SheetHeader className="pb-4 border-b border-border">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg font-bold text-foreground">{agentName}</SheetTitle>
@@ -112,7 +112,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
             <p className="text-sm font-mono text-muted-foreground animate-pulse">Loading trends...</p>
           </div>
         ) : (
-          <div className="space-y-5 pt-4">
+          <div className="space-y-6 pt-5">
             {/* Today's Stats */}
             <div>
               <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Latest Day</h3>
@@ -246,7 +246,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                   { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
                 ]}
                 dualAxis
-                height={180}
+                height={220}
               />
             </div>
 
@@ -260,7 +260,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                   { key: "dials", color: "#a78bfa", name: "Dials" },
                   { key: "talkTime", color: "#fbbf24", name: "Talk Time (min)" },
                 ]}
-                height={160}
+                height={200}
               />
             </div>
 
@@ -276,7 +276,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                     { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
                   ]}
                   dualAxis
-                  height={160}
+                  height={200}
                 />
               </div>
             )}
@@ -289,7 +289,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                   data={weekly}
                   xKey="weekLabel"
                   bars={[{ key: "sales", color: "#34d399", name: "Sales" }]}
-                  height={140}
+                  height={180}
                 />
               </div>
             )}
