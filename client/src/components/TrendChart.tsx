@@ -20,15 +20,16 @@ export function TrendLineChart({ data, xKey, lines, height = 280, dualAxis, clas
     <div className={cn("w-full", className)}>
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
-          <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
-          {dualAxis && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />}
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+          <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+          {dualAxis && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />}
           <Tooltip
-            contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11 }}
-            labelStyle={{ color: "hsl(var(--foreground))" }}
+            contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11, color: "#e2e8f0" }}
+            labelStyle={{ color: "#e2e8f0" }}
+            itemStyle={{ color: "#e2e8f0" }}
           />
-          <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10 }} />
+          <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8" }} />
           {lines.map((line) => (
             <Line
               key={line.key}
@@ -63,14 +64,15 @@ export function TrendBarChart({ data, xKey, bars, height = 280, className }: Tre
     <div className={cn("w-full", className)}>
       <ResponsiveContainer width="100%" height={height}>
         <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
-          <YAxis tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "hsl(var(--foreground))" }} stroke="hsl(var(--border))" tickLine={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
+          <YAxis tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} />
           <Tooltip
-            contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11 }}
-            labelStyle={{ color: "hsl(var(--foreground))" }}
+            contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11, color: "#e2e8f0" }}
+            labelStyle={{ color: "#e2e8f0" }}
+            itemStyle={{ color: "#e2e8f0" }}
           />
-          <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10 }} />
+          <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8" }} />
           {bars.map((bar) => (
             <Bar key={bar.key} dataKey={bar.key} name={bar.name} fill={bar.color} radius={[4, 4, 0, 0]} />
           ))}
