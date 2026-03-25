@@ -54,31 +54,51 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Load alias map for name resolution
+    const { data: aliases } = await supabase
+      .from("agent_name_aliases")
+      .select("crm_name, canonical_name");
+
+    const aliasMap = new Map<string, string>();
+    for (const a of (aliases ?? []) as Array<{ crm_name: string; canonical_name: string }>) {
+      if (a.crm_name !== a.canonical_name) {
+        aliasMap.set(a.crm_name, a.canonical_name);
+      }
+    }
+
     const now = new Date();
     const cstHour = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" })).getHours();
 
+    let aliasResolved = 0;
     const validAgents = payload.agents.filter((a) => {
       if (!a.agent_name || !a.tier) return false;
       if (!["T1", "T2", "T3"].includes(a.tier)) return false;
       return true;
     });
 
-    const dailyRecords = validAgents.map((a) => ({
-      scrape_date: payload.scrape_date,
-      agent_name: a.agent_name,
-      tier: a.tier,
-      ib_leads_delivered: a.ib_leads_delivered ?? 0,
-      ob_leads_delivered: a.ob_leads_delivered ?? 0,
-      custom_leads: a.custom_leads ?? 0,
-      ib_sales: a.ib_sales ?? 0,
-      ob_sales: a.ob_sales ?? 0,
-      custom_sales: a.custom_sales ?? 0,
-      ib_premium: a.ib_premium ?? 0,
-      ob_premium: a.ob_premium ?? 0,
-      custom_premium: a.custom_premium ?? 0,
-      total_dials: a.total_dials ?? 0,
-      talk_time_minutes: a.talk_time_minutes ?? 0,
-    }));
+    const dailyRecords = validAgents.map((a) => {
+      let name = a.agent_name;
+      if (aliasMap.has(name)) {
+        name = aliasMap.get(name)!;
+        aliasResolved++;
+      }
+      return {
+        scrape_date: payload.scrape_date,
+        agent_name: name,
+        tier: a.tier,
+        ib_leads_delivered: a.ib_leads_delivered ?? 0,
+        ob_leads_delivered: a.ob_leads_delivered ?? 0,
+        custom_leads: a.custom_leads ?? 0,
+        ib_sales: a.ib_sales ?? 0,
+        ob_sales: a.ob_sales ?? 0,
+        custom_sales: a.custom_sales ?? 0,
+        ib_premium: a.ib_premium ?? 0,
+        ob_premium: a.ob_premium ?? 0,
+        custom_premium: a.custom_premium ?? 0,
+        total_dials: a.total_dials ?? 0,
+        talk_time_minutes: a.talk_time_minutes ?? 0,
+      };
+    });
 
     const intradayRecords = dailyRecords.map((r) => ({
       ...r,
@@ -97,8 +117,6 @@ Deno.serve(async (req) => {
     if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
     if (intradayError) errors.push({ source: "intraday_snapshots", error: intradayError.message });
 
-    const skipped = payload.agents.length - validAgents.length;
-
     return new Response(
       JSON.stringify({
         success: errors.length === 0,
@@ -106,7 +124,7 @@ Deno.serve(async (req) => {
         scrape_hour: cstHour,
         total_agents: payload.agents.length,
         upserted: validAgents.length,
-        skipped,
+        alias_resolved: aliasResolved,
         intraday_snapshots: intradayError ? 0 : validAgents.length,
         errors,
       }),
