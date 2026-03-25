@@ -1,6 +1,7 @@
-import { useMemo } from "react";
-import { useAgentTrends } from "@/hooks/useAgentTrends";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { useAgentTrends, type IntradayPoint } from "@/hooks/useAgentTrends";
 import { useData } from "@/contexts/DataContext";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { TrendLineChart, TrendBarChart, Sparkline, DeltaBadge } from "@/components/TrendChart";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import {
@@ -48,9 +49,63 @@ function ChannelBar({ label, value, max, color }: { label: string; value: number
   );
 }
 
+const ID_HOUR_LABELS: Record<number, string> = {
+  6: "6AM", 7: "7AM", 8: "8AM", 9: "9AM", 10: "10AM", 11: "11AM",
+  12: "12PM", 13: "1PM", 14: "2PM", 15: "3PM", 16: "4PM", 17: "5PM",
+  18: "6PM", 19: "7PM", 20: "8PM",
+};
+
 export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: AgentDrillDownProps) {
-  const { daily, intraday, weekly, deltas, loading } = useAgentTrends(agentName, 14);
+  const { daily, weekly, deltas, loading } = useAgentTrends(agentName, 14);
   const data = useData();
+
+  const [idDates, setIdDates] = useState<string[]>([]);
+  const [idDate, setIdDate] = useState("");
+  const [idPoints, setIdPoints] = useState<IntradayPoint[]>([]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !agentName || !open) return;
+    (async () => {
+      const { data: rows } = await supabase
+        .from("intraday_snapshots")
+        .select("scrape_date")
+        .eq("agent_name", agentName)
+        .order("scrape_date", { ascending: false });
+      const dates = Array.from(new Set((rows ?? []).map((r: { scrape_date: string }) => r.scrape_date)));
+      setIdDates(dates);
+      if (dates.length > 0) setIdDate(dates[0]);
+    })();
+  }, [agentName, open]);
+
+  const fetchIdData = useCallback(async () => {
+    if (!isSupabaseConfigured || !agentName || !idDate) return;
+    const { data: rows } = await supabase
+      .from("intraday_snapshots")
+      .select("scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
+      .eq("agent_name", agentName)
+      .eq("scrape_date", idDate)
+      .order("scrape_hour", { ascending: true });
+    const raw = (rows ?? []) as Array<{ scrape_hour: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; total_dials: number; talk_time_minutes: number }>;
+    const pts: IntradayPoint[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const r = raw[i];
+      const s = r.ib_sales + r.ob_sales + r.custom_sales;
+      const p = r.ib_premium + r.ob_premium + r.custom_premium;
+      const ps = i > 0 ? raw[i-1].ib_sales + raw[i-1].ob_sales + raw[i-1].custom_sales : 0;
+      const pp = i > 0 ? raw[i-1].ib_premium + raw[i-1].ob_premium + raw[i-1].custom_premium : 0;
+      const pd = i > 0 ? raw[i-1].total_dials : 0;
+      pts.push({ hour: r.scrape_hour, hourLabel: ID_HOUR_LABELS[r.scrape_hour] ?? `${r.scrape_hour}:00`, sales: s, premium: p, dials: r.total_dials, talkTime: r.talk_time_minutes, ibSales: r.ib_sales, obSales: r.ob_sales, deltaSales: s - ps, deltaPremium: p - pp, deltaDials: r.total_dials - pd });
+    }
+    setIdPoints(pts);
+  }, [agentName, idDate]);
+
+  useEffect(() => { fetchIdData(); }, [fetchIdData]);
+
+  const navIdDate = (dir: -1 | 1) => {
+    const idx = idDates.indexOf(idDate);
+    const next = idx - dir;
+    if (next >= 0 && next < idDates.length) setIdDate(idDates[next]);
+  };
 
   const latestDay = daily.length > 0 ? daily[daily.length - 1] : null;
 
@@ -265,37 +320,49 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
                 />
               </div>
 
-              {intraday.length > 0 && (
+              {idDates.length > 0 && (
                 <div className="bg-card border border-border rounded-md p-4 lg:col-span-2">
-                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-1">Intraday Progression</h3>
-                  <p className="text-[9px] font-mono text-muted-foreground mb-3">Lines = cumulative total | Shaded area = new sales per snapshot</p>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <ComposedChart data={intraday} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
-                      <defs>
-                        <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#34d399" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="#34d399" stopOpacity={0.05} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
-                      <XAxis dataKey="hourLabel" tick={{ fontSize: 11, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#94a3b8" }} stroke="#334155" tickLine={false} axisLine={false} />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11, color: "#e2e8f0" }}
-                        labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
-                        itemStyle={{ color: "#e2e8f0" }}
-                        formatter={(value: number, name: string) => {
-                          if (name.includes("Premium")) return ["$" + value.toLocaleString(), name];
-                          return [value, name];
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8", paddingTop: 8 }} />
-                      <Line type="monotone" dataKey="sales" name="Sales" stroke="#34d399" yAxisId="left" strokeWidth={3} dot={{ r: 5, fill: "#34d399", strokeWidth: 2, stroke: "#0f172a" }} activeDot={{ r: 7 }} fill="url(#salesGrad)" />
-                      <Line type="monotone" dataKey="premium" name="Premium ($)" stroke="#60a5fa" yAxisId="right" strokeWidth={2.5} dot={{ r: 4, fill: "#60a5fa", strokeWidth: 2, stroke: "#0f172a" }} strokeDasharray="6 3" />
-                      <Line type="monotone" dataKey="dials" name="Dials" stroke="#a78bfa" yAxisId="left" strokeWidth={1.5} dot={{ r: 3, fill: "#a78bfa" }} opacity={0.6} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">Intraday Progression</h3>
+                    <div className="flex-1" />
+                    <button onClick={() => navIdDate(-1)} disabled={idDates.indexOf(idDate) >= idDates.length - 1} className="p-0.5 rounded hover:bg-accent text-muted-foreground disabled:opacity-30">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <select value={idDate} onChange={(e) => setIdDate(e.target.value)} className="font-mono text-[10px] bg-background border border-border rounded px-1.5 py-0.5 text-foreground">
+                      {idDates.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    <button onClick={() => navIdDate(1)} disabled={idDates.indexOf(idDate) <= 0} className="p-0.5 rounded hover:bg-accent text-muted-foreground disabled:opacity-30">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                    <span className="text-[9px] font-mono text-muted-foreground">{idPoints.length} snapshots</span>
+                  </div>
+                  {idPoints.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <ComposedChart data={idPoints} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                        <XAxis dataKey="hourLabel" tick={{ fontSize: 11, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} axisLine={false} />
+                        <YAxis yAxisId="left" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#cbd5e1" }} stroke="#334155" tickLine={false} axisLine={false} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#94a3b8" }} stroke="#334155" tickLine={false} axisLine={false} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 11, color: "#e2e8f0" }}
+                          labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+                          itemStyle={{ color: "#e2e8f0" }}
+                          formatter={(value: number, name: string) => {
+                            if (name.includes("Premium")) return ["$" + value.toLocaleString(), name];
+                            return [value, name];
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8", paddingTop: 8 }} />
+                        <Line type="monotone" dataKey="sales" name="Sales" stroke="#34d399" yAxisId="left" strokeWidth={3} dot={{ r: 5, fill: "#34d399", strokeWidth: 2, stroke: "#0f172a" }} activeDot={{ r: 7 }} />
+                        <Line type="monotone" dataKey="premium" name="Premium ($)" stroke="#60a5fa" yAxisId="right" strokeWidth={2.5} dot={{ r: 4, fill: "#60a5fa", strokeWidth: 2, stroke: "#0f172a" }} strokeDasharray="6 3" />
+                        <Line type="monotone" dataKey="dials" name="Dials" stroke="#a78bfa" yAxisId="left" strokeWidth={1.5} dot={{ r: 3, fill: "#a78bfa" }} opacity={0.6} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[280px] flex items-center justify-center border border-dashed border-border rounded-md bg-card/30">
+                      <p className="text-xs font-mono text-muted-foreground">No snapshots for {idDate}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
