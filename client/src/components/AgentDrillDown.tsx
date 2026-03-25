@@ -3,11 +3,11 @@ import { useAgentTrends } from "@/hooks/useAgentTrends";
 import { useData } from "@/contexts/DataContext";
 import { TrendLineChart, TrendBarChart, Sparkline, DeltaBadge } from "@/components/TrendChart";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { calcLeadCost, calcROLI } from "@/lib/types";
 import type { Tier } from "@/lib/types";
@@ -81,11 +81,11 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
   const channelMax = latestDay ? Math.max(latestDay.ibSales, latestDay.obSales, latestDay.customSales, 1) : 1;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[90vw] sm:w-[700px] lg:w-[800px] bg-background border-border overflow-y-auto p-6">
-        <SheetHeader className="pb-4 border-b border-border">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto bg-background border-border p-6">
+        <DialogHeader className="pb-4 border-b border-border">
           <div className="flex items-center justify-between">
-            <SheetTitle className="text-lg font-bold text-foreground">{agentName}</SheetTitle>
+            <DialogTitle className="text-lg font-bold text-foreground">{agentName}</DialogTitle>
             {tierPeers.rank > 0 && (
               <span className="text-[10px] font-mono text-muted-foreground bg-card border border-border rounded px-2 py-1">
                 Rank <span className="text-foreground font-bold">{tierPeers.rank}</span> of {tierPeers.total} in {tier}
@@ -105,7 +105,7 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
             )}
             {site && <span className="text-xs font-mono text-muted-foreground">{site}</span>}
           </div>
-        </SheetHeader>
+        </DialogHeader>
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -235,67 +235,66 @@ export function AgentDrillDown({ agentName, tier, site, open, onOpenChange }: Ag
               </div>
             )}
 
-            {/* Sales & Premium Chart */}
-            <div>
-              <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Sales & Premium</h3>
-              <TrendLineChart
-                data={daily}
-                xKey="date"
-                lines={[
-                  { key: "sales", color: "#34d399", name: "Sales", yAxisId: "left" },
-                  { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
-                ]}
-                dualAxis
-                height={220}
-              />
-            </div>
-
-            {/* Effort Trend Chart */}
-            <div>
-              <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Effort Trend</h3>
-              <TrendBarChart
-                data={daily}
-                xKey="date"
-                bars={[
-                  { key: "dials", color: "#a78bfa", name: "Dials" },
-                  { key: "talkTime", color: "#fbbf24", name: "Talk Time (min)" },
-                ]}
-                height={200}
-              />
-            </div>
-
-            {/* Intraday (if available) */}
-            {intraday.length > 0 && (
-              <div>
-                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Intraday Progression</h3>
+            {/* Charts Grid - 2 columns */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-card border border-border rounded-md p-3">
+                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Sales & Premium</h3>
                 <TrendLineChart
-                  data={intraday}
-                  xKey="hourLabel"
+                  data={daily}
+                  xKey="date"
                   lines={[
                     { key: "sales", color: "#34d399", name: "Sales", yAxisId: "left" },
                     { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
                   ]}
                   dualAxis
-                  height={200}
+                  height={220}
                 />
               </div>
-            )}
 
-            {/* Weekly Summary */}
-            {weekly.length > 0 && (
-              <div>
-                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Weekly</h3>
+              <div className="bg-card border border-border rounded-md p-3">
+                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Effort Trend</h3>
                 <TrendBarChart
-                  data={weekly}
-                  xKey="weekLabel"
-                  bars={[{ key: "sales", color: "#34d399", name: "Sales" }]}
-                  height={180}
+                  data={daily}
+                  xKey="date"
+                  bars={[
+                    { key: "dials", color: "#a78bfa", name: "Dials" },
+                    { key: "talkTime", color: "#fbbf24", name: "Talk Time (min)" },
+                  ]}
+                  height={220}
                 />
               </div>
-            )}
+
+              {intraday.length > 0 && (
+                <div className="bg-card border border-border rounded-md p-3">
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Intraday Progression</h3>
+                  <TrendLineChart
+                    data={intraday}
+                    xKey="hourLabel"
+                    lines={[
+                      { key: "sales", color: "#34d399", name: "Sales", yAxisId: "left" },
+                      { key: "premium", color: "#60a5fa", name: "Premium", yAxisId: "right" },
+                    ]}
+                    dualAxis
+                    height={220}
+                  />
+                </div>
+              )}
+
+              {weekly.length > 0 && (
+                <div className="bg-card border border-border rounded-md p-3">
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">Weekly</h3>
+                  <TrendBarChart
+                    data={weekly}
+                    xKey="weekLabel"
+                    bars={[{ key: "sales", color: "#34d399", name: "Sales" }]}
+                    height={220}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
