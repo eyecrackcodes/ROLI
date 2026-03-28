@@ -17,6 +17,12 @@ export interface DailyTrend {
   customPremium: number;
   closeRate: number;
   pace: number;
+  poolDials: number;
+  poolTalk: number;
+  poolAnswered: number;
+  poolLongCalls: number;
+  poolSelfAssigned: number;
+  poolConnectRate: number;
 }
 
 export interface IntradayPoint {
@@ -31,6 +37,9 @@ export interface IntradayPoint {
   deltaSales: number;
   deltaPremium: number;
   deltaDials: number;
+  poolDials: number;
+  poolTalk: number;
+  deltaPoolDials: number;
 }
 
 export interface WeeklyTrend {
@@ -76,6 +85,20 @@ interface IntradayRow {
   custom_premium: number;
   total_dials: number;
   talk_time_minutes: number;
+  pool_dials: number;
+  pool_talk_minutes: number;
+}
+
+interface PoolDailyRow {
+  scrape_date: string;
+  calls_made: number;
+  talk_time_minutes: number;
+  answered_calls: number;
+  long_calls: number;
+  self_assigned_leads: number;
+  contact_rate: number;
+  sales_made: number;
+  premium: number;
 }
 
 interface SnapshotRow {
@@ -123,35 +146,61 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
 
     const startDate = daysAgoCST(Math.ceil(daysBack * 1.5));
 
-    const { data } = await supabase
-      .from("daily_scrape_data")
-      .select("scrape_date, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
-      .eq("agent_name", agentName)
-      .gte("scrape_date", startDate)
-      .order("scrape_date", { ascending: true });
+    const [{ data }, { data: poolData }] = await Promise.all([
+      supabase
+        .from("daily_scrape_data")
+        .select("scrape_date, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
+        .eq("agent_name", agentName)
+        .gte("scrape_date", startDate)
+        .order("scrape_date", { ascending: true }),
+      supabase
+        .from("leads_pool_daily_data")
+        .select("scrape_date, calls_made, talk_time_minutes, answered_calls, long_calls, self_assigned_leads, contact_rate, sales_made, premium")
+        .eq("agent_name", agentName)
+        .gte("scrape_date", startDate)
+        .order("scrape_date", { ascending: true }),
+    ]);
 
     const rows = (data ?? []) as DailyRow[];
-    setDaily(rows.map((r) => {
-      const totalLeads = r.ib_leads_delivered + r.ob_leads_delivered;
-      const totalSales = r.ib_sales + r.ob_sales;
+    const poolRows = (poolData ?? []) as PoolDailyRow[];
+    const poolByDate = new Map<string, PoolDailyRow>();
+    for (const p of poolRows) poolByDate.set(p.scrape_date, p);
+
+    const allDates = new Set([...rows.map(r => r.scrape_date), ...poolRows.map(r => r.scrape_date)]);
+    const crmByDate = new Map<string, DailyRow>();
+    for (const r of rows) crmByDate.set(r.scrape_date, r);
+
+    const merged: DailyTrend[] = [...allDates].sort().map(date => {
+      const r = crmByDate.get(date);
+      const p = poolByDate.get(date);
+      const totalLeads = (r?.ib_leads_delivered ?? 0) + (r?.ob_leads_delivered ?? 0);
+      const totalSales = (r?.ib_sales ?? 0) + (r?.ob_sales ?? 0);
       return {
-        date: r.scrape_date,
-        sales: totalSales + r.custom_sales,
-        premium: r.ib_premium + r.ob_premium + r.custom_premium,
-        dials: r.total_dials,
-        talkTime: r.talk_time_minutes,
-        ibLeads: r.ib_leads_delivered,
-        obLeads: r.ob_leads_delivered,
-        ibSales: r.ib_sales,
-        obSales: r.ob_sales,
-        customSales: r.custom_sales,
-        ibPremium: r.ib_premium,
-        obPremium: r.ob_premium,
-        customPremium: r.custom_premium,
+        date,
+        sales: totalSales + (r?.custom_sales ?? 0),
+        premium: (r?.ib_premium ?? 0) + (r?.ob_premium ?? 0) + (r?.custom_premium ?? 0),
+        dials: r?.total_dials ?? 0,
+        talkTime: r?.talk_time_minutes ?? 0,
+        ibLeads: r?.ib_leads_delivered ?? 0,
+        obLeads: r?.ob_leads_delivered ?? 0,
+        ibSales: r?.ib_sales ?? 0,
+        obSales: r?.ob_sales ?? 0,
+        customSales: r?.custom_sales ?? 0,
+        ibPremium: r?.ib_premium ?? 0,
+        obPremium: r?.ob_premium ?? 0,
+        customPremium: r?.custom_premium ?? 0,
         closeRate: totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0,
-        pace: totalSales + r.custom_sales,
+        pace: totalSales + (r?.custom_sales ?? 0),
+        poolDials: p?.calls_made ?? 0,
+        poolTalk: p?.talk_time_minutes ?? 0,
+        poolAnswered: p?.answered_calls ?? 0,
+        poolLongCalls: p?.long_calls ?? 0,
+        poolSelfAssigned: p?.self_assigned_leads ?? 0,
+        poolConnectRate: p?.contact_rate ?? 0,
       };
-    }));
+    });
+
+    setDaily(merged);
   }, [agentName, daysBack]);
 
   const fetchIntraday = useCallback(async () => {
@@ -183,7 +232,7 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
 
     const { data, error } = await supabase
       .from("intraday_snapshots")
-      .select("scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
+      .select("scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes, pool_dials, pool_talk_minutes")
       .eq("agent_name", agentName)
       .eq("scrape_date", dateStr)
       .order("scrape_hour", { ascending: true });
@@ -201,9 +250,12 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
       const sales = r.ib_sales + r.ob_sales + r.custom_sales;
       const premium = r.ib_premium + r.ob_premium + r.custom_premium;
       const dials = r.total_dials;
+      const pDials = r.pool_dials ?? 0;
+      const pTalk = r.pool_talk_minutes ?? 0;
       const prevSales = i > 0 ? rows[i - 1].ib_sales + rows[i - 1].ob_sales + rows[i - 1].custom_sales : 0;
       const prevPremium = i > 0 ? rows[i - 1].ib_premium + rows[i - 1].ob_premium + rows[i - 1].custom_premium : 0;
       const prevDials = i > 0 ? rows[i - 1].total_dials : 0;
+      const prevPoolDials = i > 0 ? (rows[i - 1].pool_dials ?? 0) : 0;
       points.push({
         hour: r.scrape_hour,
         hourLabel: HOUR_LABELS[r.scrape_hour] ?? `${r.scrape_hour}:00`,
@@ -216,6 +268,9 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
         deltaSales: sales - prevSales,
         deltaPremium: premium - prevPremium,
         deltaDials: dials - prevDials,
+        poolDials: pDials,
+        poolTalk: pTalk,
+        deltaPoolDials: pDials - prevPoolDials,
       });
     }
     setIntraday(points);

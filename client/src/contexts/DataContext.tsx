@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
-import type { DailyPulseAgent, MonthlyAgent, Tier } from "@/lib/types";
+import type { DailyPulseAgent, MonthlyAgent, Tier, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
 import {
   sampleDailyT1, sampleDailyT2, sampleDailyT3,
   sampleMonthlyT1, sampleMonthlyT2, sampleMonthlyT3,
@@ -46,6 +46,19 @@ interface SnapshotRow {
   rank_in_tier: number | null;
 }
 
+interface PoolDailyRow {
+  agent_name: string;
+  calls_made: number;
+  talk_time_minutes: number;
+  sales_made: number;
+  premium: number;
+  self_assigned_leads: number;
+  answered_calls: number;
+  long_calls: number;
+  contact_rate: number;
+  scrape_date: string;
+}
+
 export interface DateRange {
   start: string;
   end: string;
@@ -86,6 +99,7 @@ interface DataContextType {
   setIsRangeMode: (v: boolean) => void;
   dateRange: DateRange;
   setDateRange: (r: DateRange) => void;
+  poolInventory: PoolInventorySnapshot[];
 }
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -113,11 +127,42 @@ function calcWorkingDaysCompleted(startDate: string, currentDate: string): numbe
   return count;
 }
 
+function buildPoolMetricsMap(poolRows: PoolDailyRow[]): Map<string, PoolMetrics> {
+  const grouped = new Map<string, PoolDailyRow[]>();
+  for (const row of poolRows) {
+    const existing = grouped.get(row.agent_name) ?? [];
+    existing.push(row);
+    grouped.set(row.agent_name, existing);
+  }
+
+  const result = new Map<string, PoolMetrics>();
+  for (const [name, rows] of grouped) {
+    const callsMade = rows.reduce((s, r) => s + r.calls_made, 0);
+    const longCalls = rows.reduce((s, r) => s + r.long_calls, 0);
+    const selfAssigned = rows.reduce((s, r) => s + r.self_assigned_leads, 0);
+    const answeredCalls = rows.reduce((s, r) => s + r.answered_calls, 0);
+
+    result.set(name, {
+      callsMade,
+      talkTimeMin: rows.reduce((s, r) => s + r.talk_time_minutes, 0),
+      salesMade: rows.reduce((s, r) => s + r.sales_made, 0),
+      premium: rows.reduce((s, r) => s + r.premium, 0),
+      selfAssignedLeads: selfAssigned,
+      answeredCalls,
+      longCalls,
+      contactRate: callsMade > 0 ? (answeredCalls / callsMade) * 100 : 0,
+      expectedAssignmentRate: longCalls > 0 ? (selfAssigned / longCalls) * 100 : undefined,
+    });
+  }
+  return result;
+}
+
 function buildPulseAgents(
   rows: DailyScrapeRow[],
   agentMap: Map<string, { name: string; site: string; tier: string }>,
   mtdMap: Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>,
   daysActiveMap?: Map<string, number>,
+  poolMap?: Map<string, PoolMetrics>,
 ): { t1: DailyPulseAgent[]; t2: DailyPulseAgent[]; t3: DailyPulseAgent[] } {
   const t1: DailyPulseAgent[] = [];
   const t2: DailyPulseAgent[] = [];
@@ -130,7 +175,11 @@ function buildPulseAgents(
     grouped.set(row.agent_name, existing);
   }
 
+  // Track which agents we've processed (for pool-only agents)
+  const processedNames = new Set<string>();
+
   for (const [name, agentRows] of grouped) {
+    processedNames.add(name);
     const agent = agentMap.get(name);
     const site = agent?.site ?? "CHA";
     const tier = (agentRows[0].tier as Tier) ?? (agent?.tier as Tier) ?? "T3";
@@ -149,6 +198,7 @@ function buildPulseAgents(
     const totalSales = ibSales + obSales + customSales;
     const totalPremium = ibPrem + obPrem + customPrem;
     const mtd = mtdMap.get(name);
+    const pool = poolMap?.get(name);
 
     const pulseAgent: DailyPulseAgent = {
       name,
@@ -169,11 +219,40 @@ function buildPulseAgents(
       mtdSales: mtd?.mtdSales,
       mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
       daysActive: daysActiveMap?.get(name),
+      pool,
     };
 
     if (tier === "T1") t1.push(pulseAgent);
     else if (tier === "T2") t2.push(pulseAgent);
     else t3.push(pulseAgent);
+  }
+
+  // Add pool-only agents (agents who only have pool activity, no regular scrape data)
+  if (poolMap) {
+    for (const [name, pool] of poolMap) {
+      if (processedNames.has(name)) continue;
+      const agent = agentMap.get(name);
+      if (!agent) continue;
+      const tier = agent.tier as Tier;
+      const mtd = mtdMap.get(name);
+
+      const pulseAgent: DailyPulseAgent = {
+        name,
+        site: agent.site ?? "CHA",
+        tier,
+        salesToday: 0,
+        premiumToday: 0,
+        totalPremium: 0,
+        mtdSales: mtd?.mtdSales,
+        mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
+        daysActive: daysActiveMap?.get(name),
+        pool,
+      };
+
+      if (tier === "T1") t1.push(pulseAgent);
+      else if (tier === "T2") t2.push(pulseAgent);
+      else t3.push(pulseAgent);
+    }
   }
 
   return { t1, t2, t3 };
@@ -197,6 +276,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [isRangeMode, setIsRangeMode] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>({ start: "", end: "" });
+  const [poolInventory, setPoolInventory] = useState<PoolInventorySnapshot[]>([]);
 
   // Fetch available dates + evaluation window on mount, then smart-select date
   useEffect(() => {
@@ -282,17 +362,43 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     try {
       let query = supabase.from("daily_scrape_data").select("*");
+      let poolQuery = supabase.from("leads_pool_daily_data").select("*");
 
       if (isRangeMode && dateRange.start && dateRange.end) {
         query = query.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
+        poolQuery = poolQuery.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
       } else {
         query = query.eq("scrape_date", selectedDate);
+        poolQuery = poolQuery.eq("scrape_date", selectedDate);
       }
 
-      const { data: dailyRows } = await query;
-      const typedRows = (dailyRows ?? []) as DailyScrapeRow[];
+      const [{ data: dailyRows }, { data: poolRows }, { data: inventoryRows }] = await Promise.all([
+        query,
+        poolQuery,
+        supabase
+          .from("leads_pool_inventory")
+          .select("*")
+          .eq("scrape_date", isRangeMode ? dateRange.end : selectedDate)
+          .order("scrape_hour", { ascending: false }),
+      ]);
 
-      if (typedRows.length === 0) {
+      const typedRows = (dailyRows ?? []) as DailyScrapeRow[];
+      const typedPoolRows = (poolRows ?? []) as PoolDailyRow[];
+
+      // Build pool inventory (use latest hour's snapshot)
+      if (inventoryRows && inventoryRows.length > 0) {
+        const latestHour = (inventoryRows as Array<{ scrape_hour: number }>)[0].scrape_hour;
+        const latestInventory = (inventoryRows as Array<{ status: string; total_leads: number; scrape_hour: number }>)
+          .filter((r) => r.scrape_hour === latestHour)
+          .map((r) => ({ status: r.status, totalLeads: r.total_leads }));
+        setPoolInventory(latestInventory);
+      } else {
+        setPoolInventory([]);
+      }
+
+      const poolMap = typedPoolRows.length > 0 ? buildPoolMetricsMap(typedPoolRows) : undefined;
+
+      if (typedRows.length === 0 && !poolMap) {
         setDailyT1([]);
         setDailyT2([]);
         setDailyT3([]);
@@ -318,7 +424,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const { t1, t2, t3 } = buildPulseAgents(typedRows, agentMap, mtdMap, daysActiveMap);
+      const { t1, t2, t3 } = buildPulseAgents(typedRows, agentMap, mtdMap, daysActiveMap, poolMap);
       setDailyT1(t1);
       setDailyT2(t2);
       setDailyT3(t3);
@@ -459,6 +565,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         refreshDaily, refreshMonthly,
         availableDates, isRangeMode, setIsRangeMode,
         dateRange, setDateRange,
+        poolInventory,
       }}
     >
       {children}

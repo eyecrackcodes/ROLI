@@ -157,7 +157,7 @@ export function AgentDrillDown({
     const { data: rows } = await supabase
       .from("intraday_snapshots")
       .select(
-        "scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes"
+        "scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes, pool_dials, pool_talk_minutes"
       )
       .eq("agent_name", agentName)
       .eq("scrape_date", idDate)
@@ -172,12 +172,16 @@ export function AgentDrillDown({
       custom_premium: number;
       total_dials: number;
       talk_time_minutes: number;
+      pool_dials: number;
+      pool_talk_minutes: number;
     }>;
     const pts: IntradayPoint[] = [];
     for (let i = 0; i < raw.length; i++) {
       const r = raw[i];
       const s = r.ib_sales + r.ob_sales + r.custom_sales;
       const p = r.ib_premium + r.ob_premium + r.custom_premium;
+      const pDials = r.pool_dials ?? 0;
+      const pTalk = r.pool_talk_minutes ?? 0;
       const ps =
         i > 0
           ? raw[i - 1].ib_sales + raw[i - 1].ob_sales + raw[i - 1].custom_sales
@@ -189,6 +193,7 @@ export function AgentDrillDown({
             raw[i - 1].custom_premium
           : 0;
       const pd = i > 0 ? raw[i - 1].total_dials : 0;
+      const ppd = i > 0 ? (raw[i - 1].pool_dials ?? 0) : 0;
       pts.push({
         hour: r.scrape_hour,
         hourLabel: ID_HOUR_LABELS[r.scrape_hour] ?? `${r.scrape_hour}:00`,
@@ -201,6 +206,9 @@ export function AgentDrillDown({
         deltaSales: s - ps,
         deltaPremium: p - pp,
         deltaDials: r.total_dials - pd,
+        poolDials: pDials,
+        poolTalk: pTalk,
+        deltaPoolDials: pDials - ppd,
       });
     }
     setIdPoints(pts);
@@ -228,6 +236,9 @@ export function AgentDrillDown({
     const totalOBSales = daily.reduce((s, d) => s + d.obSales, 0);
     const totalDials = daily.reduce((s, d) => s + d.dials, 0);
     const totalTalkTime = daily.reduce((s, d) => s + d.talkTime, 0);
+    const totalPoolDials = daily.reduce((s, d) => s + d.poolDials, 0);
+    const totalPoolTalk = daily.reduce((s, d) => s + d.poolTalk, 0);
+    const totalPoolSA = daily.reduce((s, d) => s + d.poolSelfAssigned, 0);
     const t = (tier ?? "T2") as Tier;
     const leadCost = calcLeadCost(t, totalIBLeads, totalOBLeads);
     const roli = calcROLI(totalPremium, leadCost);
@@ -242,6 +253,9 @@ export function AgentDrillDown({
       cr,
       totalDials,
       totalTalkTime,
+      totalPoolDials,
+      totalPoolTalk,
+      totalPoolSA,
       days: daily.length,
       pace: daily.length > 0 ? totalSales / daily.length : 0,
     };
@@ -458,42 +472,110 @@ export function AgentDrillDown({
                     value={latestDay.ibLeads + latestDay.obLeads}
                     sub={`IB:${latestDay.ibLeads} OB:${latestDay.obLeads}`}
                   />
-                  <StatCard label="Dials" value={latestDay.dials} />
+                  <StatCard
+                    label="Dials"
+                    value={(latestDay.dials + latestDay.poolDials)}
+                    sub={latestDay.poolDials > 0 ? `CRM:${latestDay.dials} Pool:${latestDay.poolDials}` : undefined}
+                  />
                   <StatCard
                     label="Talk Time"
-                    value={`${Math.round(latestDay.talkTime)} min`}
+                    value={`${Math.round(latestDay.talkTime + latestDay.poolTalk)} min`}
+                    sub={latestDay.poolTalk > 0 ? `CRM:${Math.round(latestDay.talkTime)}m Pool:${Math.round(latestDay.poolTalk)}m` : undefined}
                   />
                 </div>
               </div>
             )}
+
+            {/* Leads Pool Activity */}
+            {latestDay && latestDay.poolDials > 0 && (() => {
+              const hasPoolHistory = daily.some(d => d.poolDials > 0);
+              const poolDays = daily.filter(d => d.poolDials > 0);
+              const totPoolDials = poolDays.reduce((s, d) => s + d.poolDials, 0);
+              const totPoolAnswered = poolDays.reduce((s, d) => s + d.poolAnswered, 0);
+              const totPoolLong = poolDays.reduce((s, d) => s + d.poolLongCalls, 0);
+              const totPoolSelfAssigned = poolDays.reduce((s, d) => s + d.poolSelfAssigned, 0);
+              const avgConnectRate = totPoolDials > 0 ? (totPoolAnswered / totPoolDials) * 100 : 0;
+              const assignRate = totPoolLong > 0 ? (totPoolSelfAssigned / totPoolLong) * 100 : 0;
+
+              const funnelSteps = [
+                { label: "Dials", value: latestDay.poolDials, color: "#a78bfa" },
+                { label: "Answered", value: latestDay.poolAnswered, color: "#60a5fa" },
+                { label: "Long Calls", value: latestDay.poolLongCalls, color: "#fbbf24" },
+                { label: "Self-Assigned", value: latestDay.poolSelfAssigned, color: "#34d399" },
+              ];
+              const funnelMax = Math.max(...funnelSteps.map(s => s.value), 1);
+
+              return (
+                <div>
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-cyan-400 mb-2">
+                    Leads Pool Activity
+                  </h3>
+                  <div className="grid grid-cols-4 gap-2 mb-3">
+                    <StatCard
+                      label="Connect Rate"
+                      value={latestDay.poolConnectRate.toFixed(0) + "%"}
+                      sub={hasPoolHistory ? `${poolDays.length}d avg: ${avgConnectRate.toFixed(0)}%` : undefined}
+                      color={latestDay.poolConnectRate >= 50 ? "text-emerald-400" : latestDay.poolConnectRate >= 30 ? "text-amber-400" : "text-red-400"}
+                    />
+                    <StatCard
+                      label="Assign Rate"
+                      value={latestDay.poolLongCalls > 0 ? ((latestDay.poolSelfAssigned / latestDay.poolLongCalls) * 100).toFixed(0) + "%" : "--"}
+                      sub={hasPoolHistory && totPoolLong > 0 ? `${poolDays.length}d avg: ${assignRate.toFixed(0)}%` : "long calls → assigned"}
+                      color={latestDay.poolLongCalls > 0 && (latestDay.poolSelfAssigned / latestDay.poolLongCalls) >= 0.9 ? "text-emerald-400" : "text-amber-400"}
+                    />
+                    <StatCard
+                      label="Self-Assigned"
+                      value={latestDay.poolSelfAssigned}
+                      sub={hasPoolHistory ? `${totPoolSelfAssigned} total (${poolDays.length}d)` : undefined}
+                      color="text-cyan-400"
+                    />
+                    {(() => {
+                      const mpd = latestDay.poolDials > 0 ? latestDay.poolTalk / latestDay.poolDials : 0;
+                      const effColor = mpd > 1 ? "text-amber-400" : mpd >= 0.5 ? "text-emerald-400" : mpd >= 0.3 ? "text-blue-400" : mpd > 0 ? "text-red-400" : undefined;
+                      const effLabel = mpd > 1 ? "Slow — idle/over-noting" : mpd >= 0.5 ? "Healthy workflow" : mpd >= 0.3 ? "Fast — verify quality" : mpd > 0 ? "Rapid skipping risk" : undefined;
+                      return (
+                        <StatCard
+                          label="Pool Efficiency"
+                          value={latestDay.poolDials > 0 ? mpd.toFixed(1) + " min/dial" : "--"}
+                          sub={effLabel ?? `${latestDay.poolDials} dials → ${Math.round(latestDay.poolTalk)} min`}
+                          color={effColor}
+                        />
+                      );
+                    })()}
+                  </div>
+
+                  <div className="p-3 bg-card rounded-md border border-border space-y-2">
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
+                      Today&apos;s Pool Funnel
+                    </span>
+                    {funnelSteps.map(step => (
+                      <ChannelBar
+                        key={step.label}
+                        label={step.label.length > 6 ? step.label.slice(0, 6) : step.label}
+                        value={step.value}
+                        max={funnelMax}
+                        color={step.color}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Sparklines */}
             <div>
               <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">
                 Trends (Last {daily.length} Days)
               </h3>
-              <div className="grid grid-cols-4 gap-2">
+              <div className={cn("grid gap-2", daily.some(d => d.poolDials > 0) ? "grid-cols-5" : "grid-cols-4")}>
                 {[
-                  {
-                    label: "Sales",
-                    data: daily.map(d => d.sales),
-                    color: "#34d399",
-                  },
-                  {
-                    label: "Premium",
-                    data: daily.map(d => d.premium),
-                    color: "#60a5fa",
-                  },
-                  {
-                    label: "CR%",
-                    data: daily.map(d => d.closeRate),
-                    color: "#fbbf24",
-                  },
-                  {
-                    label: "Dials",
-                    data: daily.map(d => d.dials),
-                    color: "#a78bfa",
-                  },
+                  { label: "Sales", data: daily.map(d => d.sales), color: "#34d399" },
+                  { label: "Premium", data: daily.map(d => d.premium), color: "#60a5fa" },
+                  { label: "CR%", data: daily.map(d => d.closeRate), color: "#fbbf24" },
+                  { label: "Total Dials", data: daily.map(d => d.dials + d.poolDials), color: "#a78bfa" },
+                  ...(daily.some(d => d.poolDials > 0)
+                    ? [{ label: "Pool CR%", data: daily.map(d => d.poolConnectRate), color: "#22d3ee" }]
+                    : []),
                 ].map(({ label, data: sparkData, color }) => (
                   <div
                     key={label}
@@ -514,99 +596,95 @@ export function AgentDrillDown({
             </div>
 
             {/* Day-by-Day Table */}
-            {daily.length > 0 && (
-              <div>
-                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">
-                  Day-by-Day
-                </h3>
-                <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-md border border-border">
-                  <table className="w-full text-[11px] font-mono">
-                    <thead className="sticky top-0 bg-card">
-                      <tr className="border-b border-border text-muted-foreground">
-                        <th className="px-2 py-1.5 text-left">Date</th>
-                        <th className="px-2 py-1.5 text-right">Sales</th>
-                        <th className="px-2 py-1.5 text-right">Premium</th>
-                        <th className="px-2 py-1.5 text-right">CR</th>
-                        <th className="px-2 py-1.5 text-right">Dials</th>
-                        <th className="px-2 py-1.5 text-right">Talk</th>
-                        <th className="px-2 py-1.5 text-right">Leads</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...daily].reverse().map((d, i) => (
-                        <tr
-                          key={d.date}
-                          className={cn(
-                            "border-b border-border/30",
-                            i % 2 === 0 ? "bg-transparent" : "bg-card/40"
-                          )}
-                        >
-                          <td className="px-2 py-1.5 text-muted-foreground">
-                            {d.date.slice(5)}
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-foreground font-bold">
-                            {d.sales}
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-foreground">
-                            {fmt(d.premium)}
-                          </td>
-                          <td className="px-2 py-1.5 text-right">
-                            <span
-                              className={cn(
-                                d.closeRate >= 10
-                                  ? "text-emerald-400"
-                                  : d.closeRate >= 5
-                                    ? "text-amber-400"
-                                    : "text-red-400"
-                              )}
-                            >
-                              {d.closeRate.toFixed(1)}%
-                            </span>
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-foreground">
-                            {d.dials}
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-foreground">
-                            {Math.round(d.talkTime)}m
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-muted-foreground">
-                            {d.ibLeads + d.obLeads}
-                          </td>
+            {daily.length > 0 && (() => {
+              const hasPoolData = daily.some(d => d.poolDials > 0);
+              const totSales = daily.reduce((s, d) => s + d.sales, 0);
+              const totPremium = daily.reduce((s, d) => s + d.premium, 0);
+              const totDials = daily.reduce((s, d) => s + d.dials, 0);
+              const totTalk = daily.reduce((s, d) => s + d.talkTime, 0);
+              const totLeads = daily.reduce((s, d) => s + d.ibLeads + d.obLeads, 0);
+              const totIBOBSales = daily.reduce((s, d) => s + d.ibSales + d.obSales, 0);
+              const avgCR = totLeads > 0 ? (totIBOBSales / totLeads) * 100 : 0;
+              const totPoolDials = daily.reduce((s, d) => s + d.poolDials, 0);
+              const totPoolTalk = daily.reduce((s, d) => s + d.poolTalk, 0);
+              const totPoolSA = daily.reduce((s, d) => s + d.poolSelfAssigned, 0);
+
+              return (
+                <div>
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                    Day-by-Day
+                  </h3>
+                  <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-md border border-border">
+                    <table className="w-full text-[11px] font-mono">
+                      <thead className="sticky top-0 bg-card">
+                        <tr className="border-b border-border text-muted-foreground">
+                          <th className="px-2 py-1.5 text-left">Date</th>
+                          <th className="px-2 py-1.5 text-right">Sales</th>
+                          <th className="px-2 py-1.5 text-right">Premium</th>
+                          <th className="px-2 py-1.5 text-right">CR</th>
+                          <th className="px-2 py-1.5 text-right">Dials</th>
+                          {hasPoolData && <th className="px-2 py-1.5 text-right text-cyan-400/70">Pool</th>}
+                          <th className="px-2 py-1.5 text-right">Talk</th>
+                          {hasPoolData && <th className="px-2 py-1.5 text-right text-cyan-400/70">P.Talk</th>}
+                          <th className="px-2 py-1.5 text-right">Leads</th>
+                          {hasPoolData && <th className="px-2 py-1.5 text-right text-cyan-400/70">Self-A</th>}
                         </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="sticky bottom-0 bg-card border-t border-border">
-                      {(() => {
-                        const totSales = daily.reduce((s, d) => s + d.sales, 0);
-                        const totPremium = daily.reduce((s, d) => s + d.premium, 0);
-                        const totDials = daily.reduce((s, d) => s + d.dials, 0);
-                        const totTalk = daily.reduce((s, d) => s + d.talkTime, 0);
-                        const totLeads = daily.reduce((s, d) => s + d.ibLeads + d.obLeads, 0);
-                        const totIBOBSales = daily.reduce((s, d) => s + d.ibSales + d.obSales, 0);
-                        const avgCR = totLeads > 0 ? (totIBOBSales / totLeads) * 100 : 0;
-                        return (
-                          <tr className="text-foreground font-bold">
-                            <td className="px-2 py-1.5 text-left">Total</td>
-                            <td className="px-2 py-1.5 text-right text-emerald-400">{totSales}</td>
-                            <td className="px-2 py-1.5 text-right text-blue-400">{fmt(totPremium)}</td>
+                      </thead>
+                      <tbody>
+                        {[...daily].reverse().map((d, i) => (
+                          <tr
+                            key={d.date}
+                            className={cn(
+                              "border-b border-border/30",
+                              i % 2 === 0 ? "bg-transparent" : "bg-card/40"
+                            )}
+                          >
+                            <td className="px-2 py-1.5 text-muted-foreground">{d.date.slice(5)}</td>
+                            <td className="px-2 py-1.5 text-right text-foreground font-bold">{d.sales}</td>
+                            <td className="px-2 py-1.5 text-right text-foreground">{fmt(d.premium)}</td>
                             <td className="px-2 py-1.5 text-right">
-                              <span className={cn(
-                                avgCR >= 10 ? "text-emerald-400" : avgCR >= 5 ? "text-amber-400" : "text-red-400"
-                              )}>
-                                {avgCR.toFixed(1)}%
+                              <span className={cn(d.closeRate >= 10 ? "text-emerald-400" : d.closeRate >= 5 ? "text-amber-400" : "text-red-400")}>
+                                {d.closeRate.toFixed(1)}%
                               </span>
                             </td>
-                            <td className="px-2 py-1.5 text-right">{totDials}</td>
-                            <td className="px-2 py-1.5 text-right">{Math.round(totTalk)}m</td>
-                            <td className="px-2 py-1.5 text-right">{totLeads}</td>
+                            <td className="px-2 py-1.5 text-right text-foreground">{d.dials}</td>
+                            {hasPoolData && (
+                              <td className="px-2 py-1.5 text-right text-cyan-400">{d.poolDials || ""}</td>
+                            )}
+                            <td className="px-2 py-1.5 text-right text-foreground">{Math.round(d.talkTime)}m</td>
+                            {hasPoolData && (
+                              <td className="px-2 py-1.5 text-right text-cyan-400">{d.poolTalk ? Math.round(d.poolTalk) + "m" : ""}</td>
+                            )}
+                            <td className="px-2 py-1.5 text-right text-muted-foreground">{d.ibLeads + d.obLeads}</td>
+                            {hasPoolData && (
+                              <td className="px-2 py-1.5 text-right text-cyan-400">{d.poolSelfAssigned || ""}</td>
+                            )}
                           </tr>
-                        );
-                      })()}
-                    </tfoot>
-                  </table>
+                        ))}
+                      </tbody>
+                      <tfoot className="sticky bottom-0 bg-card border-t border-border">
+                        <tr className="text-foreground font-bold">
+                          <td className="px-2 py-1.5 text-left">Total</td>
+                          <td className="px-2 py-1.5 text-right text-emerald-400">{totSales}</td>
+                          <td className="px-2 py-1.5 text-right text-blue-400">{fmt(totPremium)}</td>
+                          <td className="px-2 py-1.5 text-right">
+                            <span className={cn(avgCR >= 10 ? "text-emerald-400" : avgCR >= 5 ? "text-amber-400" : "text-red-400")}>
+                              {avgCR.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-right">{totDials}</td>
+                          {hasPoolData && <td className="px-2 py-1.5 text-right text-cyan-400">{totPoolDials}</td>}
+                          <td className="px-2 py-1.5 text-right">{Math.round(totTalk)}m</td>
+                          {hasPoolData && <td className="px-2 py-1.5 text-right text-cyan-400">{Math.round(totPoolTalk)}m</td>}
+                          <td className="px-2 py-1.5 text-right">{totLeads}</td>
+                          {hasPoolData && <td className="px-2 py-1.5 text-right text-cyan-400">{totPoolSA}</td>}
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Charts Grid - 2 columns */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -825,6 +903,18 @@ export function AgentDrillDown({
                           dot={{ r: 3, fill: "#a78bfa" }}
                           opacity={0.6}
                         />
+                        {idPoints.some(p => p.poolDials > 0) && (
+                          <Line
+                            type="monotone"
+                            dataKey="poolDials"
+                            name="Pool Dials"
+                            stroke="#22d3ee"
+                            yAxisId="left"
+                            strokeWidth={2}
+                            dot={{ r: 4, fill: "#22d3ee", strokeWidth: 2, stroke: "#0f172a" }}
+                            strokeDasharray="4 2"
+                          />
+                        )}
                       </ComposedChart>
                     </ResponsiveContainer>
                   ) : (

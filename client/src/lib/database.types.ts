@@ -122,6 +122,12 @@ export type Database = {
           custom_premium: number | null
           total_dials: number | null
           talk_time_minutes: number | null
+          pool_dials: number | null
+          pool_talk_minutes: number | null
+          pool_answered: number | null
+          pool_long_calls: number | null
+          pool_self_assigned: number | null
+          pool_contact_rate: number | null
           created_at: string | null
         }
         Insert: {
@@ -140,6 +146,12 @@ export type Database = {
           custom_premium?: number | null
           total_dials?: number | null
           talk_time_minutes?: number | null
+          pool_dials?: number | null
+          pool_talk_minutes?: number | null
+          pool_answered?: number | null
+          pool_long_calls?: number | null
+          pool_self_assigned?: number | null
+          pool_contact_rate?: number | null
           created_at?: string | null
         }
         Update: {
@@ -158,6 +170,84 @@ export type Database = {
           custom_premium?: number | null
           total_dials?: number | null
           talk_time_minutes?: number | null
+          pool_dials?: number | null
+          pool_talk_minutes?: number | null
+          pool_answered?: number | null
+          pool_long_calls?: number | null
+          pool_self_assigned?: number | null
+          pool_contact_rate?: number | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      leads_pool_daily_data: {
+        Row: {
+          id: string
+          scrape_date: string
+          agent_name: string
+          calls_made: number | null
+          talk_time_minutes: number | null
+          sales_made: number | null
+          premium: number | null
+          self_assigned_leads: number | null
+          answered_calls: number | null
+          long_calls: number | null
+          contact_rate: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          scrape_date: string
+          agent_name: string
+          calls_made?: number | null
+          talk_time_minutes?: number | null
+          sales_made?: number | null
+          premium?: number | null
+          self_assigned_leads?: number | null
+          answered_calls?: number | null
+          long_calls?: number | null
+          contact_rate?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          scrape_date?: string
+          agent_name?: string
+          calls_made?: number | null
+          talk_time_minutes?: number | null
+          sales_made?: number | null
+          premium?: number | null
+          self_assigned_leads?: number | null
+          answered_calls?: number | null
+          long_calls?: number | null
+          contact_rate?: number | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      leads_pool_inventory: {
+        Row: {
+          id: string
+          scrape_date: string
+          scrape_hour: number
+          status: string
+          total_leads: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          scrape_date: string
+          scrape_hour?: number
+          status: string
+          total_leads?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          scrape_date?: string
+          scrape_hour?: number
+          status?: string
+          total_leads?: number | null
           created_at?: string | null
         }
         Relationships: []
@@ -416,6 +506,7 @@ export type Database = {
       }
       ingest_daily_scrape: { Args: { payload: Json }; Returns: Json }
       ingest_intraday_scrape: { Args: { payload: Json }; Returns: Json }
+      ingest_leads_pool_data: { Args: { payload: Json }; Returns: Json }
     }
     Enums: {
       [_ in never]: never

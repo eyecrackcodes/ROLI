@@ -12,6 +12,7 @@ import GateCalculator from "./pages/GateCalculator";
 import DataManager from "./pages/DataManager";
 import AgentTrends from "./pages/AgentTrends";
 import BonusTracker from "./pages/BonusTracker";
+import LeadsPool from "./pages/LeadsPool";
 import Settings from "./pages/Settings";
 
 function Router() {
@@ -22,6 +23,7 @@ function Router() {
         <Route path="/stack-rank" component={MonthlyStackRank} />
         <Route path="/trends" component={AgentTrends} />
         <Route path="/bonus" component={BonusTracker} />
+        <Route path="/leads-pool" component={LeadsPool} />
         <Route path="/gates" component={GateCalculator} />
         <Route path="/data" component={DataManager} />
         <Route path="/settings" component={Settings} />

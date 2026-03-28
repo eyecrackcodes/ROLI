@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap } from "lucide-react";
+import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Users } from "lucide-react";
 import { toast } from "sonner";
 import { exportDailyPulse } from "@/lib/exportExcel";
 import type { Tier, DailyPulseAgent } from "@/lib/types";
@@ -146,6 +146,19 @@ function PaceIndicator({ pace }: { pace: number }) {
   );
 }
 
+function PoolBadge({ pool }: { pool?: DailyPulseAgent["pool"] }) {
+  if (!pool || pool.callsMade === 0) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 ml-1.5 shrink-0"
+      title={`Pool: ${pool.callsMade} calls, ${pool.selfAssignedLeads} assigned, ${pool.longCalls} long calls`}
+    >
+      <Users className="h-2.5 w-2.5" />
+      {pool.callsMade}
+    </span>
+  );
+}
+
 function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => void }) {
   const { dailyT3, workingDaysCompleted } = useData();
   const { sort, toggle } = useSort("talkTime");
@@ -157,6 +170,7 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
   const avgTalkTime = dailyT3.length
     ? dailyT3.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0) / dailyT3.length
     : 0;
+  const poolActiveCount = dailyT3.filter((a) => a.pool && a.pool.callsMade > 0).length;
 
   return (
     <div>
@@ -165,7 +179,7 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
         <MetricCard label="Total Sales" value={totalSales} color="green" />
         <MetricCard label="CR" value={formatCR(totalSales, totalLeads)} color="yellow" />
         <MetricCard label="Avg Talk Time" value={`${avgTalkTime.toFixed(0)} min`} />
-        <MetricCard label="Day" value={`${workingDaysCompleted} of Window`} />
+        <MetricCard label="Day" value={`${workingDaysCompleted} of Window`} subtext={poolActiveCount > 0 ? `${poolActiveCount} in pool` : undefined} />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -196,7 +210,10 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
-                  <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                  <span className="inline-flex items-center">
+                    <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                    <PoolBadge pool={agent.pool} />
+                  </span>
                 </td>
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
@@ -285,7 +302,10 @@ function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
-                  <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                  <span className="inline-flex items-center">
+                    <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                    <PoolBadge pool={agent.pool} />
+                  </span>
                 </td>
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>

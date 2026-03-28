@@ -82,6 +82,25 @@ export interface DailyPulseAgent {
   mtdROLI?: number;
   // Range mode
   daysActive?: number;
+  // Leads Pool metrics
+  pool?: PoolMetrics;
+}
+
+export interface PoolMetrics {
+  callsMade: number;
+  talkTimeMin: number;
+  salesMade: number;
+  premium: number;
+  selfAssignedLeads: number;
+  answeredCalls: number;
+  longCalls: number;
+  contactRate: number;
+  expectedAssignmentRate?: number;
+}
+
+export interface PoolInventorySnapshot {
+  status: string;
+  totalLeads: number;
 }
 
 export interface MonthlyAgent {

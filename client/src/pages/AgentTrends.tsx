@@ -50,20 +50,23 @@ function IntradayTab({ agentName }: { agentName: string }) {
     setLoading(true);
     const { data } = await supabase
       .from("intraday_snapshots")
-      .select("scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
+      .select("scrape_hour, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes, pool_dials, pool_talk_minutes")
       .eq("agent_name", agentName)
       .eq("scrape_date", selectedDate)
       .order("scrape_hour", { ascending: true });
 
-    const rows = (data ?? []) as Array<{ scrape_hour: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; total_dials: number; talk_time_minutes: number }>;
+    const rows = (data ?? []) as Array<{ scrape_hour: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; total_dials: number; talk_time_minutes: number; pool_dials: number; pool_talk_minutes: number }>;
     const points: IntradayPoint[] = [];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const sales = r.ib_sales + r.ob_sales + r.custom_sales;
       const premium = r.ib_premium + r.ob_premium + r.custom_premium;
+      const pDials = r.pool_dials ?? 0;
+      const pTalk = r.pool_talk_minutes ?? 0;
       const prevSales = i > 0 ? rows[i-1].ib_sales + rows[i-1].ob_sales + rows[i-1].custom_sales : 0;
       const prevPremium = i > 0 ? rows[i-1].ib_premium + rows[i-1].ob_premium + rows[i-1].custom_premium : 0;
       const prevDials = i > 0 ? rows[i-1].total_dials : 0;
+      const prevPoolDials = i > 0 ? (rows[i-1].pool_dials ?? 0) : 0;
       points.push({
         hour: r.scrape_hour,
         hourLabel: HOUR_LABELS[r.scrape_hour] ?? `${r.scrape_hour}:00`,
@@ -75,6 +78,9 @@ function IntradayTab({ agentName }: { agentName: string }) {
         deltaSales: sales - prevSales,
         deltaPremium: premium - prevPremium,
         deltaDials: r.total_dials - prevDials,
+        poolDials: pDials,
+        poolTalk: pTalk,
+        deltaPoolDials: pDials - prevPoolDials,
       });
     }
     setIntraday(points);
@@ -171,6 +177,9 @@ function IntradayTab({ agentName }: { agentName: string }) {
             <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#94a3b8", paddingTop: 8 }} />
             <Line type="monotone" dataKey="dials" name="Dials" stroke="#a78bfa" strokeWidth={3} dot={{ r: 5, fill: "#a78bfa", strokeWidth: 2, stroke: "#0f172a" }} activeDot={{ r: 7 }} />
             <Line type="monotone" dataKey="talkTime" name="Talk Time (min)" stroke="#fbbf24" strokeWidth={2.5} dot={{ r: 4, fill: "#fbbf24", strokeWidth: 2, stroke: "#0f172a" }} />
+            {intraday.some(p => p.poolDials > 0) && (
+              <Line type="monotone" dataKey="poolDials" name="Pool Dials" stroke="#22d3ee" strokeWidth={2} dot={{ r: 4, fill: "#22d3ee", strokeWidth: 2, stroke: "#0f172a" }} strokeDasharray="4 2" />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>

@@ -34,6 +34,23 @@ interface AgentRecord {
   talk_time_minutes: number;
 }
 
+interface PoolAgentRecord {
+  agent_name: string;
+  calls_made: number;
+  talk_time_minutes: number;
+  sales_made: number;
+  premium: number;
+  self_assigned_leads: number;
+  answered_calls: number;
+  long_calls: number;
+  contact_rate: number;
+}
+
+interface PoolInventoryRecord {
+  status: string;
+  total_leads: number;
+}
+
 const CRM_BASE = "https://crm.digitalseniorbenefits.com";
 
 const TIERS: Array<{ tier: "T1" | "T2" | "T3"; agencyId: string }> = [
@@ -69,6 +86,13 @@ function buildCallsReportUrl(agencyId: string, scrapeDate: string): string {
   const d = encodeDate(scrapeDate);
   return `${CRM_BASE}/admin-calls-report/?period=custom&start_date=${d}&end_date=${d}&agent_id=all&coach=&agency_id=${agencyId}`;
 }
+
+function buildLeadsPoolReportUrl(scrapeDate: string): string {
+  const d = encodeDate(scrapeDate);
+  return `${CRM_BASE}/admin-leads-pool-report/?period=custom&start_date=${d}&end_date=${d}&agent_id=all&coach=&agency_id=`;
+}
+
+const LEADS_POOL_INVENTORY_URL = `${CRM_BASE}/admin-in-leads-pool-status-report/?status=reports_currently_in_leads_pool_status_default_group`;
 
 function emptyRecord(name: string, tier: "T1" | "T2" | "T3"): AgentRecord {
   return {
@@ -441,6 +465,103 @@ async function scrapeCallsReport(
   }
 }
 
+// ---- Leads Pool Report: HTML table scrape ----
+// Columns: #(0), Agent(1), Calls Made(2), Talk Time(3), Sales Made(4),
+//          Premium(5), Self Assigned Leads(6), Answered Calls(7), Long Calls(8),
+//          Contact Rate(9), View(10)
+
+async function scrapeLeadsPoolReport(
+  page: Page,
+  scrapeDate: string,
+): Promise<PoolAgentRecord[]> {
+  const url = buildLeadsPoolReportUrl(scrapeDate);
+  log.info(`Leads Pool Report: ${url}`);
+  await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+  await page.waitForTimeout(3000);
+  await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
+
+  const headers = await page.$$eval('table thead th', (ths) =>
+    ths.map((th) => th.textContent?.trim().toLowerCase() ?? "")
+  );
+  const rows = await page.$$eval('table tbody tr', (trs) =>
+    trs.map((tr) => {
+      const cells = Array.from(tr.querySelectorAll('td'));
+      return cells.map((td) => td.textContent?.trim() ?? "");
+    })
+  );
+
+  const agentIdx = headers.findIndex((h) => h.includes("agent"));
+  const callsMadeIdx = headers.findIndex((h) => h.includes("calls made"));
+  const talkTimeIdx = headers.findIndex((h) => h.includes("talk time"));
+  const salesIdx = headers.findIndex((h) => h.includes("sales made"));
+  const premiumIdx = headers.findIndex((h) => h.includes("premium"));
+  const selfAssignedIdx = headers.findIndex((h) => h.includes("self assigned"));
+  const answeredIdx = headers.findIndex((h) => h.includes("answered"));
+  const longCallsIdx = headers.findIndex((h) => h.includes("long call"));
+  const contactRateIdx = headers.findIndex((h) => h.includes("contact") && h.includes("rate"));
+
+  log.info(`Leads Pool Report: ${rows.length} rows, columns: agent=${agentIdx}, calls=${callsMadeIdx}, talk=${talkTimeIdx}, sales=${salesIdx}, premium=${premiumIdx}, selfAssigned=${selfAssignedIdx}, answered=${answeredIdx}, long=${longCallsIdx}, contactRate=${contactRateIdx}`);
+
+  const results: PoolAgentRecord[] = [];
+
+  for (const cells of rows) {
+    const agentName = cells[agentIdx >= 0 ? agentIdx : 1]?.trim();
+    if (!agentName || agentName.toLowerCase() === "total" || agentName === "Agent") continue;
+
+    const contactRateRaw = cells[contactRateIdx >= 0 ? contactRateIdx : 9] ?? "0";
+    const contactRateVal = parseNumber(contactRateRaw.replace("%", ""));
+
+    results.push({
+      agent_name: agentName,
+      calls_made: parseNumber(cells[callsMadeIdx >= 0 ? callsMadeIdx : 2]),
+      talk_time_minutes: parseNumber(cells[talkTimeIdx >= 0 ? talkTimeIdx : 3]),
+      sales_made: parseNumber(cells[salesIdx >= 0 ? salesIdx : 4]),
+      premium: parseNumber(cells[premiumIdx >= 0 ? premiumIdx : 5]),
+      self_assigned_leads: parseNumber(cells[selfAssignedIdx >= 0 ? selfAssignedIdx : 6]),
+      answered_calls: parseNumber(cells[answeredIdx >= 0 ? answeredIdx : 7]),
+      long_calls: parseNumber(cells[longCallsIdx >= 0 ? longCallsIdx : 8]),
+      contact_rate: contactRateVal,
+    });
+  }
+
+  log.info(`Leads Pool Report: parsed ${results.length} agent records`);
+  return results;
+}
+
+// ---- Leads Pool Inventory: HTML table scrape ----
+// Columns: Status(0), Total(1)
+
+async function scrapeLeadsPoolInventory(
+  page: Page,
+): Promise<PoolInventoryRecord[]> {
+  log.info(`Leads Pool Inventory: ${LEADS_POOL_INVENTORY_URL}`);
+  await page.goto(LEADS_POOL_INVENTORY_URL, { waitUntil: "networkidle", timeout: 60000 });
+  await page.waitForTimeout(3000);
+  await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
+
+  const rows = await page.$$eval('table tbody tr, table tr:not(:first-child)', (trs) =>
+    trs.map((tr) => {
+      const cells = Array.from(tr.querySelectorAll('td'));
+      return cells.map((td) => td.textContent?.trim() ?? "");
+    })
+  );
+
+  const results: PoolInventoryRecord[] = [];
+
+  for (const cells of rows) {
+    if (cells.length < 2) continue;
+    const status = cells[0]?.trim();
+    if (!status || status.toLowerCase() === "status") continue;
+    const total = parseNumber(cells[1]);
+    if (total > 0) {
+      results.push({ status, total_leads: total });
+    }
+  }
+
+  log.info(`Leads Pool Inventory: ${results.length} status rows, total leads: ${results.reduce((s, r) => s + r.total_leads, 0)}`);
+  return results;
+}
+
 // ---- Main ----
 
 await Actor.init();
@@ -486,12 +607,30 @@ try {
     }
   }
 
+  // ---- Leads Pool (cross-tier, no agency filter) ----
+  let poolAgents: PoolAgentRecord[] = [];
+  let poolInventory: PoolInventoryRecord[] = [];
+
+  try {
+    log.info(`\n========== LEADS POOL REPORT ==========`);
+    poolAgents = await scrapeLeadsPoolReport(page, scrapeDate);
+  } catch (err) {
+    log.error(`Leads Pool Report failed: ${err instanceof Error ? err.message : err}`);
+  }
+
+  try {
+    log.info(`\n========== LEADS POOL INVENTORY ==========`);
+    poolInventory = await scrapeLeadsPoolInventory(page);
+  } catch (err) {
+    log.error(`Leads Pool Inventory failed: ${err instanceof Error ? err.message : err}`);
+  }
+
   await browser.close();
 
   const agents = Array.from(agentMap.values());
   log.info(`\nScraped ${agents.length} total agents across all tiers`);
+  log.info(`Pool agents: ${poolAgents.length}, Pool inventory statuses: ${poolInventory.length}`);
 
-  // Log a summary per tier
   for (const tier of ["T1", "T2", "T3"] as const) {
     const tierAgents = agents.filter((a) => a.tier === tier);
     const totalLeads = tierAgents.reduce((s, a) => s + a.ib_leads_delivered + a.ob_leads_delivered, 0);
@@ -499,11 +638,30 @@ try {
     log.info(`  ${tier}: ${tierAgents.length} agents, ${totalLeads} leads, ${totalSales} sales`);
   }
 
+  if (poolAgents.length > 0) {
+    const totalPoolCalls = poolAgents.reduce((s, a) => s + a.calls_made, 0);
+    const totalSelfAssigned = poolAgents.reduce((s, a) => s + a.self_assigned_leads, 0);
+    const totalLongCalls = poolAgents.reduce((s, a) => s + a.long_calls, 0);
+    log.info(`  Pool: ${totalPoolCalls} calls, ${totalSelfAssigned} self-assigned, ${totalLongCalls} long calls`);
+  }
+
   const dataset = await Actor.openDataset();
+
+  // Push agent records as individual items (backward-compatible with existing n8n pipeline)
   await dataset.pushData(agents);
 
+  // Push pool data as a separate typed item so n8n can distinguish it
+  if (poolAgents.length > 0 || poolInventory.length > 0) {
+    await dataset.pushData({
+      _type: "pool_data",
+      scrape_date: scrapeDate,
+      pool_agents: poolAgents,
+      pool_inventory: poolInventory,
+    });
+  }
+
   const { count } = await dataset.getInfo() ?? { count: 0 };
-  log.info(`Dataset verified: ${count} items stored (expected ${agents.length}). Actor complete.`);
+  log.info(`Dataset verified: ${count} items stored (${agents.length} agents + ${poolAgents.length > 0 ? 1 : 0} pool item). Actor complete.`);
 } catch (err) {
   log.error(`Actor failed: ${err instanceof Error ? err.message : err}`);
   throw err;

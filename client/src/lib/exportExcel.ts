@@ -123,6 +123,41 @@ async function buildWorkbook(configs: ExportConfig[]): Promise<ExcelJS.Workbook>
       });
     });
 
+    // Totals row
+    const totalsRowIdx = headerRowIdx + 1 + config.rows.length;
+    const totalsRow = ws.getRow(totalsRowIdx);
+    const avgFormats = new Set(["percent", "decimal"]);
+
+    config.columns.forEach((col, colIdx) => {
+      const cell = totalsRow.getCell(colIdx + 1);
+
+      if (col.format === "text") {
+        cell.value = colIdx === 0 ? "" : col.key === "name" ? "TOTALS" : "";
+      } else if (col.key === "rank") {
+        cell.value = "";
+      } else {
+        const numericVals = config.rows
+          .map((r) => (typeof r[col.key] === "number" ? (r[col.key] as number) : 0));
+        const nonZero = numericVals.filter((v) => v !== 0);
+
+        if (avgFormats.has(col.format ?? "")) {
+          cell.value = nonZero.length > 0 ? nonZero.reduce((s, v) => s + v, 0) / nonZero.length : 0;
+        } else {
+          cell.value = numericVals.reduce((s, v) => s + v, 0);
+        }
+
+        if (col.format === "currency") cell.numFmt = '"$"#,##0.00';
+        else if (col.format === "percent") cell.numFmt = "0.0%";
+        else if (col.format === "decimal") cell.numFmt = "0.00";
+        else if (col.format === "number") cell.numFmt = "#,##0";
+      }
+
+      cell.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2D2D44" } };
+      cell.alignment = { horizontal: col.format === "text" ? "left" : "center" };
+      cell.border = { top: { style: "thin", color: { argb: "FF333355" } } };
+    });
+
     // Auto-fit column widths where not specified
     config.columns.forEach((col, i) => {
       if (!col.width) {
@@ -156,8 +191,15 @@ export async function exportDailyPulse(
     ibSales: { key: "ibSales", header: "IB Sales", format: "number" as const, gradient: true },
     obLeads: { key: "obLeads", header: "OB Leads", format: "number" as const },
     obSales: { key: "obSales", header: "OB Sales", format: "number" as const, gradient: true },
-    dials: { key: "dials", header: "Dials", format: "number" as const, gradient: true },
-    talkTimeMin: { key: "talkTimeMin", header: "Talk Time", format: "number" as const, gradient: true },
+    dials: { key: "dials", header: "CRM Dials", format: "number" as const, gradient: true },
+    talkTimeMin: { key: "talkTimeMin", header: "CRM Talk", format: "number" as const, gradient: true },
+    poolDials: { key: "poolDials", header: "Pool Dials", format: "number" as const, gradient: true },
+    poolTalk: { key: "poolTalk", header: "Pool Talk", format: "number" as const, gradient: true },
+    totalDials: { key: "totalDials", header: "Total Dials", format: "number" as const, gradient: true },
+    totalTalk: { key: "totalTalk", header: "Total Talk", format: "number" as const, gradient: true },
+    poolConnectRate: { key: "poolConnectRate", header: "Pool CR%", format: "decimal" as const, gradient: true },
+    poolSelfAssigned: { key: "poolSelfAssigned", header: "Self-Assigned", format: "number" as const },
+    poolAssignRate: { key: "poolAssignRate", header: "Assign Rate%", format: "decimal" as const },
     salesToday: { key: "salesToday", header: "Sales", format: "number" as const, gradient: true },
     premiumToday: { key: "premiumToday", header: "Premium", format: "currency" as const, gradient: true },
     bonusSales: { key: "bonusSales", header: "Bonus", format: "number" as const },
@@ -167,6 +209,19 @@ export async function exportDailyPulse(
     mtdROLI: { key: "mtdROLI", header: "MTD ROLI", format: "decimal" as const, gradient: true },
   };
 
+  function flattenWithPool(agent: DailyPulseAgent) {
+    return {
+      ...agent,
+      poolDials: agent.pool?.callsMade ?? 0,
+      poolTalk: Math.round(agent.pool?.talkTimeMin ?? 0),
+      totalDials: (agent.dials ?? 0) + (agent.pool?.callsMade ?? 0),
+      totalTalk: Math.round((agent.talkTimeMin ?? 0) + (agent.pool?.talkTimeMin ?? 0)),
+      poolConnectRate: agent.pool?.contactRate ?? 0,
+      poolSelfAssigned: agent.pool?.selfAssignedLeads ?? 0,
+      poolAssignRate: agent.pool?.expectedAssignmentRate ?? 0,
+    };
+  }
+
   const filterCols = (keys: string[]) => {
     const filtered = selectedColumns
       ? keys.filter((k) => selectedColumns.includes(k))
@@ -175,26 +230,35 @@ export async function exportDailyPulse(
   };
 
   if (selectedTiers.includes("T3") && t3.length > 0) {
-    const sorted = [...t3].sort((a, b) => (b.talkTimeMin ?? 0) - (a.talkTimeMin ?? 0));
+    const hasPool = t3.some(a => a.pool && a.pool.callsMade > 0);
+    const totalTalkSort = (a: DailyPulseAgent) => (a.talkTimeMin ?? 0) + (a.pool?.talkTimeMin ?? 0);
+    const sorted = [...t3].sort((a, b) => totalTalkSort(b) - totalTalkSort(a));
+    const t3Cols = hasPool
+      ? ["rank", "name", "site", "obLeads", "dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk", "poolConnectRate", "poolSelfAssigned", "poolAssignRate", "salesToday", "premiumToday", "totalPremium", "mtdSales", "mtdPace"]
+      : ["rank", "name", "site", "obLeads", "dials", "talkTimeMin", "salesToday", "premiumToday", "totalPremium", "mtdSales", "mtdPace"];
     configs.push({
       title: "Tier 3 — Outbound",
-      subtitle: "Sorted by Talk Time DESC",
+      subtitle: hasPool ? "Sorted by Total Talk DESC · Includes Leads Pool activity" : "Sorted by Talk Time DESC",
       date,
       tier: "T3",
-      columns: filterCols(["rank", "name", "site", "obLeads", "dials", "talkTimeMin", "salesToday", "premiumToday", "totalPremium", "mtdSales", "mtdPace"]),
-      rows: sorted.map((a, i) => ({ rank: i + 1, ...a })),
+      columns: filterCols(t3Cols),
+      rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
     });
   }
 
   if (selectedTiers.includes("T2") && t2.length > 0) {
     const sorted = [...t2].sort((a, b) => b.totalPremium - a.totalPremium);
+    const hasPool = t2.some(a => a.pool && a.pool.callsMade > 0);
+    const t2Cols = hasPool
+      ? ["rank", "name", "site", "ibCalls", "ibSales", "obLeads", "obSales", "dials", "poolDials", "totalDials", "premiumToday", "totalPremium", "mtdROLI"]
+      : ["rank", "name", "site", "ibCalls", "ibSales", "obLeads", "obSales", "premiumToday", "totalPremium", "mtdROLI"];
     configs.push({
       title: "Tier 2 — Hybrid",
-      subtitle: "Sorted by Total Premium DESC",
+      subtitle: hasPool ? "Sorted by Total Premium DESC · Includes Leads Pool activity" : "Sorted by Total Premium DESC",
       date,
       tier: "T2",
-      columns: filterCols(["rank", "name", "site", "ibCalls", "ibSales", "obLeads", "obSales", "premiumToday", "totalPremium", "mtdROLI"]),
-      rows: sorted.map((a, i) => ({ rank: i + 1, ...a })),
+      columns: filterCols(t2Cols),
+      rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
     });
   }
 
@@ -206,7 +270,7 @@ export async function exportDailyPulse(
       date,
       tier: "T1",
       columns: filterCols(["rank", "name", "site", "ibCalls", "salesToday", "premiumToday", "bonusSales", "totalPremium", "mtdROLI"]),
-      rows: sorted.map((a, i) => ({ rank: i + 1, ...a })),
+      rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
     });
   }
 
