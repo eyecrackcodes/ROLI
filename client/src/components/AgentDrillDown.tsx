@@ -494,8 +494,15 @@ export function AgentDrillDown({
               const totPoolAnswered = poolDays.reduce((s, d) => s + d.poolAnswered, 0);
               const totPoolLong = poolDays.reduce((s, d) => s + d.poolLongCalls, 0);
               const totPoolSelfAssigned = poolDays.reduce((s, d) => s + d.poolSelfAssigned, 0);
-              const avgConnectRate = totPoolDials > 0 ? (totPoolAnswered / totPoolDials) * 100 : 0;
-              const assignRate = totPoolLong > 0 ? (totPoolSelfAssigned / totPoolLong) * 100 : 0;
+              const avgContactRate = totPoolDials > 0 ? (totPoolAnswered / totPoolDials) * 100 : 0;
+              const avgConnectRate = totPoolDials > 0
+                ? (Math.max(totPoolLong, totPoolSelfAssigned) / totPoolDials) * 100
+                : 0;
+
+              const todayConnected = Math.max(latestDay.poolLongCalls, latestDay.poolSelfAssigned);
+              const todayConnectRate = latestDay.poolDials > 0 ? (todayConnected / latestDay.poolDials) * 100 : 0;
+              const ghostAssigns = latestDay.poolSelfAssigned - latestDay.poolLongCalls;
+              const isGaming = ghostAssigns > 0;
 
               const funnelSteps = [
                 { label: "Dials", value: latestDay.poolDials, color: "#a78bfa" },
@@ -510,24 +517,26 @@ export function AgentDrillDown({
                   <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-cyan-400 mb-2">
                     Leads Pool Activity
                   </h3>
-                  <div className="grid grid-cols-4 gap-2 mb-3">
+                  <div className="grid grid-cols-5 gap-2 mb-3">
                     <StatCard
-                      label="Connect Rate"
-                      value={latestDay.poolConnectRate.toFixed(0) + "%"}
-                      sub={hasPoolHistory ? `${poolDays.length}d avg: ${avgConnectRate.toFixed(0)}%` : undefined}
-                      color={latestDay.poolConnectRate >= 50 ? "text-emerald-400" : latestDay.poolConnectRate >= 30 ? "text-amber-400" : "text-red-400"}
+                      label="Contact Rate"
+                      value={latestDay.poolContactRate.toFixed(0) + "%"}
+                      sub={hasPoolHistory ? `${poolDays.length}d avg: ${avgContactRate.toFixed(0)}%` : "answered / dials"}
+                      color={latestDay.poolContactRate >= 50 ? "text-emerald-400" : latestDay.poolContactRate >= 30 ? "text-amber-400" : "text-red-400"}
                     />
                     <StatCard
-                      label="Assign Rate"
-                      value={latestDay.poolLongCalls > 0 ? ((latestDay.poolSelfAssigned / latestDay.poolLongCalls) * 100).toFixed(0) + "%" : "--"}
-                      sub={hasPoolHistory && totPoolLong > 0 ? `${poolDays.length}d avg: ${assignRate.toFixed(0)}%` : "long calls → assigned"}
-                      color={latestDay.poolLongCalls > 0 && (latestDay.poolSelfAssigned / latestDay.poolLongCalls) >= 0.9 ? "text-emerald-400" : "text-amber-400"}
+                      label="Connect Rate"
+                      value={todayConnectRate.toFixed(0) + "%"}
+                      sub={hasPoolHistory ? `${poolDays.length}d avg: ${avgConnectRate.toFixed(0)}%` : "connected / dials"}
+                      color={todayConnectRate >= 10 ? "text-emerald-400" : todayConnectRate >= 5 ? "text-amber-400" : "text-red-400"}
                     />
                     <StatCard
                       label="Self-Assigned"
                       value={latestDay.poolSelfAssigned}
-                      sub={hasPoolHistory ? `${totPoolSelfAssigned} total (${poolDays.length}d)` : undefined}
-                      color="text-cyan-400"
+                      sub={isGaming
+                        ? `${ghostAssigns} without long call`
+                        : hasPoolHistory ? `${totPoolSelfAssigned} total (${poolDays.length}d)` : undefined}
+                      color={isGaming ? "text-red-400" : "text-cyan-400"}
                     />
                     {(() => {
                       const mpd = latestDay.poolDials > 0 ? latestDay.poolTalk / latestDay.poolDials : 0;
@@ -542,6 +551,19 @@ export function AgentDrillDown({
                         />
                       );
                     })()}
+                    {isGaming && (
+                      <div className="p-2.5 bg-red-500/10 rounded-md border border-red-500/30">
+                        <span className="text-[9px] font-mono uppercase tracking-widest text-red-400 block">
+                          Gaming Flag
+                        </span>
+                        <span className="text-lg font-mono font-bold text-red-400">
+                          {ghostAssigns}
+                        </span>
+                        <span className="text-[9px] font-mono text-red-400/70 block">
+                          assigns without long calls
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-3 bg-card rounded-md border border-border space-y-2">
@@ -567,14 +589,17 @@ export function AgentDrillDown({
               <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">
                 Trends (Last {daily.length} Days)
               </h3>
-              <div className={cn("grid gap-2", daily.some(d => d.poolDials > 0) ? "grid-cols-5" : "grid-cols-4")}>
+              <div className={cn("grid gap-2", daily.some(d => d.poolDials > 0) ? "grid-cols-6" : "grid-cols-4")}>
                 {[
                   { label: "Sales", data: daily.map(d => d.sales), color: "#34d399" },
                   { label: "Premium", data: daily.map(d => d.premium), color: "#60a5fa" },
                   { label: "CR%", data: daily.map(d => d.closeRate), color: "#fbbf24" },
                   { label: "Total Dials", data: daily.map(d => d.dials + d.poolDials), color: "#a78bfa" },
                   ...(daily.some(d => d.poolDials > 0)
-                    ? [{ label: "Pool CR%", data: daily.map(d => d.poolConnectRate), color: "#22d3ee" }]
+                    ? [
+                        { label: "Contact %", data: daily.map(d => d.poolContactRate), color: "#22d3ee" },
+                        { label: "Connect %", data: daily.map(d => d.poolConnectRate), color: "#f472b6" },
+                      ]
                     : []),
                 ].map(({ label, data: sparkData, color }) => (
                   <div

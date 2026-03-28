@@ -22,6 +22,7 @@ export interface DailyTrend {
   poolAnswered: number;
   poolLongCalls: number;
   poolSelfAssigned: number;
+  poolContactRate: number;
   poolConnectRate: number;
 }
 
@@ -196,7 +197,10 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
         poolAnswered: p?.answered_calls ?? 0,
         poolLongCalls: p?.long_calls ?? 0,
         poolSelfAssigned: p?.self_assigned_leads ?? 0,
-        poolConnectRate: p?.contact_rate ?? 0,
+        poolContactRate: p?.contact_rate ?? 0,
+        poolConnectRate: (p?.calls_made ?? 0) > 0
+          ? (Math.max(p?.long_calls ?? 0, p?.self_assigned_leads ?? 0) / (p?.calls_made ?? 1)) * 100
+          : 0,
       };
     });
 

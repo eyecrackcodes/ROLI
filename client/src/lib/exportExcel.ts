@@ -197,9 +197,10 @@ export async function exportDailyPulse(
     poolTalk: { key: "poolTalk", header: "Pool Talk", format: "number" as const, gradient: true },
     totalDials: { key: "totalDials", header: "Total Dials", format: "number" as const, gradient: true },
     totalTalk: { key: "totalTalk", header: "Total Talk", format: "number" as const, gradient: true },
-    poolConnectRate: { key: "poolConnectRate", header: "Pool CR%", format: "decimal" as const, gradient: true },
+    poolContactRate: { key: "poolContactRate", header: "Contact %", format: "decimal" as const, gradient: true },
+    poolConnectRate: { key: "poolConnectRate", header: "Connect %", format: "decimal" as const, gradient: true },
     poolSelfAssigned: { key: "poolSelfAssigned", header: "Self-Assigned", format: "number" as const },
-    poolAssignRate: { key: "poolAssignRate", header: "Assign Rate%", format: "decimal" as const },
+    poolGhostAssigns: { key: "poolGhostAssigns", header: "No Long Call", format: "number" as const },
     salesToday: { key: "salesToday", header: "Sales", format: "number" as const, gradient: true },
     premiumToday: { key: "premiumToday", header: "Premium", format: "currency" as const, gradient: true },
     bonusSales: { key: "bonusSales", header: "Bonus", format: "number" as const },
@@ -210,15 +211,20 @@ export async function exportDailyPulse(
   };
 
   function flattenWithPool(agent: DailyPulseAgent) {
+    const poolDials = agent.pool?.callsMade ?? 0;
+    const longCalls = agent.pool?.longCalls ?? 0;
+    const selfAssigned = agent.pool?.selfAssignedLeads ?? 0;
+    const connected = Math.max(longCalls, selfAssigned);
     return {
       ...agent,
-      poolDials: agent.pool?.callsMade ?? 0,
+      poolDials,
       poolTalk: Math.round(agent.pool?.talkTimeMin ?? 0),
-      totalDials: (agent.dials ?? 0) + (agent.pool?.callsMade ?? 0),
+      totalDials: (agent.dials ?? 0) + poolDials,
       totalTalk: Math.round((agent.talkTimeMin ?? 0) + (agent.pool?.talkTimeMin ?? 0)),
-      poolConnectRate: agent.pool?.contactRate ?? 0,
-      poolSelfAssigned: agent.pool?.selfAssignedLeads ?? 0,
-      poolAssignRate: agent.pool?.expectedAssignmentRate ?? 0,
+      poolContactRate: agent.pool?.contactRate ?? 0,
+      poolConnectRate: poolDials > 0 ? (connected / poolDials) * 100 : 0,
+      poolSelfAssigned: selfAssigned,
+      poolGhostAssigns: Math.max(0, selfAssigned - longCalls),
     };
   }
 
@@ -234,7 +240,7 @@ export async function exportDailyPulse(
     const totalTalkSort = (a: DailyPulseAgent) => (a.talkTimeMin ?? 0) + (a.pool?.talkTimeMin ?? 0);
     const sorted = [...t3].sort((a, b) => totalTalkSort(b) - totalTalkSort(a));
     const t3Cols = hasPool
-      ? ["rank", "name", "site", "obLeads", "dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk", "poolConnectRate", "poolSelfAssigned", "poolAssignRate", "salesToday", "premiumToday", "totalPremium", "mtdSales", "mtdPace"]
+      ? ["rank", "name", "site", "obLeads", "dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk", "poolContactRate", "poolConnectRate", "poolSelfAssigned", "poolGhostAssigns", "salesToday", "premiumToday", "totalPremium", "mtdSales", "mtdPace"]
       : ["rank", "name", "site", "obLeads", "dials", "talkTimeMin", "salesToday", "premiumToday", "totalPremium", "mtdSales", "mtdPace"];
     configs.push({
       title: "Tier 3 — Outbound",

@@ -264,7 +264,8 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
 
   const poolVelocity = totalPoolLeads > 0 ? ((totalCallsMade / totalPoolLeads) * 100).toFixed(0) : "--";
   const avgCallsPerAgent = agents.length > 0 ? (totalCallsMade / agents.length).toFixed(0) : "--";
-  const connectionRate = totalCallsMade > 0 ? ((totalLongCalls / totalCallsMade) * 100).toFixed(1) : "--";
+  const connected = Math.max(totalLongCalls, totalSelfAssigned);
+  const connectRate = totalCallsMade > 0 ? ((connected / totalCallsMade) * 100).toFixed(1) : "--";
   const contactRate = totalCallsMade > 0 ? ((totalAnswered / totalCallsMade) * 100).toFixed(0) : "--";
 
   return (
@@ -287,10 +288,10 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
         subtext={`${totalAnswered} answered`}
       />
       <MetricCard
-        label="Connection Rate"
-        value={`${connectionRate}%`}
-        color={Number(connectionRate) >= 5 ? "green" : "amber"}
-        subtext={`${totalLongCalls} long calls (>2m)`}
+        label="Connect Rate"
+        value={`${connectRate}%`}
+        color={Number(connectRate) >= 5 ? "green" : "amber"}
+        subtext={`${connected} connected (max of long calls, assigns)`}
       />
       <MetricCard
         label="Self Assigned"
