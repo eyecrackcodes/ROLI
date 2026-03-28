@@ -539,14 +539,15 @@ export function AgentDrillDown({
                       color={isGaming ? "text-red-400" : "text-cyan-400"}
                     />
                     {(() => {
-                      const mpd = latestDay.poolDials > 0 ? latestDay.poolTalk / latestDay.poolDials : 0;
-                      const effColor = mpd > 1 ? "text-amber-400" : mpd >= 0.5 ? "text-emerald-400" : mpd >= 0.3 ? "text-blue-400" : mpd > 0 ? "text-red-400" : undefined;
-                      const effLabel = mpd > 1 ? "Slow — idle/over-noting" : mpd >= 0.5 ? "Healthy workflow" : mpd >= 0.3 ? "Fast — verify quality" : mpd > 0 ? "Rapid skipping risk" : undefined;
+                      const mpa = latestDay.poolAnswered > 0 ? latestDay.poolTalk / latestDay.poolAnswered : 0;
+                      const effColor = mpa > 3 ? "text-amber-400" : mpa >= 1 ? "text-emerald-400" : mpa >= 0.5 ? "text-blue-400" : mpa > 0 ? "text-red-400" : undefined;
+                      const effLabel = mpa > 3 ? "Long convos — thorough or slow" : mpa >= 1 ? "Healthy workflow" : mpa >= 0.5 ? "Short — quick disqualify?" : mpa > 0 ? "Hanging up on answers" : undefined;
+                      const dialYield = latestDay.poolDials > 0 ? (latestDay.poolTalk / latestDay.poolDials).toFixed(1) : "0";
                       return (
                         <StatCard
                           label="Pool Efficiency"
-                          value={latestDay.poolDials > 0 ? mpd.toFixed(1) + " min/dial" : "--"}
-                          sub={effLabel ?? `${latestDay.poolDials} dials → ${Math.round(latestDay.poolTalk)} min`}
+                          value={latestDay.poolAnswered > 0 ? mpa.toFixed(1) + " min/answer" : "--"}
+                          sub={effLabel ? `${effLabel} · ${dialYield} min/dial yield` : `${latestDay.poolAnswered} answered → ${Math.round(latestDay.poolTalk)} min`}
                           color={effColor}
                         />
                       );

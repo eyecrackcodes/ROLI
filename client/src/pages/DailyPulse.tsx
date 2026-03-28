@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Users } from "lucide-react";
 import { toast } from "sonner";
-import { exportDailyPulse } from "@/lib/exportExcel";
+import { exportDailyPulse, fetchAndExportPulse, SORT_LABELS, type SortKey, type ExportOptions } from "@/lib/exportExcel";
 import type { Tier, DailyPulseAgent } from "@/lib/types";
 
 type SortDir = "asc" | "desc";
@@ -438,12 +438,20 @@ function ExportDialog({
   open,
   onOpenChange,
   onExport,
+  availableDates,
+  currentDate,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onExport: (tiers: Tier[]) => void;
+  onExport: (opts: ExportOptions) => void;
+  availableDates: string[];
+  currentDate: string;
 }) {
   const [tiers, setTiers] = useState<Tier[]>(["T1", "T2", "T3"]);
+  const [sortBy, setSortBy] = useState<SortKey>("totalPremium");
+  const [startDate, setStartDate] = useState(currentDate);
+  const [endDate, setEndDate] = useState(currentDate);
+  const isRange = startDate !== endDate;
 
   const toggleTier = (tier: Tier) => {
     setTiers((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
@@ -451,31 +459,81 @@ function ExportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-card border-border max-w-sm">
+      <DialogContent className="bg-card border-border max-w-md">
         <DialogHeader>
           <DialogTitle className="font-mono text-sm uppercase tracking-widest">
             Export Daily Pulse
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
-          <p className="text-xs font-mono text-muted-foreground">
-            Select tiers to include in the export. Each tier gets its own sheet with red-to-green gradient formatting.
-          </p>
-          <div className="flex gap-2">
-            {(["T1", "T2", "T3"] as Tier[]).map((tier) => (
-              <Button
-                key={tier}
-                variant={tiers.includes(tier) ? "default" : "outline"}
-                size="sm"
-                onClick={() => toggleTier(tier)}
-                className={cn(
-                  "font-mono text-xs",
-                  tiers.includes(tier) && "bg-blue-600 hover:bg-blue-700"
-                )}
-              >
-                {tier}
-              </Button>
-            ))}
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground block mb-1.5">Date Range</span>
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="font-mono text-xs bg-background flex-1"
+                max={availableDates[0]}
+                min={availableDates[availableDates.length - 1]}
+              />
+              <span className="text-xs font-mono text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="font-mono text-xs bg-background flex-1"
+                max={availableDates[0]}
+                min={startDate}
+              />
+            </div>
+            {isRange && (
+              <span className="text-[10px] font-mono text-blue-400 mt-1 block">
+                Range mode: data will be aggregated across {Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} days
+              </span>
+            )}
+          </div>
+
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground block mb-1.5">Tiers</span>
+            <div className="flex gap-2">
+              {(["T1", "T2", "T3"] as Tier[]).map((tier) => (
+                <Button
+                  key={tier}
+                  variant={tiers.includes(tier) ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => toggleTier(tier)}
+                  className={cn(
+                    "font-mono text-xs",
+                    tiers.includes(tier) && (
+                      tier === "T1" ? "bg-blue-600 hover:bg-blue-700" :
+                      tier === "T2" ? "bg-emerald-600 hover:bg-emerald-700" :
+                      "bg-amber-600 hover:bg-amber-700"
+                    )
+                  )}
+                >
+                  {tier} — {tier === "T1" ? "Inbound" : tier === "T2" ? "Hybrid" : "Outbound"}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground block mb-1.5">Sort By</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              className="w-full font-mono text-xs bg-background border border-border rounded-md px-3 py-2 text-foreground"
+            >
+              {(Object.entries(SORT_LABELS) as [SortKey, string][]).map(([key, label]) => (
+                <option key={key} value={key}>{label} (DESC)</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="bg-card/50 border border-border rounded-md p-2.5 text-[10px] font-mono text-muted-foreground space-y-0.5">
+            <p>Each tier exports to its own sheet with conversion metrics (Close Rate, IB CR%, OB CR%).</p>
+            <p>Pool activity columns auto-included when pool data exists.</p>
           </div>
         </div>
         <DialogFooter>
@@ -483,8 +541,8 @@ function ExportDialog({
             CANCEL
           </Button>
           <Button
-            onClick={() => { onExport(tiers); onOpenChange(false); }}
-            disabled={tiers.length === 0}
+            onClick={() => { onExport({ tiers, sortBy, startDate, endDate }); onOpenChange(false); }}
+            disabled={tiers.length === 0 || !startDate || !endDate}
             className="font-mono text-sm bg-emerald-600 hover:bg-emerald-700 gap-1.5"
           >
             <Download className="h-3.5 w-3.5" />
@@ -533,9 +591,17 @@ export default function DailyPulse() {
   const isOnLatest = data.selectedDate === latestDate;
   const isWithinWindow = data.selectedDate >= data.windowStart && data.selectedDate <= data.windowEnd;
 
-  const handleExport = async (tiers: Tier[]) => {
+  const handleExport = async (opts: ExportOptions) => {
     try {
-      await exportDailyPulse(data.dailyT1, data.dailyT2, data.dailyT3, data.selectedDate, tiers);
+      const isSingleDay = opts.startDate === opts.endDate;
+      const matchesCurrentView = isSingleDay && opts.startDate === data.selectedDate;
+
+      if (matchesCurrentView) {
+        await exportDailyPulse(data.dailyT1, data.dailyT2, data.dailyT3, opts);
+      } else {
+        await fetchAndExportPulse(opts);
+      }
+      toast.success("Export complete");
     } catch {
       toast.error("Export failed");
     }
@@ -751,6 +817,8 @@ export default function DailyPulse() {
         open={showExport}
         onOpenChange={setShowExport}
         onExport={handleExport}
+        availableDates={data.availableDates}
+        currentDate={data.selectedDate}
       />
 
       <AgentDrillDown
