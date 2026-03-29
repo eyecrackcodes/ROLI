@@ -409,15 +409,15 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
       .lte("scrape_date", endDate),
     supabase
       .from("agents")
-      .select("name, site, tier")
-      .eq("is_active", true),
+      .select("name, site, tier, is_active, terminated_date"),
   ]);
 
   const typedDaily = (dailyRows ?? []) as ScrapeRow[];
   const typedPool = (poolRows ?? []) as PoolRow[];
   const agentMap = new Map<string, { name: string; site: string; tier: string }>();
-  for (const a of (agents ?? []) as Array<{ name: string; site: string; tier: string }>) {
-    agentMap.set(a.name, a);
+  for (const a of (agents ?? []) as Array<{ name: string; site: string; tier: string; is_active: boolean; terminated_date: string | null }>) {
+    if (a.is_active) { agentMap.set(a.name, a); continue; }
+    if (a.terminated_date && startDate < a.terminated_date) agentMap.set(a.name, a);
   }
 
   const poolMap = new Map<string, PoolMetrics>();

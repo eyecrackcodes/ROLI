@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 // ---- Agent Roster Tab ----
 
 function AgentRosterTab() {
-  const { agents, loading, addAgent, updateAgent, toggleActive, bulkImport } = useAgents();
+  const { agents, loading, addAgent, updateAgent, toggleActive, terminateAgent, bulkImport } = useAgents();
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -167,7 +167,7 @@ function AgentRosterTab() {
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Site</th>
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Tier</th>
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Daily Vol</th>
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-center">Active</th>
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-center">Status</th>
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Actions</th>
             </tr>
           </thead>
@@ -195,13 +195,42 @@ function AgentRosterTab() {
                 </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.daily_lead_volume}</td>
                 <td className="px-3 py-2.5 text-center">
-                  <Switch
-                    checked={agent.is_active}
-                    onCheckedChange={(v) => toggleActive(agent.id, v)}
-                    className="scale-75"
-                  />
+                  <div className="flex items-center justify-center gap-2">
+                    <Switch
+                      checked={agent.is_active}
+                      onCheckedChange={(v) => toggleActive(agent.id, v)}
+                      className="scale-75"
+                    />
+                    {agent.terminated_date && (
+                      <span className="text-[9px] font-mono text-red-400" title={`Terminated ${agent.terminated_date}`}>
+                        {agent.terminated_date.slice(5)}
+                      </span>
+                    )}
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-right">
+                <td className="px-3 py-2.5 text-right flex items-center justify-end gap-1">
+                  {agent.is_active ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const date = prompt("Terminate agent — enter last active date (YYYY-MM-DD):", new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }));
+                        if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) terminateAgent(agent.id, date);
+                      }}
+                      className="font-mono text-[10px] h-7 px-2 text-red-400 hover:text-red-300"
+                    >
+                      TERM
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => terminateAgent(agent.id, null)}
+                      className="font-mono text-[10px] h-7 px-2 text-emerald-400 hover:text-emerald-300"
+                    >
+                      REACTIVATE
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"

@@ -545,7 +545,10 @@ function PipelineTab({ agentName }: { agentName: string }) {
 export default function AgentTrends() {
   const { agents } = useAgents();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const activeAgents = agents.filter((a) => a.is_active).sort((a, b) => a.tier.localeCompare(b.tier) || a.name.localeCompare(b.name));
+  const activeAgents = agents.filter((a) => a.is_active || a.terminated_date).sort((a, b) => {
+    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+    return a.tier.localeCompare(b.tier) || a.name.localeCompare(b.name);
+  });
 
   useEffect(() => {
     if (!selectedAgent && activeAgents.length > 0) {

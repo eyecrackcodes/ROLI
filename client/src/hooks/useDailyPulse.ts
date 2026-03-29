@@ -63,13 +63,17 @@ export function useDailyPulse(windowStartDate?: string): UseDailyPulseReturn {
 
       const { data: agents, error: agentError } = await supabase
         .from("agents")
-        .select("name, site, tier")
-        .eq("is_active", true);
+        .select("name, site, tier, is_active, terminated_date");
 
       if (agentError) throw agentError;
 
       const typedRows = (dailyRows ?? []) as DailyScrapeRow[];
-      const typedAgents = (agents ?? []) as AgentRow[];
+      const allAgents = (agents ?? []) as (AgentRow & { is_active: boolean; terminated_date: string | null })[];
+      const typedAgents = allAgents.filter((a) => {
+        if (a.is_active) return true;
+        if (a.terminated_date && selectedDate < a.terminated_date) return true;
+        return false;
+      });
       const agentMap = new Map(typedAgents.map((a) => [a.name, a]));
 
       let mtdMap = new Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>();

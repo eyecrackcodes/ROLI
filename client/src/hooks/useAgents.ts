@@ -8,11 +8,12 @@ export interface Agent {
   tier: "T1" | "T2" | "T3";
   daily_lead_volume: number;
   is_active: boolean;
+  terminated_date: string | null;
   created_at: string;
   updated_at: string;
 }
 
-type AgentInput = Omit<Agent, "id" | "created_at" | "updated_at">;
+type AgentInput = Omit<Agent, "id" | "created_at" | "updated_at" | "terminated_date">;
 
 interface UseAgentsReturn {
   agents: Agent[];
@@ -21,6 +22,7 @@ interface UseAgentsReturn {
   addAgent: (agent: AgentInput) => Promise<void>;
   updateAgent: (id: string, updates: Partial<Agent>) => Promise<void>;
   toggleActive: (id: string, isActive: boolean) => Promise<void>;
+  terminateAgent: (id: string, date: string | null) => Promise<void>;
   bulkImport: (agents: AgentInput[]) => Promise<void>;
   refetch: () => Promise<void>;
 }
@@ -79,9 +81,33 @@ export function useAgents(): UseAgentsReturn {
   const toggleActive = useCallback(
     async (id: string, isActive: boolean) => {
       if (!isSupabaseConfigured) return;
+      const updates: Record<string, unknown> = { is_active: isActive };
+      if (!isActive) {
+        const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+        updates.terminated_date = today;
+      } else {
+        updates.terminated_date = null;
+      }
       const { error: updateErr } = await supabase
         .from("agents")
-        .update({ is_active: isActive } as Record<string, unknown>)
+        .update(updates)
+        .eq("id", id);
+      if (updateErr) throw updateErr;
+      await fetchAgents();
+    },
+    [fetchAgents]
+  );
+
+  const terminateAgent = useCallback(
+    async (id: string, date: string | null) => {
+      if (!isSupabaseConfigured) return;
+      const updates: Record<string, unknown> = {
+        terminated_date: date,
+        is_active: date ? false : true,
+      };
+      const { error: updateErr } = await supabase
+        .from("agents")
+        .update(updates)
         .eq("id", id);
       if (updateErr) throw updateErr;
       await fetchAgents();
@@ -105,5 +131,5 @@ export function useAgents(): UseAgentsReturn {
     fetchAgents();
   }, [fetchAgents]);
 
-  return { agents, loading, error, addAgent, updateAgent, toggleActive, bulkImport, refetch: fetchAgents };
+  return { agents, loading, error, addAgent, updateAgent, toggleActive, terminateAgent, bulkImport, refetch: fetchAgents };
 }

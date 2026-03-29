@@ -336,10 +336,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const fetchAgentMap = useCallback(async () => {
     const { data: agents } = await supabase
       .from("agents")
-      .select("name, site, tier")
-      .eq("is_active", true);
-    return new Map((agents ?? []).map((a: { name: string; site: string; tier: string }) => [a.name, a]));
-  }, []);
+      .select("name, site, tier, is_active, terminated_date");
+
+    const targetDate = isRangeMode ? dateRange.end : selectedDate;
+    const filtered = (agents ?? []).filter((a: { is_active: boolean; terminated_date: string | null }) => {
+      if (a.is_active) return true;
+      if (a.terminated_date && targetDate < a.terminated_date) return true;
+      return false;
+    });
+
+    return new Map(filtered.map((a: { name: string; site: string; tier: string }) => [a.name, a]));
+  }, [selectedDate, isRangeMode, dateRange]);
 
   const fetchMtdMap = useCallback(async (endDate: string) => {
     const mtdMap = new Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>();
