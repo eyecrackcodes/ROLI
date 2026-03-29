@@ -1,5 +1,7 @@
 import ExcelJS from "exceljs";
 import type { DailyPulseAgent, MonthlyAgent, Tier, PoolMetrics } from "./types";
+import type { PipelineAgent, HealthGrade, BehavioralFlag } from "./pipelineIntelligence";
+import { FLAG_META } from "./pipelineIntelligence";
 import { supabase, isSupabaseConfigured } from "./supabase";
 
 type ExportableRow = Record<string, string | number | undefined>;
@@ -605,6 +607,96 @@ export async function exportMonthlyStackRank(
   const a = document.createElement("a");
   a.href = url;
   a.download = `DSB-Stack-Rank-${windowName.replace(/\s/g, "-")}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---- Pipeline Intelligence Export ----
+
+const PIPELINE_COLS = [
+  { key: "name", header: "Agent", width: 22, format: "text" as const },
+  { key: "tier", header: "Tier", width: 6, format: "text" as const },
+  { key: "site", header: "Site", width: 6, format: "text" as const },
+  { key: "healthScore", header: "Health Score", width: 14, format: "number" as const, gradient: true },
+  { key: "healthGrade", header: "Grade", width: 8, format: "text" as const },
+  { key: "flags", header: "Flags", width: 30, format: "text" as const },
+  { key: "followUpDiscipline", header: "F/U Discipline", width: 14, format: "decimal" as const },
+  { key: "pipelineFreshness", header: "Freshness", width: 12, format: "decimal" as const },
+  { key: "workRate", header: "Work Rate", width: 12, format: "decimal" as const },
+  { key: "conversionEfficiency", header: "Conversion", width: 12, format: "decimal" as const },
+  { key: "pastDue", header: "Past Due", width: 10, format: "number" as const },
+  { key: "newLeads", header: "New Leads", width: 10, format: "number" as const },
+  { key: "callQueue", header: "Call Queue", width: 10, format: "number" as const },
+  { key: "todaysFollowUps", header: "Today F/U", width: 10, format: "number" as const },
+  { key: "totalStale", header: "Stale", width: 8, format: "number" as const },
+  { key: "postSaleLeads", header: "Post-Sale", width: 10, format: "number" as const },
+  { key: "totalDials", header: "CRM Dials", width: 10, format: "number" as const },
+  { key: "poolDials", header: "Pool Dials", width: 10, format: "number" as const },
+  { key: "combinedDials", header: "Total Dials", width: 10, format: "number" as const },
+  { key: "totalSales", header: "Sales", width: 8, format: "number" as const },
+  { key: "totalPremium", header: "Premium", width: 12, format: "currency" as const },
+  { key: "revenueAtRisk", header: "Rev at Risk", width: 12, format: "currency" as const, gradient: true },
+  { key: "projectedRecovery", header: "Proj. Recovery $", width: 14, format: "currency" as const, gradient: true },
+  { key: "wasteRatio", header: "Waste %", width: 10, format: "decimal" as const },
+  { key: "followUpCompliance", header: "F/U Compl %", width: 12, format: "decimal" as const },
+];
+
+function flattenPipelineAgent(agent: PipelineAgent): ExportableRow {
+  return {
+    name: agent.name,
+    tier: agent.tier,
+    site: agent.site === "AUS" ? "ATX" : agent.site === "CHA" ? "CLT" : agent.site,
+    healthScore: agent.healthScore,
+    healthGrade: agent.healthGrade,
+    flags: agent.flags.map((f: BehavioralFlag) => FLAG_META[f].label).join(", ") || "--",
+    followUpDiscipline: agent.followUpDiscipline,
+    pipelineFreshness: agent.pipelineFreshness,
+    workRate: agent.workRate,
+    conversionEfficiency: agent.conversionEfficiency,
+    pastDue: agent.pastDue,
+    newLeads: agent.newLeads,
+    callQueue: agent.callQueue,
+    todaysFollowUps: agent.todaysFollowUps,
+    totalStale: agent.totalStale,
+    postSaleLeads: agent.postSaleLeads,
+    totalDials: agent.totalDials,
+    poolDials: agent.poolDials,
+    combinedDials: agent.totalDials + agent.poolDials,
+    totalSales: agent.totalSales,
+    totalPremium: agent.totalPremium,
+    revenueAtRisk: agent.revenueAtRisk,
+    projectedRecovery: agent.projectedRecovery,
+    wasteRatio: agent.wasteRatio,
+    followUpCompliance: agent.followUpCompliance,
+  };
+}
+
+export async function exportPipelineIntelligence(
+  agents: PipelineAgent[],
+  date: string,
+): Promise<void> {
+  const sorted = [...agents].sort((a, b) => b.healthScore - a.healthScore);
+  const rows = sorted.map(flattenPipelineAgent);
+
+  const totalRisk = agents.reduce((s, a) => s + a.revenueAtRisk, 0);
+  const totalRecovery = agents.reduce((s, a) => s + a.projectedRecovery, 0);
+  const avgHealth = agents.length > 0 ? Math.round(agents.reduce((s, a) => s + a.healthScore, 0) / agents.length) : 0;
+
+  const configs: ExportConfig[] = [{
+    title: "Pipeline Intelligence Report",
+    subtitle: `${date} | ${agents.length} agents | Avg Health: ${avgHealth} | Rev at Risk: $${Math.round(totalRisk).toLocaleString()} | Proj Recovery: $${Math.round(totalRecovery).toLocaleString()}`,
+    date,
+    columns: PIPELINE_COLS,
+    rows,
+  }];
+
+  const workbook = await buildWorkbook(configs);
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `DSB-Pipeline-Intel-${date}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }

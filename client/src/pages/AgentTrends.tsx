@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAgentTrends, type IntradayPoint } from "@/hooks/useAgentTrends";
+import { useAgentTrends, type IntradayPoint, type PipelineTrend } from "@/hooks/useAgentTrends";
 import { useAgents, type Agent } from "@/hooks/useAgents";
 import { TrendLineChart, TrendBarChart, DeltaBadge, Sparkline } from "@/components/TrendChart";
 import { MetricCard } from "@/components/MetricCard";
@@ -398,6 +398,150 @@ function MonthOverMonthTab({ agentName }: { agentName: string }) {
   );
 }
 
+function PipelineTab({ agentName }: { agentName: string }) {
+  const { pipelineTrends, loading } = useAgentTrends(agentName, 14);
+
+  if (loading) return <p className="text-sm font-mono text-muted-foreground animate-pulse p-8 text-center">Loading...</p>;
+
+  if (pipelineTrends.length === 0) {
+    return (
+      <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
+        <p className="text-sm font-mono text-muted-foreground text-center">
+          No pipeline compliance data for this agent yet. Run the Pipeline Compliance scraper to populate.
+        </p>
+      </div>
+    );
+  }
+
+  const latest = pipelineTrends[pipelineTrends.length - 1];
+  const prev = pipelineTrends.length >= 2 ? pipelineTrends[pipelineTrends.length - 2] : null;
+  const staleDelta = prev ? latest.totalStale - prev.totalStale : null;
+  const riskDelta = prev ? latest.revenueAtRisk - prev.revenueAtRisk : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <MetricCard
+          label="Total Stale"
+          value={latest.totalStale}
+          color={latest.totalStale > 100 ? "red" : latest.totalStale > 50 ? "amber" : "green"}
+          subtext={staleDelta !== null ? <DeltaBadge value={staleDelta} invert /> : `${pipelineTrends.length} days tracked`}
+        />
+        <MetricCard
+          label="Revenue at Risk"
+          value={formatCurrency(latest.revenueAtRisk)}
+          color="red"
+          subtext={riskDelta !== null ? <DeltaBadge value={riskDelta} format="currency" invert /> : undefined}
+        />
+        <MetricCard
+          label="Projected Recovery"
+          value={formatCurrency(latest.projectedRecovery)}
+          color="green"
+        />
+        <MetricCard
+          label="Past Due"
+          value={latest.pastDue}
+          color={latest.pastDue > 50 ? "red" : latest.pastDue > 20 ? "amber" : "green"}
+          subtext={`Queue: ${latest.callQueue} | New: ${latest.newLeads}`}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-card border border-border rounded-md p-4">
+          <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">
+            Pipeline Composition
+          </h3>
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={pipelineTrends} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                tickFormatter={(d: string) => d.slice(5)}
+                stroke="#334155" tickLine={false} axisLine={false}
+              />
+              <YAxis tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#94a3b8" }} stroke="#334155" tickLine={false} axisLine={false} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 10, color: "#e2e8f0" }}
+                labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+              />
+              <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
+              <Bar dataKey="pastDue" name="Past Due" fill="#ef4444" stackId="pipe" />
+              <Bar dataKey="callQueue" name="Call Queue" fill="#f59e0b" stackId="pipe" />
+              <Bar dataKey="newLeads" name="New Leads" fill="#22c55e" stackId="pipe" />
+              <Line type="monotone" dataKey="totalStale" name="Stale" stroke="#a78bfa" strokeWidth={2.5} dot={{ r: 4, fill: "#a78bfa", strokeWidth: 2, stroke: "#0f172a" }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-card border border-border rounded-md p-4">
+          <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">
+            Revenue Impact
+          </h3>
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={pipelineTrends} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                tickFormatter={(d: string) => d.slice(5)}
+                stroke="#334155" tickLine={false} axisLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                stroke="#334155" tickLine={false} axisLine={false}
+                tickFormatter={(v: number) => "$" + (v / 1000).toFixed(0) + "k"}
+              />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 10, color: "#e2e8f0" }}
+                labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+                formatter={(value: number, name: string) => ["$" + Math.round(value).toLocaleString(), name]}
+              />
+              <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
+              <Bar dataKey="revenueAtRisk" name="Rev at Risk" fill="#ef444480" />
+              <Bar dataKey="projectedRecovery" name="Proj. Recovery" fill="#22c55e80" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Day-by-day pipeline table */}
+      <div className="bg-card border border-border rounded-md overflow-hidden">
+        <div className="overflow-x-auto max-h-64 overflow-y-auto">
+          <table className="w-full text-[11px] font-mono">
+            <thead className="sticky top-0 bg-card z-10">
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="px-3 py-2 text-left">Date</th>
+                <th className="px-3 py-2 text-right">Past Due</th>
+                <th className="px-3 py-2 text-right">New Leads</th>
+                <th className="px-3 py-2 text-right">Queue</th>
+                <th className="px-3 py-2 text-right">Follow-Ups</th>
+                <th className="px-3 py-2 text-right">Stale</th>
+                <th className="px-3 py-2 text-right">Rev Risk</th>
+                <th className="px-3 py-2 text-right">Proj. Recovery</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...pipelineTrends].reverse().map((d, i) => (
+                <tr key={d.date} className={cn("border-b border-border/30", i % 2 === 0 ? "bg-transparent" : "bg-card/40")}>
+                  <td className="px-3 py-1.5 text-muted-foreground">{d.date.slice(5)}</td>
+                  <td className={cn("px-3 py-1.5 text-right", d.pastDue > 50 ? "text-red-400 font-bold" : "")}>{d.pastDue}</td>
+                  <td className="px-3 py-1.5 text-right">{d.newLeads}</td>
+                  <td className="px-3 py-1.5 text-right">{d.callQueue}</td>
+                  <td className="px-3 py-1.5 text-right">{d.todaysFollowUps}</td>
+                  <td className={cn("px-3 py-1.5 text-right", d.totalStale > 100 ? "text-amber-400" : "")}>{d.totalStale}</td>
+                  <td className="px-3 py-1.5 text-right text-red-400">{formatCurrency(d.revenueAtRisk)}</td>
+                  <td className="px-3 py-1.5 text-right text-emerald-400">{formatCurrency(d.projectedRecovery)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AgentTrends() {
   const { agents } = useAgents();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -416,7 +560,7 @@ export default function AgentTrends() {
       <div>
         <h1 className="text-xl font-bold text-foreground">Agent Trends</h1>
         <p className="text-sm text-muted-foreground font-mono mt-1">
-          Performance analytics — intraday, daily, weekly, and monthly
+          Performance analytics — intraday, daily, weekly, monthly & pipeline
         </p>
       </div>
 
@@ -471,6 +615,9 @@ export default function AgentTrends() {
             <TabsTrigger value="mom" className="font-mono text-xs data-[state=active]:bg-accent">
               MONTH / MONTH
             </TabsTrigger>
+            <TabsTrigger value="pipeline" className="font-mono text-xs data-[state=active]:bg-accent">
+              PIPELINE
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="intraday" className="mt-4">
             <IntradayTab agentName={selectedAgent} />
@@ -483,6 +630,9 @@ export default function AgentTrends() {
           </TabsContent>
           <TabsContent value="mom" className="mt-4">
             <MonthOverMonthTab agentName={selectedAgent} />
+          </TabsContent>
+          <TabsContent value="pipeline" className="mt-4">
+            <PipelineTab agentName={selectedAgent} />
           </TabsContent>
         </Tabs>
       ) : (

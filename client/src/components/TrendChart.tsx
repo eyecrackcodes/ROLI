@@ -108,7 +108,7 @@ export function Sparkline({ data, color = "#60a5fa", width = 80, height = 24 }: 
   );
 }
 
-export function DeltaBadge({ value, format = "number" }: { value: number | null; format?: "number" | "currency" }) {
+export function DeltaBadge({ value, format = "number", invert = false }: { value: number | null; format?: "number" | "currency"; invert?: boolean }) {
   if (value === null) return <span className="text-[10px] font-mono text-muted-foreground">---</span>;
 
   const isPositive = value > 0;
@@ -117,10 +117,12 @@ export function DeltaBadge({ value, format = "number" }: { value: number | null;
     ? `$${Math.abs(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
     : Math.abs(value).toString();
 
+  const goodUp = invert ? !isPositive : isPositive;
+
   return (
     <span className={cn(
       "inline-flex items-center gap-1 text-[11px] font-mono font-bold",
-      isPositive ? "text-emerald-400" : value < 0 ? "text-red-400" : "text-muted-foreground"
+      value === 0 ? "text-muted-foreground" : goodUp ? "text-emerald-400" : "text-red-400"
     )}>
       {arrow} {formatted}
     </span>

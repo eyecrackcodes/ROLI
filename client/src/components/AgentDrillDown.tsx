@@ -28,6 +28,8 @@ import {
 import { cn } from "@/lib/utils";
 import { calcLeadCost, calcROLI } from "@/lib/types";
 import type { Tier } from "@/lib/types";
+import type { PipelineAgent } from "@/lib/pipelineIntelligence";
+import { FLAG_META, getGradeColor, getGradeBg } from "@/lib/pipelineIntelligence";
 
 interface AgentDrillDownProps {
   agentName: string | null;
@@ -129,8 +131,12 @@ export function AgentDrillDown({
   open,
   onOpenChange,
 }: AgentDrillDownProps) {
-  const { daily, weekly, deltas, loading } = useAgentTrends(agentName, 14);
+  const { daily, weekly, pipelineTrends, deltas, loading } = useAgentTrends(agentName, 14);
   const data = useData();
+  const pipelineAgent: PipelineAgent | undefined = useMemo(
+    () => agentName ? data.pipelineAgents.find(a => a.name === agentName) : undefined,
+    [data.pipelineAgents, agentName]
+  );
 
   const [idDates, setIdDates] = useState<string[]>([]);
   const [idDate, setIdDate] = useState("");
@@ -482,6 +488,174 @@ export function AgentDrillDown({
                     value={`${Math.round(latestDay.talkTime + latestDay.poolTalk)} min`}
                     sub={latestDay.poolTalk > 0 ? `CRM:${Math.round(latestDay.talkTime)}m Pool:${Math.round(latestDay.poolTalk)}m` : undefined}
                   />
+                </div>
+              </div>
+            )}
+
+            {/* Pipeline Health */}
+            {pipelineAgent && (() => {
+              const pa = pipelineAgent;
+              const scoreColor = (score: number, max: number) => {
+                const pct = (score / max) * 100;
+                return pct >= 80 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : pct >= 40 ? "bg-blue-500" : "bg-red-500";
+              };
+              const gradeText = getGradeColor(pa.healthGrade);
+              const gradeBg = getGradeBg(pa.healthGrade);
+
+              return (
+                <div>
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-violet-400 mb-2">
+                    Pipeline Health
+                  </h3>
+                  <div className="grid grid-cols-4 gap-2 mb-3">
+                    <div className="p-2.5 bg-card rounded-md border border-border">
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block">Health Score</span>
+                      <span className={cn(
+                        "text-lg font-mono font-bold",
+                        pa.healthScore >= 80 ? "text-emerald-400" : pa.healthScore >= 60 ? "text-amber-400" : pa.healthScore >= 40 ? "text-blue-400" : "text-red-400"
+                      )}>{pa.healthScore}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground block">of 100</span>
+                    </div>
+                    <div className={cn("p-2.5 rounded-md border", gradeBg)}>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block">Grade</span>
+                      <span className={cn("text-lg font-mono font-bold", gradeText)}>{pa.healthGrade}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground block">
+                        {pa.healthGrade === "A" ? "Excellent" : pa.healthGrade === "B" ? "Good" : pa.healthGrade === "C" ? "Fair" : pa.healthGrade === "D" ? "Poor" : "Critical"}
+                      </span>
+                    </div>
+                    <StatCard
+                      label="F/U Compliance"
+                      value={pa.followUpCompliance.toFixed(0) + "%"}
+                      sub={`${pa.pastDue} past due · ${pa.todaysFollowUps} today`}
+                      color={pa.followUpCompliance >= 70 ? "text-emerald-400" : pa.followUpCompliance >= 50 ? "text-amber-400" : "text-red-400"}
+                    />
+                    <StatCard
+                      label="Waste Ratio"
+                      value={pa.wasteRatio > 0 ? pa.wasteRatio.toFixed(0) + "%" : "--"}
+                      sub={`${fmt(pa.revenueAtRisk)} at risk`}
+                      color={pa.wasteRatio > 50 ? "text-red-400" : pa.wasteRatio > 25 ? "text-amber-400" : "text-emerald-400"}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-card rounded-md border border-border space-y-2">
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Sub-Scores</span>
+                      {([
+                        ["Follow-Up Discipline", pa.followUpDiscipline],
+                        ["Pipeline Freshness", pa.pipelineFreshness],
+                        ["Work Rate", pa.workRate],
+                        ["Conversion Efficiency", pa.conversionEfficiency],
+                      ] as [string, number][]).map(([label, score]) => (
+                        <div key={label} className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-muted-foreground w-28 text-right shrink-0">{label}</span>
+                          <div className="flex-1 h-2.5 bg-border/50 rounded-full overflow-hidden">
+                            <div className={cn("h-full rounded-full transition-all", scoreColor(score, 25))} style={{ width: `${(score / 25) * 100}%` }} />
+                          </div>
+                          <span className="text-[10px] font-mono text-foreground w-6 tabular-nums text-right">{Math.round(score)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="p-3 bg-card rounded-md border border-border">
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block mb-2">Pipeline State</span>
+                      <div className="text-[11px] font-mono space-y-1">
+                        <div className="flex justify-between"><span className="text-muted-foreground">New Leads</span><span>{pa.newLeads}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Call Queue</span><span>{pa.callQueue}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Past Due</span><span className={pa.pastDue > 10 ? "text-red-400 font-bold" : ""}>{pa.pastDue}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Stale</span><span className={pa.totalStale > 10 ? "text-amber-400" : ""}>{pa.totalStale}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Post-Sale</span><span>{pa.postSaleLeads}</span></div>
+                        <div className="flex justify-between border-t border-border/30 pt-1 mt-1"><span className="text-muted-foreground">Proj. Recovery</span><span className="text-emerald-400 text-[9px]" title="Estimated at 12% stale conversion rate × avg premium">{fmt(pa.projectedRecovery)}</span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {pa.flags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {pa.flags.map(flag => {
+                        const meta = FLAG_META[flag];
+                        const color = meta.severity === "critical"
+                          ? "bg-red-500/10 text-red-400 border-red-500/30"
+                          : meta.severity === "warning"
+                          ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                          : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+                        return (
+                          <span key={flag} className={cn("px-2 py-0.5 rounded text-[10px] font-mono border", color)}>
+                            {meta.label}: {meta.description}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Pipeline Trends */}
+            {pipelineTrends.length > 1 && (
+              <div>
+                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-violet-400 mb-2">
+                  Pipeline Trends ({pipelineTrends.length} days)
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="bg-card border border-border rounded-md p-3">
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block mb-2">
+                      Pipeline Composition
+                    </span>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <ComposedChart data={pipelineTrends} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          tickFormatter={(d: string) => d.slice(5)}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 10, color: "#e2e8f0" }}
+                          labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+                        />
+                        <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
+                        <Bar dataKey="pastDue" name="Past Due" fill="#ef4444" stackId="pipeline" />
+                        <Bar dataKey="callQueue" name="Call Queue" fill="#f59e0b" stackId="pipeline" />
+                        <Bar dataKey="newLeads" name="New Leads" fill="#22c55e" stackId="pipeline" />
+                        <Line type="monotone" dataKey="totalStale" name="Stale" stroke="#a78bfa" strokeWidth={2} dot={{ r: 3, fill: "#a78bfa" }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="bg-card border border-border rounded-md p-3">
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block mb-2">
+                      Revenue Impact
+                    </span>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <ComposedChart data={pipelineTrends} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          tickFormatter={(d: string) => d.slice(5)}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                          tickFormatter={(v: number) => "$" + (v / 1000).toFixed(0) + "k"}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 10, color: "#e2e8f0" }}
+                          labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+                          formatter={(value: number, name: string) => ["$" + Math.round(value).toLocaleString(), name]}
+                        />
+                        <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
+                        <Bar dataKey="revenueAtRisk" name="Rev at Risk" fill="#ef444480" />
+                        <Bar dataKey="projectedRecovery" name="Proj. Recovery" fill="#22c55e80" />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
             )}

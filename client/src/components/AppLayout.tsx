@@ -13,6 +13,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Radar,
 } from "lucide-react";
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { path: "/trends", label: "Trends", icon: TrendingUp, description: "Agent analytics" },
   { path: "/bonus", label: "Bonus Tracker", icon: Gift, description: "Referral & spouse sales" },
   { path: "/leads-pool", label: "Leads Pool", icon: Users, description: "Shared pool activity" },
+  { path: "/pipeline", label: "Pipeline Intel", icon: Radar, description: "Health scores & compliance" },
   { path: "/gates", label: "Gate Calculator", icon: Shield, description: "Elastic swap engine" },
   { path: "/data", label: "Data Manager", icon: Database, description: "Import & configure" },
   { path: "/settings", label: "Settings", icon: Settings, description: "Roster & config" },

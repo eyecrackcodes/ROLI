@@ -1,0 +1,388 @@
+{
+  "name": "DSB Pipeline Compliance Audit",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "pc-schedule-01",
+      "name": "Daily 8am CST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-800, 112]
+    },
+    {
+      "parameters": {},
+      "id": "pc-manual-01",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-800, -80]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch active agents + name aliases from Supabase\nconst apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base = 'https://bcibmmbxrjfiulofserv.supabase.co/rest/v1';\nconst hdr = { 'apikey': apikey };\n\nconst [roster, aliases] = await Promise.all([\n  this.helpers.httpRequest({ method: 'GET', url: base + '/agents?select=name,tier,site,crm_agent_id&is_active=eq.true', headers: hdr, json: true }),\n  this.helpers.httpRequest({ method: 'GET', url: base + '/agent_name_aliases?select=canonical_name,crm_name', headers: hdr, json: true }),\n]);\n\nif (!roster || roster.length === 0) {\n  return [{ json: { error: true, message: 'No active agents found in Supabase' } }];\n}\n\n// Build alias map: canonical_name → crm_name (how the CRM dropdown shows the name)\nconst nameAliases = {};\nfor (const a of (aliases || [])) {\n  nameAliases[a.canonical_name] = a.crm_name;\n}\n\nconst targetAgents = roster.map(a => a.name);\nconst agentTiers = {};\nconst agentSites = {};\nconst agentCrmIds = {};\nfor (const a of roster) {\n  agentTiers[a.name] = a.tier;\n  agentSites[a.name] = a.site === 'AUS' ? 'ATX' : 'CLT';\n  if (a.crm_agent_id) agentCrmIds[a.name] = a.crm_agent_id;\n}\n\nreturn [{\n  json: {\n    targetAgents,\n    agentTiers,\n    agentSites,\n    agentCrmIds,\n    nameAliases,\n    agentCount: roster.length,\n    apifyBody: JSON.stringify({\n      crmUsername: 'YOUR_CRM_USERNAME',\n      crmPassword: 'YOUR_CRM_PASSWORD',\n      targetAgents,\n      agentTiers,\n      agentCrmIds,\n      nameAliases,\n      requestDelay: 1500\n    })\n  }\n}];"
+      },
+      "id": "pc-fetch-roster-01",
+      "name": "Fetch Agent Roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-544, 16]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/jt1Pq4ufNfwsD6Nfd/runs?token=YOUR_APIFY_API_TOKEN",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.apifyBody }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "pc-start-apify-01",
+      "name": "Start Pipeline Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-288, 16]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "minutes"
+      },
+      "id": "pc-wait-01",
+      "name": "Wait 5 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-32, 16],
+      "webhookId": "pc-wait-webhook-01"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $node['Start Pipeline Scraper'].json.data.id }}?token=YOUR_APIFY_API_TOKEN",
+        "options": {}
+      },
+      "id": "pc-check-status-01",
+      "name": "Check Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [192, 16]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "pc-succeeded",
+              "leftValue": "={{ $json.data.status }}",
+              "rightValue": "SUCCEEDED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "pc-if-succeeded-01",
+      "name": "Run Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [416, 16]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "minutes"
+      },
+      "id": "pc-retry-wait-01",
+      "name": "Wait & Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [416, 272],
+      "webhookId": "pc-retry-webhook-01"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch Apify dataset and extract pipeline compliance data\nconst runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\n\nif (!datasetId) {\n  return [{ json: { error: true, message: 'No defaultDatasetId. runId=' + runId } }];\n}\n\nconst token = 'YOUR_APIFY_API_TOKEN';\n\nasync function fetchDataset(dsId, attempt) {\n  const url = `https://api.apify.com/v2/datasets/${dsId}/items?token=${token}`;\n  const raw = await this.helpers.httpRequest({\n    method: 'GET', url, encoding: 'utf-8', returnFullResponse: false, timeout: 60000,\n    headers: { 'Accept': 'application/json' },\n  });\n  let parsed = raw;\n  if (typeof raw === 'string') {\n    try { parsed = JSON.parse(raw); } catch (e) {\n      throw new Error(`JSON parse failed (attempt ${attempt}): ${raw.substring(0, 200)}`);\n    }\n  }\n  return parsed;\n}\n\nlet datasetItems;\nlet lastErr;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    datasetItems = await fetchDataset.call(this, datasetId, attempt);\n    if (Array.isArray(datasetItems) && datasetItems.length > 0) break;\n    if (attempt < 3) await new Promise(r => setTimeout(r, 10000));\n  } catch (err) {\n    lastErr = err;\n    if (attempt < 3) await new Promise(r => setTimeout(r, 10000));\n  }\n}\n\nif (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0) {\n  // Try parsing single object (pipeline_compliance type)\n  if (datasetItems && typeof datasetItems === 'object' && !Array.isArray(datasetItems)) {\n    datasetItems = [datasetItems];\n  } else {\n    return [{ json: { error: true, message: 'Dataset empty after 3 attempts. ' + (lastErr?.message || ''), datasetId, runId } }];\n  }\n}\n\n// The pipeline scraper pushes a single object with _type: 'pipeline_compliance'\nconst pipelineItem = datasetItems.find(item => item._type === 'pipeline_compliance');\n\nif (!pipelineItem) {\n  return [{ json: { error: true, message: 'No pipeline_compliance item found in dataset', datasetId, runId } }];\n}\n\n// Ensure scrape_date falls on a weekday (match daily scrape convention)\nlet sd = pipelineItem.scrape_date;\nif (sd) {\n  const [sy,sm,sdd] = sd.split('-').map(Number);\n  const sdt = new Date(sy, sm-1, sdd);\n  const dow = sdt.getDay();\n  if (dow === 0) sdt.setDate(sdt.getDate() - 2);\n  else if (dow === 6) sdt.setDate(sdt.getDate() - 1);\n  sd = sdt.toISOString().slice(0,10);\n}\n\n// Build map of scraped agent names to their confirmed CRM IDs\nconst confirmedIds = {};\nfor (const a of (pipelineItem.agents || [])) {\n  if (a.agent_name && a.agent_id_crm) confirmedIds[a.agent_name] = a.agent_id_crm;\n}\n\nreturn [{\n  json: {\n    scrape_date: sd,\n    agents: pipelineItem.agents || [],\n    summary: pipelineItem.summary || {},\n    agentSites: $node['Fetch Agent Roster'].json.agentSites || {},\n    crmDropdown: pipelineItem.crmDropdown || [],\n    confirmedCrmIds: confirmedIds\n  }\n}];"
+      },
+      "id": "pc-fetch-dataset-01",
+      "name": "Fetch Dataset & Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, -96]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "pc-dataset-ok",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "pc-if-dataset-01",
+      "name": "Dataset OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [912, -96]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://bcibmmbxrjfiulofserv.supabase.co/functions/v1/ingest-pipeline-compliance",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ scrape_date: $json.scrape_date, agents: $json.agents }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "pc-post-supabase-01",
+      "name": "POST to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1152, -208]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "pc-ingest-ok",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "pc-if-ingest-01",
+      "name": "Ingestion OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1392, -208]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Slack compliance report\nconst payload = $node['Fetch Dataset & Parse'].json;\nconst agents = payload.agents || [];\nconst agentSites = payload.agentSites || {};\nconst scrapeDate = payload.scrape_date;\nconst summary = payload.summary || {};\n\nconst fmt = (n) => '$' + Math.round(n).toLocaleString();\n\n// Tier grouping\nconst tiers = { T1: [], T2: [], T3: [] };\nfor (const a of agents) {\n  const tier = a.tier || 'T3';\n  if (!tiers[tier]) tiers[tier] = [];\n  tiers[tier].push(a);\n}\n\n// Sort each tier by total_stale DESC\nfor (const tier of Object.keys(tiers)) {\n  tiers[tier].sort((a, b) => (b.total_stale || 0) - (a.total_stale || 0));\n}\n\n// Top offenders (top 10 by total_stale)\nconst allSorted = [...agents].sort((a, b) => (b.total_stale || 0) - (a.total_stale || 0));\nconst topOffenders = allSorted.slice(0, 10);\n\n// Build the offender list\nlet offenderList = '';\nfor (let i = 0; i < topOffenders.length; i++) {\n  const a = topOffenders[i];\n  if (a.total_stale <= 0) continue;\n  const site = agentSites[a.agent_name] || 'CLT';\n  const emoji = a.total_stale > 30 ? ':rotating_light:' : a.total_stale > 15 ? ':warning:' : ':eyes:';\n  offenderList += `${emoji} *${a.agent_name}* (${a.tier}/${site}): ${a.total_stale} stale | ${a.past_due_follow_ups} past-due | ${a.new_leads} new | ${a.call_queue_count} queue | ${fmt(a.revenue_at_risk)} at risk\\n`;\n}\n\nif (!offenderList) offenderList = ':white_check_mark: No agents with stale leads today!';\n\n// Per-tier summary\nlet tierSummary = '';\nfor (const tier of ['T1', 'T2', 'T3']) {\n  const ta = tiers[tier] || [];\n  if (ta.length === 0) continue;\n  const stale = ta.reduce((s, a) => s + (a.total_stale || 0), 0);\n  const risk = ta.reduce((s, a) => s + (a.revenue_at_risk || 0), 0);\n  const pastDue = ta.reduce((s, a) => s + (a.past_due_follow_ups || 0), 0);\n  const newLeads = ta.reduce((s, a) => s + (a.new_leads || 0), 0);\n  const flagged = ta.filter(a => (a.total_stale || 0) > 10).length;\n  tierSummary += `*${tier}* (${ta.length} agents): ${stale} stale leads | ${pastDue} past-due | ${newLeads} untouched new | ${flagged} flagged | ${fmt(risk)} at risk\\n`;\n}\n\nconst totalStale = summary.total_stale_leads || agents.reduce((s, a) => s + (a.total_stale || 0), 0);\nconst totalRisk = summary.total_revenue_at_risk || agents.reduce((s, a) => s + (a.revenue_at_risk || 0), 0);\nconst totalRecovery = summary.total_projected_recovery || agents.reduce((s, a) => s + (a.projected_recovery || 0), 0);\nconst totalPastDue = agents.reduce((s, a) => s + (a.past_due_follow_ups || 0), 0);\nconst totalNewLeads = agents.reduce((s, a) => s + (a.new_leads || 0), 0);\n\nconst message = {\n  text: 'Pipeline Compliance Audit - ' + scrapeDate,\n  blocks: [\n    { type: 'header', text: { type: 'plain_text', text: ':mag: Pipeline Compliance Audit \\u2014 ' + scrapeDate, emoji: true } },\n    { type: 'section', text: { type: 'mrkdwn', text: '*' + agents.length + ' agents* audited  |  *' + totalStale + '* total stale leads  |  *' + fmt(totalRisk) + '* revenue at risk' } },\n    { type: 'divider' },\n    { type: 'section', text: { type: 'mrkdwn', text: '*:bar_chart: Tier Breakdown*\\n' + tierSummary } },\n    { type: 'divider' },\n    { type: 'section', text: { type: 'mrkdwn', text: '*:rotating_light: Top Stale Lead Offenders*\\n' + offenderList } },\n    { type: 'divider' },\n    { type: 'section', fields: [\n      { type: 'mrkdwn', text: '*Total Past Due*\\n:red_circle: ' + totalPastDue + ' leads' },\n      { type: 'mrkdwn', text: '*Untouched New Leads*\\n:large_orange_diamond: ' + totalNewLeads + ' leads' },\n      { type: 'mrkdwn', text: '*Revenue at Risk*\\n:money_with_wings: ' + fmt(totalRisk) },\n      { type: 'mrkdwn', text: '*Projected Recovery*\\n:chart_with_upwards_trend: ' + fmt(totalRecovery) + '/mo' }\n    ]},\n    { type: 'context', elements: [{ type: 'mrkdwn', text: 'Pipeline audit date: ' + scrapeDate + '  |  SLA: T1=3d, T2=5d, T3=5d, New=1d  |  Recovery assumes 12% conversion on recycled leads' }] }\n  ]\n};\n\nreturn [{ json: message }];"
+      },
+      "id": "pc-slack-build-01",
+      "name": "Build Slack Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, -320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Backfill CRM agent IDs from scraped results into agents table\nconst payload = $node['Fetch Dataset & Parse'].json;\nconst agents = payload.agents || [];\nconst apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base = 'https://bcibmmbxrjfiulofserv.supabase.co/rest/v1';\nlet updated = 0;\n\nfor (const a of agents) {\n  if (!a.agent_name || !a.agent_id_crm) continue;\n  try {\n    await this.helpers.httpRequest({\n      method: 'PATCH',\n      url: base + '/agents?name=eq.' + encodeURIComponent(a.agent_name),\n      headers: {\n        'apikey': apikey,\n        'Authorization': 'Bearer ' + apikey,\n        'Content-Type': 'application/json',\n        'Prefer': 'return=minimal'\n      },\n      body: JSON.stringify({ crm_agent_id: a.agent_id_crm }),\n      json: true\n    });\n    updated++;\n  } catch (e) {\n    // continue on error\n  }\n}\n\nreturn [{ json: { message: `Backfilled CRM IDs for ${updated}/${agents.length} agents` } }];"
+      },
+      "id": "pc-backfill-ids-01",
+      "name": "Backfill CRM IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "pc-slack-send-01",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1920, -320]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "errorMessage",
+              "value": "={{ $json.message || $json.error || 'Unknown error in pipeline compliance workflow' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "pc-error-set-01",
+      "name": "Set Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1152, 48]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: ':x: Pipeline Compliance Audit FAILED: ' + $json.errorMessage }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "pc-slack-error-01",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1392, 48]
+    }
+  ],
+  "connections": {
+    "Daily 8am CST": {
+      "main": [
+        [{ "node": "Fetch Agent Roster", "type": "main", "index": 0 }]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Fetch Agent Roster", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Agent Roster": {
+      "main": [
+        [{ "node": "Start Pipeline Scraper", "type": "main", "index": 0 }]
+      ]
+    },
+    "Start Pipeline Scraper": {
+      "main": [
+        [{ "node": "Wait 5 Minutes", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait 5 Minutes": {
+      "main": [
+        [{ "node": "Check Run Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Run Status": {
+      "main": [
+        [{ "node": "Run Succeeded?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Succeeded?": {
+      "main": [
+        [{ "node": "Fetch Dataset & Parse", "type": "main", "index": 0 }],
+        [{ "node": "Wait & Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait & Retry": {
+      "main": [
+        [{ "node": "Check Run Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Dataset & Parse": {
+      "main": [
+        [{ "node": "Dataset OK?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Dataset OK?": {
+      "main": [
+        [{ "node": "Set Error", "type": "main", "index": 0 }],
+        [{ "node": "POST to Supabase", "type": "main", "index": 0 }]
+      ]
+    },
+    "POST to Supabase": {
+      "main": [
+        [{ "node": "Ingestion OK?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ingestion OK?": {
+      "main": [
+        [{ "node": "Build Slack Report", "type": "main", "index": 0 }, { "node": "Backfill CRM IDs", "type": "main", "index": 0 }],
+        [{ "node": "Set Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Slack Report": {
+      "main": [
+        [{ "node": "Send to Slack", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set Error": {
+      "main": [
+        [{ "node": "Slack Error Alert", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-03-29T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -1,0 +1,49 @@
+{
+  "title": "DSB Pipeline Compliance Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "required": ["crmUsername", "crmPassword"],
+  "properties": {
+    "crmUsername": {
+      "title": "CRM Username",
+      "type": "string",
+      "description": "Login username for crm.digitalseniorbenefits.com",
+      "editor": "textfield"
+    },
+    "crmPassword": {
+      "title": "CRM Password",
+      "type": "string",
+      "description": "Login password for CRM",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "loginUrl": {
+      "title": "Login URL",
+      "type": "string",
+      "description": "CRM login page URL",
+      "editor": "textfield",
+      "default": "https://crm.digitalseniorbenefits.com/login"
+    },
+    "targetAgents": {
+      "title": "Target Agents",
+      "type": "array",
+      "description": "Array of agent names to scrape. The scraper fuzzy-matches these against the CRM dropdown to find agent_ids.",
+      "editor": "json",
+      "default": []
+    },
+    "agentTiers": {
+      "title": "Agent Tier Map",
+      "type": "object",
+      "description": "Object mapping agent name to tier (T1/T2/T3) for stale-lead heuristic calculations.",
+      "editor": "json",
+      "default": {}
+    },
+    "requestDelay": {
+      "title": "Request Delay (ms)",
+      "type": "integer",
+      "description": "Delay between agent page loads to avoid rate-limiting.",
+      "editor": "number",
+      "default": 1500
+    }
+  }
+}

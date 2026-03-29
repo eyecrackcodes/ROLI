@@ -1,0 +1,402 @@
+import type { Tier } from "./types";
+
+// ============================================================
+// Pipeline Intelligence — Types & Computation Engine
+// Combines daily production, leads pool, and pipeline compliance
+// ============================================================
+
+export type HealthGrade = "A" | "B" | "C" | "D" | "F";
+
+export type BehavioralFlag =
+  | "CHERRY_PICKER"
+  | "PIPELINE_HOARDER"
+  | "FOLLOWUP_AVOIDER"
+  | "POOL_FARMER"
+  | "DEAD_WEIGHT_CARRIER"
+  | "HIGH_PERFORMER";
+
+export const FLAG_META: Record<BehavioralFlag, { label: string; description: string; severity: "critical" | "warning" | "positive" }> = {
+  CHERRY_PICKER:      { label: "Cherry Picker",       description: "Only works fresh leads, abandons older ones",     severity: "warning" },
+  PIPELINE_HOARDER:   { label: "Pipeline Hoarder",    description: "Sitting on leads without working them",           severity: "critical" },
+  FOLLOWUP_AVOIDER:   { label: "Follow-up Avoider",   description: "Letting follow-ups rot",                          severity: "critical" },
+  POOL_FARMER:        { label: "Pool Farmer",          description: "Avoiding assigned pipeline for pool",             severity: "warning" },
+  DEAD_WEIGHT_CARRIER:{ label: "Dead Weight Carrier",  description: "Carrying massive unrealized revenue",             severity: "critical" },
+  HIGH_PERFORMER:     { label: "High Performer",       description: "Clean pipeline AND converting well",              severity: "positive" },
+};
+
+export interface PipelineComplianceRow {
+  scrape_date: string;
+  agent_name: string;
+  agent_id_crm: string | null;
+  tier: string;
+  past_due_follow_ups: number | null;
+  new_leads: number | null;
+  call_queue_count: number | null;
+  todays_follow_ups: number | null;
+  post_sale_leads: number | null;
+  total_stale: number | null;
+  revenue_at_risk: number | null;
+  projected_recovery: number | null;
+}
+
+export interface PipelineAgent {
+  name: string;
+  tier: Tier;
+  site: string;
+
+  // Production (daily_scrape_data)
+  totalDials: number;
+  totalSales: number;
+  totalPremium: number;
+  talkTimeMin: number;
+  ibLeads: number;
+  obLeads: number;
+  ibSales: number;
+  obSales: number;
+
+  // Pool (leads_pool_daily_data)
+  poolDials: number;
+  poolTalk: number;
+  poolSelfAssigned: number;
+  poolSales: number;
+  poolAnswered: number;
+
+  // Pipeline compliance (pipeline_compliance_daily)
+  pastDue: number;
+  newLeads: number;
+  callQueue: number;
+  todaysFollowUps: number;
+  postSaleLeads: number;
+  totalStale: number;
+  revenueAtRisk: number;
+  projectedRecovery: number;
+
+  // Derived sub-scores (0–25 each)
+  followUpDiscipline: number;
+  pipelineFreshness: number;
+  workRate: number;
+  conversionEfficiency: number;
+
+  // Composite
+  healthScore: number;
+  healthGrade: HealthGrade;
+  flags: BehavioralFlag[];
+  followUpCompliance: number;
+  wasteRatio: number;
+}
+
+// ---- Sub-score calculators (each returns 0–25) ----
+
+function calcFollowUpDiscipline(pastDue: number, todaysFollowUps: number): number {
+  const total = pastDue + todaysFollowUps;
+  if (total === 0) return 25;
+  return (1 - pastDue / total) * 25;
+}
+
+function calcPipelineFreshness(totalStale: number, newLeads: number, callQueue: number, pastDue: number): number {
+  const total = newLeads + callQueue + pastDue;
+  if (total === 0) return 25;
+  const ratio = 1 - Math.min(totalStale / total, 1);
+  return ratio * 25;
+}
+
+function calcWorkRate(
+  totalDials: number, poolDials: number,
+  newLeads: number, callQueue: number, pastDue: number, todaysFollowUps: number,
+): number {
+  const pipeline = newLeads + callQueue + pastDue + todaysFollowUps;
+  if (pipeline === 0) return 25;
+  const ratio = Math.min((totalDials + poolDials) / pipeline, 1);
+  return ratio * 25;
+}
+
+function calcConversionEfficiency(totalSales: number, totalLeads: number, tierAvgCR: number): number {
+  if (totalLeads === 0 || tierAvgCR === 0) return 12.5;
+  const agentCR = totalSales / totalLeads;
+  const ratio = Math.min(agentCR / tierAvgCR, 1.5);
+  return Math.min((ratio / 1.5) * 25, 25);
+}
+
+function calcHealthGrade(score: number, flags: BehavioralFlag[]): HealthGrade {
+  const criticalFlags = flags.filter(f => FLAG_META[f].severity === "critical");
+  const nonPositiveFlags = flags.filter(f => FLAG_META[f].severity !== "positive");
+
+  if (score >= 85 && nonPositiveFlags.length === 0) return "A";
+  if (score >= 70 && nonPositiveFlags.length <= 1 && criticalFlags.length === 0) return "B";
+  if (score >= 55 && criticalFlags.length === 0) return "C";
+  if (score >= 40 && criticalFlags.length <= 1) return "D";
+  return "F";
+}
+
+// ---- Behavioral flag detection ----
+
+function detectFlags(agent: PipelineAgent, tierAvgCR: number): BehavioralFlag[] {
+  const flags: BehavioralFlag[] = [];
+  const totalLeads = agent.ibLeads + agent.obLeads;
+  const totalSales = agent.ibSales + agent.obSales;
+  const agentCR = totalLeads > 0 ? totalSales / totalLeads : 0;
+
+  if (agent.newLeads > 5 && agent.pastDue < 3 && agent.callQueue < 5) {
+    flags.push("CHERRY_PICKER");
+  }
+
+  if (agent.callQueue > 0 && agent.totalDials > 0 && agent.callQueue > 2 * agent.totalDials) {
+    flags.push("PIPELINE_HOARDER");
+  }
+
+  if (agent.pastDue > 0 && agent.todaysFollowUps > 0 && agent.pastDue > 3 * agent.todaysFollowUps) {
+    flags.push("FOLLOWUP_AVOIDER");
+  }
+
+  if (agent.poolDials > agent.totalDials && agent.totalDials > 0 && agent.callQueue > 10) {
+    flags.push("POOL_FARMER");
+  }
+
+  if (agent.revenueAtRisk > 0 && agent.totalPremium > 0 && agent.revenueAtRisk > 2 * agent.totalPremium) {
+    flags.push("DEAD_WEIGHT_CARRIER");
+  }
+
+  if (agent.healthScore >= 80 && agentCR > tierAvgCR && totalLeads > 0) {
+    flags.push("HIGH_PERFORMER");
+  }
+
+  return flags;
+}
+
+// ---- Main builder ----
+
+export interface ProductionRow {
+  agent_name: string;
+  tier: string;
+  ib_leads_delivered: number;
+  ob_leads_delivered: number;
+  ib_sales: number;
+  ob_sales: number;
+  custom_sales: number;
+  ib_premium: number;
+  ob_premium: number;
+  custom_premium: number;
+  total_dials: number;
+  talk_time_minutes: number;
+}
+
+export interface PoolRow {
+  agent_name: string;
+  calls_made: number;
+  talk_time_minutes: number;
+  sales_made: number;
+  premium: number;
+  self_assigned_leads: number;
+  answered_calls: number;
+}
+
+export function buildPipelineAgents(
+  productionRows: ProductionRow[],
+  poolRows: PoolRow[],
+  complianceRows: PipelineComplianceRow[],
+  agentRoster: Map<string, { name: string; site: string; tier: string }>,
+): PipelineAgent[] {
+  const complianceMap = new Map<string, PipelineComplianceRow>();
+  for (const row of complianceRows) complianceMap.set(row.agent_name, row);
+
+  const poolMap = new Map<string, PoolRow>();
+  for (const row of poolRows) poolMap.set(row.agent_name, row);
+
+  const prodMap = new Map<string, ProductionRow>();
+  for (const row of productionRows) prodMap.set(row.agent_name, row);
+
+  const allNames = new Set([
+    ...Array.from(complianceMap.keys()),
+    ...Array.from(prodMap.keys()),
+  ]);
+
+  const tierSalesMap = new Map<string, { totalSales: number; totalLeads: number; count: number }>();
+
+  // First pass: aggregate tier-level stats for CR normalization
+  for (const name of Array.from(allNames)) {
+    const prod = prodMap.get(name);
+    const roster = agentRoster.get(name);
+    const tier = prod?.tier ?? roster?.tier ?? "T3";
+    const ibLeads = prod?.ib_leads_delivered ?? 0;
+    const obLeads = prod?.ob_leads_delivered ?? 0;
+    const ibSales = prod?.ib_sales ?? 0;
+    const obSales = prod?.ob_sales ?? 0;
+
+    const existing = tierSalesMap.get(tier) ?? { totalSales: 0, totalLeads: 0, count: 0 };
+    existing.totalSales += ibSales + obSales;
+    existing.totalLeads += ibLeads + obLeads;
+    existing.count++;
+    tierSalesMap.set(tier, existing);
+  }
+
+  const tierAvgCRMap = new Map<string, number>();
+  for (const [tier, stats] of Array.from(tierSalesMap)) {
+    tierAvgCRMap.set(tier, stats.totalLeads > 0 ? stats.totalSales / stats.totalLeads : 0);
+  }
+
+  // Second pass: build PipelineAgent for every agent that has compliance data
+  const agents: PipelineAgent[] = [];
+
+  for (const name of Array.from(allNames)) {
+    const comp = complianceMap.get(name);
+    if (!comp) continue; // Only include agents with pipeline compliance data
+
+    const prod = prodMap.get(name);
+    const pool = poolMap.get(name);
+    const roster = agentRoster.get(name);
+
+    const tier = (roster?.tier ?? comp.tier ?? "T3") as Tier;
+    const site = roster?.site ?? "CHA";
+
+    const totalDials = prod?.total_dials ?? 0;
+    const ibLeads = prod?.ib_leads_delivered ?? 0;
+    const obLeads = prod?.ob_leads_delivered ?? 0;
+    const ibSales = prod?.ib_sales ?? 0;
+    const obSales = prod?.ob_sales ?? 0;
+    const totalSales = ibSales + obSales + (prod?.custom_sales ?? 0);
+    const totalPremium = (prod?.ib_premium ?? 0) + (prod?.ob_premium ?? 0) + (prod?.custom_premium ?? 0);
+    const talkTimeMin = prod?.talk_time_minutes ?? 0;
+    const poolDials = pool?.calls_made ?? 0;
+    const poolTalk = pool?.talk_time_minutes ?? 0;
+    const poolSelfAssigned = pool?.self_assigned_leads ?? 0;
+    const poolSales = pool?.sales_made ?? 0;
+    const poolAnswered = pool?.answered_calls ?? 0;
+
+    const pastDue = comp.past_due_follow_ups ?? 0;
+    const newLeads = comp.new_leads ?? 0;
+    const callQueue = comp.call_queue_count ?? 0;
+    const todaysFollowUps = comp.todays_follow_ups ?? 0;
+    const postSaleLeads = comp.post_sale_leads ?? 0;
+    const totalStale = comp.total_stale ?? 0;
+    const revenueAtRisk = comp.revenue_at_risk ?? 0;
+    const projectedRecovery = comp.projected_recovery ?? 0;
+
+    const followUpDiscipline = calcFollowUpDiscipline(pastDue, todaysFollowUps);
+    const pipelineFreshness = calcPipelineFreshness(totalStale, newLeads, callQueue, pastDue);
+    const workRateScore = calcWorkRate(totalDials, poolDials, newLeads, callQueue, pastDue, todaysFollowUps);
+    const tierAvgCR = tierAvgCRMap.get(tier) ?? 0;
+    const totalLeads = ibLeads + obLeads;
+    const conversionEfficiency = calcConversionEfficiency(totalSales, totalLeads, tierAvgCR);
+
+    const healthScore = Math.round(followUpDiscipline + pipelineFreshness + workRateScore + conversionEfficiency);
+
+    const followUpCompliance = (pastDue + todaysFollowUps) > 0
+      ? (1 - pastDue / (pastDue + todaysFollowUps)) * 100
+      : 100;
+
+    const wasteRatio = (totalPremium + revenueAtRisk) > 0
+      ? (revenueAtRisk / (totalPremium + revenueAtRisk)) * 100
+      : 0;
+
+    const agent: PipelineAgent = {
+      name, tier, site,
+      totalDials, totalSales, totalPremium, talkTimeMin,
+      ibLeads, obLeads, ibSales, obSales,
+      poolDials, poolTalk, poolSelfAssigned, poolSales, poolAnswered,
+      pastDue, newLeads, callQueue, todaysFollowUps, postSaleLeads,
+      totalStale, revenueAtRisk, projectedRecovery,
+      followUpDiscipline, pipelineFreshness, workRate: workRateScore, conversionEfficiency,
+      healthScore,
+      healthGrade: "C", // placeholder, computed after flags
+      flags: [],
+      followUpCompliance,
+      wasteRatio,
+    };
+
+    agent.flags = detectFlags(agent, tierAvgCR);
+    agent.healthGrade = calcHealthGrade(healthScore, agent.flags);
+
+    agents.push(agent);
+  }
+
+  return agents.sort((a, b) => b.healthScore - a.healthScore);
+}
+
+// ---- Aggregate helpers for executive cards ----
+
+export interface PipelineSummary {
+  avgHealthScore: number;
+  totalRevenueAtRisk: number;
+  totalProjectedRecovery: number;
+  orgFollowUpCompliance: number;
+  agentCount: number;
+  gradeDistribution: Record<HealthGrade, number>;
+  flagCounts: Record<BehavioralFlag, string[]>;
+  topRiskAgents: PipelineAgent[];
+  topRecoveryAgents: PipelineAgent[];
+}
+
+export function buildPipelineSummary(agents: PipelineAgent[]): PipelineSummary {
+  if (agents.length === 0) {
+    return {
+      avgHealthScore: 0,
+      totalRevenueAtRisk: 0,
+      totalProjectedRecovery: 0,
+      orgFollowUpCompliance: 0,
+      agentCount: 0,
+      gradeDistribution: { A: 0, B: 0, C: 0, D: 0, F: 0 },
+      flagCounts: {
+        CHERRY_PICKER: [], PIPELINE_HOARDER: [], FOLLOWUP_AVOIDER: [],
+        POOL_FARMER: [], DEAD_WEIGHT_CARRIER: [], HIGH_PERFORMER: [],
+      },
+      topRiskAgents: [],
+      topRecoveryAgents: [],
+    };
+  }
+
+  const totalHealth = agents.reduce((s, a) => s + a.healthScore, 0);
+  const totalPastDue = agents.reduce((s, a) => s + a.pastDue, 0);
+  const totalFollowUps = agents.reduce((s, a) => s + a.todaysFollowUps, 0);
+
+  const gradeDistribution: Record<HealthGrade, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 };
+  for (const a of agents) gradeDistribution[a.healthGrade]++;
+
+  const flagCounts: Record<BehavioralFlag, string[]> = {
+    CHERRY_PICKER: [], PIPELINE_HOARDER: [], FOLLOWUP_AVOIDER: [],
+    POOL_FARMER: [], DEAD_WEIGHT_CARRIER: [], HIGH_PERFORMER: [],
+  };
+  for (const a of agents) {
+    for (const f of a.flags) flagCounts[f].push(a.name);
+  }
+
+  return {
+    avgHealthScore: Math.round(totalHealth / agents.length),
+    totalRevenueAtRisk: agents.reduce((s, a) => s + a.revenueAtRisk, 0),
+    totalProjectedRecovery: agents.reduce((s, a) => s + a.projectedRecovery, 0),
+    orgFollowUpCompliance: (totalPastDue + totalFollowUps) > 0
+      ? (1 - totalPastDue / (totalPastDue + totalFollowUps)) * 100
+      : 100,
+    agentCount: agents.length,
+    gradeDistribution,
+    flagCounts,
+    topRiskAgents: [...agents].sort((a, b) => b.revenueAtRisk - a.revenueAtRisk).slice(0, 5),
+    topRecoveryAgents: [...agents].sort((a, b) => b.projectedRecovery - a.projectedRecovery).slice(0, 5),
+  };
+}
+
+export function getHealthColor(score: number): "green" | "amber" | "red" | "blue" {
+  if (score >= 80) return "green";
+  if (score >= 60) return "amber";
+  if (score >= 40) return "blue";
+  return "red";
+}
+
+export function getGradeColor(grade: HealthGrade): string {
+  switch (grade) {
+    case "A": return "text-emerald-400";
+    case "B": return "text-blue-400";
+    case "C": return "text-amber-400";
+    case "D": return "text-orange-400";
+    case "F": return "text-red-400";
+  }
+}
+
+export function getGradeBg(grade: HealthGrade): string {
+  switch (grade) {
+    case "A": return "bg-emerald-500/10 border-emerald-500/30";
+    case "B": return "bg-blue-500/10 border-blue-500/30";
+    case "C": return "bg-amber-500/10 border-amber-500/30";
+    case "D": return "bg-orange-500/10 border-orange-500/30";
+    case "F": return "bg-red-500/10 border-red-500/30";
+  }
+}

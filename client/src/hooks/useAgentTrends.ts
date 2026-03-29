@@ -53,6 +53,18 @@ export interface WeeklyTrend {
   days: number;
 }
 
+export interface PipelineTrend {
+  date: string;
+  pastDue: number;
+  newLeads: number;
+  callQueue: number;
+  todaysFollowUps: number;
+  postSaleLeads: number;
+  totalStale: number;
+  revenueAtRisk: number;
+  projectedRecovery: number;
+}
+
 export interface WindowTrend {
   windowName: string;
   roli: number;
@@ -140,6 +152,7 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
   const [intraday, setIntraday] = useState<IntradayPoint[]>([]);
   const [weekly, setWeekly] = useState<WeeklyTrend[]>([]);
   const [windows, setWindows] = useState<WindowTrend[]>([]);
+  const [pipelineTrends, setPipelineTrends] = useState<PipelineTrend[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchDayOverDay = useCallback(async () => {
@@ -354,14 +367,51 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
     setWindows(wt);
   }, [agentName]);
 
+  const fetchPipelineTrends = useCallback(async () => {
+    if (!isSupabaseConfigured || !agentName) return;
+
+    const startDate = daysAgoCST(Math.ceil(daysBack * 1.5));
+
+    const { data } = await supabase
+      .from("pipeline_compliance_daily")
+      .select("scrape_date, past_due_follow_ups, new_leads, call_queue_count, todays_follow_ups, post_sale_leads, total_stale, revenue_at_risk, projected_recovery")
+      .eq("agent_name", agentName)
+      .gte("scrape_date", startDate)
+      .order("scrape_date", { ascending: true });
+
+    const rows = (data ?? []) as Array<{
+      scrape_date: string;
+      past_due_follow_ups: number | null;
+      new_leads: number | null;
+      call_queue_count: number | null;
+      todays_follow_ups: number | null;
+      post_sale_leads: number | null;
+      total_stale: number | null;
+      revenue_at_risk: number | null;
+      projected_recovery: number | null;
+    }>;
+
+    setPipelineTrends(rows.map((r) => ({
+      date: r.scrape_date,
+      pastDue: r.past_due_follow_ups ?? 0,
+      newLeads: r.new_leads ?? 0,
+      callQueue: r.call_queue_count ?? 0,
+      todaysFollowUps: r.todays_follow_ups ?? 0,
+      postSaleLeads: r.post_sale_leads ?? 0,
+      totalStale: r.total_stale ?? 0,
+      revenueAtRisk: Number(r.revenue_at_risk ?? 0),
+      projectedRecovery: Number(r.projected_recovery ?? 0),
+    })));
+  }, [agentName, daysBack]);
+
   useEffect(() => {
     if (!agentName) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all([fetchDayOverDay(), fetchIntraday(), fetchWeekly(), fetchWindows()])
+    Promise.all([fetchDayOverDay(), fetchIntraday(), fetchWeekly(), fetchWindows(), fetchPipelineTrends()])
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [agentName, fetchDayOverDay, fetchIntraday, fetchWeekly, fetchWindows]);
+  }, [agentName, fetchDayOverDay, fetchIntraday, fetchWeekly, fetchWindows, fetchPipelineTrends]);
 
   const yesterday = daily.length >= 2 ? daily[daily.length - 2] : null;
   const latestDay = daily.length >= 1 ? daily[daily.length - 1] : null;
@@ -373,5 +423,5 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
     premiumVsLastWeek: weekly.length >= 2 ? weekly[weekly.length - 1].premium - weekly[weekly.length - 2].premium : null,
   };
 
-  return { daily, intraday, weekly, windows, loading, deltas };
+  return { daily, intraday, weekly, windows, pipelineTrends, loading, deltas };
 }

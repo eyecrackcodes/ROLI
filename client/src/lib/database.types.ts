@@ -7,11 +7,34 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
   public: {
     Tables: {
+      agent_name_aliases: {
+        Row: {
+          canonical_name: string
+          created_at: string | null
+          crm_name: string
+          id: string
+        }
+        Insert: {
+          canonical_name: string
+          created_at?: string | null
+          crm_name: string
+          id?: string
+        }
+        Update: {
+          canonical_name?: string
+          created_at?: string | null
+          crm_name?: string
+          id?: string
+        }
+        Relationships: []
+      }
       agents: {
         Row: {
           created_at: string | null
@@ -105,153 +128,6 @@ export type Database = {
         }
         Relationships: []
       }
-      intraday_snapshots: {
-        Row: {
-          id: string
-          scrape_date: string
-          scrape_hour: number
-          agent_name: string
-          tier: string
-          ib_leads_delivered: number | null
-          ob_leads_delivered: number | null
-          ib_sales: number | null
-          ob_sales: number | null
-          custom_sales: number | null
-          ib_premium: number | null
-          ob_premium: number | null
-          custom_premium: number | null
-          total_dials: number | null
-          talk_time_minutes: number | null
-          pool_dials: number | null
-          pool_talk_minutes: number | null
-          pool_answered: number | null
-          pool_long_calls: number | null
-          pool_self_assigned: number | null
-          pool_contact_rate: number | null
-          created_at: string | null
-        }
-        Insert: {
-          id?: string
-          scrape_date: string
-          scrape_hour: number
-          agent_name: string
-          tier: string
-          ib_leads_delivered?: number | null
-          ob_leads_delivered?: number | null
-          ib_sales?: number | null
-          ob_sales?: number | null
-          custom_sales?: number | null
-          ib_premium?: number | null
-          ob_premium?: number | null
-          custom_premium?: number | null
-          total_dials?: number | null
-          talk_time_minutes?: number | null
-          pool_dials?: number | null
-          pool_talk_minutes?: number | null
-          pool_answered?: number | null
-          pool_long_calls?: number | null
-          pool_self_assigned?: number | null
-          pool_contact_rate?: number | null
-          created_at?: string | null
-        }
-        Update: {
-          id?: string
-          scrape_date?: string
-          scrape_hour?: number
-          agent_name?: string
-          tier?: string
-          ib_leads_delivered?: number | null
-          ob_leads_delivered?: number | null
-          ib_sales?: number | null
-          ob_sales?: number | null
-          custom_sales?: number | null
-          ib_premium?: number | null
-          ob_premium?: number | null
-          custom_premium?: number | null
-          total_dials?: number | null
-          talk_time_minutes?: number | null
-          pool_dials?: number | null
-          pool_talk_minutes?: number | null
-          pool_answered?: number | null
-          pool_long_calls?: number | null
-          pool_self_assigned?: number | null
-          pool_contact_rate?: number | null
-          created_at?: string | null
-        }
-        Relationships: []
-      }
-      leads_pool_daily_data: {
-        Row: {
-          id: string
-          scrape_date: string
-          agent_name: string
-          calls_made: number | null
-          talk_time_minutes: number | null
-          sales_made: number | null
-          premium: number | null
-          self_assigned_leads: number | null
-          answered_calls: number | null
-          long_calls: number | null
-          contact_rate: number | null
-          created_at: string | null
-        }
-        Insert: {
-          id?: string
-          scrape_date: string
-          agent_name: string
-          calls_made?: number | null
-          talk_time_minutes?: number | null
-          sales_made?: number | null
-          premium?: number | null
-          self_assigned_leads?: number | null
-          answered_calls?: number | null
-          long_calls?: number | null
-          contact_rate?: number | null
-          created_at?: string | null
-        }
-        Update: {
-          id?: string
-          scrape_date?: string
-          agent_name?: string
-          calls_made?: number | null
-          talk_time_minutes?: number | null
-          sales_made?: number | null
-          premium?: number | null
-          self_assigned_leads?: number | null
-          answered_calls?: number | null
-          long_calls?: number | null
-          contact_rate?: number | null
-          created_at?: string | null
-        }
-        Relationships: []
-      }
-      leads_pool_inventory: {
-        Row: {
-          id: string
-          scrape_date: string
-          scrape_hour: number
-          status: string
-          total_leads: number | null
-          created_at: string | null
-        }
-        Insert: {
-          id?: string
-          scrape_date: string
-          scrape_hour?: number
-          status: string
-          total_leads?: number | null
-          created_at?: string | null
-        }
-        Update: {
-          id?: string
-          scrape_date?: string
-          scrape_hour?: number
-          status?: string
-          total_leads?: number | null
-          created_at?: string | null
-        }
-        Relationships: []
-      }
       evaluation_windows: {
         Row: {
           created_at: string | null
@@ -285,6 +161,84 @@ export type Database = {
         }
         Relationships: []
       }
+      intraday_snapshots: {
+        Row: {
+          agent_name: string
+          created_at: string | null
+          custom_leads: number | null
+          custom_premium: number | null
+          custom_sales: number | null
+          ib_leads_delivered: number | null
+          ib_premium: number | null
+          ib_sales: number | null
+          id: string
+          ob_leads_delivered: number | null
+          ob_premium: number | null
+          ob_sales: number | null
+          pool_answered: number | null
+          pool_contact_rate: number | null
+          pool_dials: number | null
+          pool_long_calls: number | null
+          pool_self_assigned: number | null
+          pool_talk_minutes: number | null
+          scrape_date: string
+          scrape_hour: number
+          talk_time_minutes: number | null
+          tier: string
+          total_dials: number | null
+        }
+        Insert: {
+          agent_name: string
+          created_at?: string | null
+          custom_leads?: number | null
+          custom_premium?: number | null
+          custom_sales?: number | null
+          ib_leads_delivered?: number | null
+          ib_premium?: number | null
+          ib_sales?: number | null
+          id?: string
+          ob_leads_delivered?: number | null
+          ob_premium?: number | null
+          ob_sales?: number | null
+          pool_answered?: number | null
+          pool_contact_rate?: number | null
+          pool_dials?: number | null
+          pool_long_calls?: number | null
+          pool_self_assigned?: number | null
+          pool_talk_minutes?: number | null
+          scrape_date: string
+          scrape_hour: number
+          talk_time_minutes?: number | null
+          tier: string
+          total_dials?: number | null
+        }
+        Update: {
+          agent_name?: string
+          created_at?: string | null
+          custom_leads?: number | null
+          custom_premium?: number | null
+          custom_sales?: number | null
+          ib_leads_delivered?: number | null
+          ib_premium?: number | null
+          ib_sales?: number | null
+          id?: string
+          ob_leads_delivered?: number | null
+          ob_premium?: number | null
+          ob_sales?: number | null
+          pool_answered?: number | null
+          pool_contact_rate?: number | null
+          pool_dials?: number | null
+          pool_long_calls?: number | null
+          pool_self_assigned?: number | null
+          pool_talk_minutes?: number | null
+          scrape_date?: string
+          scrape_hour?: number
+          talk_time_minutes?: number | null
+          tier?: string
+          total_dials?: number | null
+        }
+        Relationships: []
+      }
       lead_cost_config: {
         Row: {
           cost_per_lead: number
@@ -312,6 +266,78 @@ export type Database = {
           id?: string
           lead_channel?: string
           tier?: string
+        }
+        Relationships: []
+      }
+      leads_pool_daily_data: {
+        Row: {
+          agent_name: string
+          answered_calls: number | null
+          calls_made: number | null
+          contact_rate: number | null
+          created_at: string | null
+          id: string
+          long_calls: number | null
+          premium: number | null
+          sales_made: number | null
+          scrape_date: string
+          self_assigned_leads: number | null
+          talk_time_minutes: number | null
+        }
+        Insert: {
+          agent_name: string
+          answered_calls?: number | null
+          calls_made?: number | null
+          contact_rate?: number | null
+          created_at?: string | null
+          id?: string
+          long_calls?: number | null
+          premium?: number | null
+          sales_made?: number | null
+          scrape_date: string
+          self_assigned_leads?: number | null
+          talk_time_minutes?: number | null
+        }
+        Update: {
+          agent_name?: string
+          answered_calls?: number | null
+          calls_made?: number | null
+          contact_rate?: number | null
+          created_at?: string | null
+          id?: string
+          long_calls?: number | null
+          premium?: number | null
+          sales_made?: number | null
+          scrape_date?: string
+          self_assigned_leads?: number | null
+          talk_time_minutes?: number | null
+        }
+        Relationships: []
+      }
+      leads_pool_inventory: {
+        Row: {
+          created_at: string | null
+          id: string
+          scrape_date: string
+          scrape_hour: number
+          status: string
+          total_leads: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          scrape_date: string
+          scrape_hour?: number
+          status: string
+          total_leads?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          scrape_date?: string
+          scrape_hour?: number
+          status?: string
+          total_leads?: number | null
         }
         Relationships: []
       }
@@ -419,6 +445,57 @@ export type Database = {
           },
         ]
       }
+      pipeline_compliance_daily: {
+        Row: {
+          agent_id_crm: string | null
+          agent_name: string
+          call_queue_count: number | null
+          created_at: string | null
+          id: string
+          new_leads: number | null
+          past_due_follow_ups: number | null
+          post_sale_leads: number | null
+          projected_recovery: number | null
+          revenue_at_risk: number | null
+          scrape_date: string
+          tier: string
+          todays_follow_ups: number | null
+          total_stale: number | null
+        }
+        Insert: {
+          agent_id_crm?: string | null
+          agent_name: string
+          call_queue_count?: number | null
+          created_at?: string | null
+          id?: string
+          new_leads?: number | null
+          past_due_follow_ups?: number | null
+          post_sale_leads?: number | null
+          projected_recovery?: number | null
+          revenue_at_risk?: number | null
+          scrape_date: string
+          tier?: string
+          todays_follow_ups?: number | null
+          total_stale?: number | null
+        }
+        Update: {
+          agent_id_crm?: string | null
+          agent_name?: string
+          call_queue_count?: number | null
+          created_at?: string | null
+          id?: string
+          new_leads?: number | null
+          past_due_follow_ups?: number | null
+          post_sale_leads?: number | null
+          projected_recovery?: number | null
+          revenue_at_risk?: number | null
+          scrape_date?: string
+          tier?: string
+          todays_follow_ups?: number | null
+          total_stale?: number | null
+        }
+        Relationships: []
+      }
       system_config: {
         Row: {
           key: string
@@ -507,6 +584,7 @@ export type Database = {
       ingest_daily_scrape: { Args: { payload: Json }; Returns: Json }
       ingest_intraday_scrape: { Args: { payload: Json }; Returns: Json }
       ingest_leads_pool_data: { Args: { payload: Json }; Returns: Json }
+      resolve_agent_name: { Args: { raw_name: string }; Returns: string }
     }
     Enums: {
       [_ in never]: never
@@ -599,3 +677,43 @@ export type TablesUpdate<
       ? U
       : never
     : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

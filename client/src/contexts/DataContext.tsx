@@ -6,6 +6,8 @@ import {
 } from "@/lib/sampleData";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { EvaluationWindow } from "@/hooks/useEvaluationWindows";
+import type { PipelineAgent, PipelineComplianceRow, ProductionRow, PoolRow as PipelinePoolRow } from "@/lib/pipelineIntelligence";
+import { buildPipelineAgents } from "@/lib/pipelineIntelligence";
 
 interface DailyScrapeRow {
   agent_name: string;
@@ -100,6 +102,9 @@ interface DataContextType {
   dateRange: DateRange;
   setDateRange: (r: DateRange) => void;
   poolInventory: PoolInventorySnapshot[];
+  pipelineAgents: PipelineAgent[];
+  refreshPipeline: () => Promise<void>;
+  pipelineLoading: boolean;
 }
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -277,15 +282,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [isRangeMode, setIsRangeMode] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>({ start: "", end: "" });
   const [poolInventory, setPoolInventory] = useState<PoolInventorySnapshot[]>([]);
+  const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
+  const [pipelineLoading, setPipelineLoading] = useState(false);
 
   // Fetch available dates + evaluation window on mount, then smart-select date
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     (async () => {
       try {
-        const [{ data: windowData }, { data: dateRows }] = await Promise.all([
+        const [{ data: windowData }, { data: dateRows }, { data: pipelineDateRows }] = await Promise.all([
           supabase.from("evaluation_windows").select("*").eq("is_active", true).single(),
           supabase.from("daily_scrape_data").select("scrape_date").order("scrape_date", { ascending: false }),
+          supabase.from("pipeline_compliance_daily").select("scrape_date").order("scrape_date", { ascending: false }),
         ]);
 
         if (windowData) {
@@ -296,7 +304,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           setWorkingDays(w.working_days);
         }
 
-        const uniqueDates = [...new Set((dateRows ?? []).map((r: { scrape_date: string }) => r.scrape_date))].sort().reverse();
+        const allDateSet = new Set<string>();
+        for (const r of (dateRows ?? []) as Array<{ scrape_date: string }>) allDateSet.add(r.scrape_date);
+        for (const r of (pipelineDateRows ?? []) as Array<{ scrape_date: string }>) allDateSet.add(r.scrape_date);
+        const uniqueDates = Array.from(allDateSet).sort().reverse();
         setAvailableDates(uniqueDates);
 
         if (uniqueDates.length > 0) {
@@ -488,6 +499,41 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeWindow]);
 
+  const refreshPipeline = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    setPipelineLoading(true);
+    try {
+      const targetDate = isRangeMode ? dateRange.end : selectedDate;
+
+      const [{ data: compRows }, { data: prodRows }, { data: plRows }, agentMap] = await Promise.all([
+        supabase.from("pipeline_compliance_daily").select("*").eq("scrape_date", targetDate),
+        supabase.from("daily_scrape_data").select("agent_name, tier, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes").eq("scrape_date", targetDate),
+        supabase.from("leads_pool_daily_data").select("agent_name, calls_made, talk_time_minutes, sales_made, premium, self_assigned_leads, answered_calls").eq("scrape_date", targetDate),
+        fetchAgentMap(),
+      ]);
+
+      const typedComp = (compRows ?? []) as PipelineComplianceRow[];
+      const typedProd = (prodRows ?? []) as ProductionRow[];
+      const typedPool = (plRows ?? []) as PipelinePoolRow[];
+
+      if (typedComp.length === 0) {
+        setPipelineAgents([]);
+        return;
+      }
+
+      const agents = buildPipelineAgents(typedProd, typedPool, typedComp, agentMap);
+      setPipelineAgents(agents);
+    } catch {
+      // keep existing data
+    } finally {
+      setPipelineLoading(false);
+    }
+  }, [selectedDate, isRangeMode, dateRange, fetchAgentMap]);
+
+  useEffect(() => {
+    if (isSupabaseConfigured) refreshPipeline();
+  }, [selectedDate, refreshPipeline]);
+
   useEffect(() => {
     if (isSupabaseConfigured) refreshDaily();
   }, [selectedDate, isRangeMode, dateRange, refreshDaily]);
@@ -566,6 +612,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         availableDates, isRangeMode, setIsRangeMode,
         dateRange, setDateRange,
         poolInventory,
+        pipelineAgents, refreshPipeline, pipelineLoading,
       }}
     >
       {children}

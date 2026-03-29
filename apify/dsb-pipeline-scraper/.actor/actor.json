@@ -1,0 +1,10 @@
+{
+  "actorSpecification": 1,
+  "name": "dsb-pipeline-scraper",
+  "title": "DSB Pipeline Compliance Scraper",
+  "description": "Scrapes the CRM Advanced Dashboard Stats page per agent to extract pipeline hygiene metrics (past-due follow-ups, new leads, call queue, follow-ups, post-sale) and compute financial risk.",
+  "version": "1.0",
+  "buildTag": "latest",
+  "input": "./INPUT_SCHEMA.json",
+  "dockerfile": "./Dockerfile"
+}
