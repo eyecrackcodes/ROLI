@@ -1,0 +1,45 @@
+---
+description: Supabase query patterns and database conventions
+globs: "**/*.ts,**/*.tsx"
+alwaysApply: false
+---
+
+# Supabase Patterns
+
+## RLS Policy Required
+
+Every new table MUST have an RLS policy. Without it, the anon key returns zero rows:
+
+```sql
+ALTER TABLE my_table ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all my_table" ON my_table FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+```
+
+## Agent Filtering (Date-Aware)
+
+Never use `.eq("is_active", true)` alone. Always account for `terminated_date`:
+
+```typescript
+const filtered = agents.filter((a) => {
+  if (a.is_active) return true;
+  if (a.terminated_date && targetDate < a.terminated_date) return true;
+  return false;
+});
+```
+
+## Map/Set Iteration
+
+TypeScript target requires `Array.from()` wrapper for Map/Set iteration:
+
+```typescript
+// ✅ Correct
+for (const [key, val] of Array.from(myMap)) { ... }
+for (const item of Array.from(mySet)) { ... }
+
+// ❌ Will cause TS2802 error
+for (const [key, val] of myMap) { ... }
+```
+
+## Edge Functions
+
+Edge functions use Deno. Import from `@supabase/supabase-js` via URL imports. Environment variables via `Deno.env.get()`.

@@ -1,0 +1,64 @@
+---
+description: Definitions and formulas for all ROLI metrics
+alwaysApply: true
+---
+
+# Metrics Glossary
+
+## Production Metrics (from daily_scrape_data)
+
+| Metric | Formula | Notes |
+|---|---|---|
+| Contact Rate | `(answered_calls / total_calls) * 100` | % of dials that were answered |
+| Close Rate | `(apps / answered_calls) * 100` | % of answered calls that became apps |
+| Dial Yield | `apps / total_calls` | Raw efficiency: apps per dial |
+| Talk Time | Cumulative seconds on calls | Display as MM:SS |
+
+## Leads Pool Metrics (from leads_pool_daily_data)
+
+| Metric | Formula | Notes |
+|---|---|---|
+| Pool Efficiency | `pool_talk_time_min / pool_dials` | Minutes per dial — key gaming indicator |
+| Connect Rate | `max(long_calls, self_assigned_leads) / pool_dials` | Uses whichever count is higher to avoid undercounting |
+| Gaming Flag | Based on Pool Efficiency thresholds | See below |
+
+### Pool Efficiency Thresholds
+
+| Efficiency | Interpretation |
+|---|---|
+| > 1 min/dial | Too slow — distracted, over-noting, idle time |
+| 0.5–1 min/dial | Healthy, realistic workflow |
+| 0.3–0.5 min/dial | Fast but acceptable |
+| < 0.3 min/dial | Likely gaming / rapid skipping |
+
+## Pipeline Metrics (from pipeline_compliance_daily)
+
+| Metric | Formula | Notes |
+|---|---|---|
+| Total Stale | `past_due + new_leads + (call_queue * staleRate)` | staleRate: T1=15%, T2=10%, T3=8% |
+| Revenue at Risk | `total_stale * avgPremium` | Uses agent's 30-day rolling avg premium (falls back to tier avg) |
+| Projected Recovery | `total_stale * closeRate * avgPremium` | Uses agent's 30-day rolling close rate (falls back to tier avg) |
+| Pipeline Health Score | Composite of 4 sub-scores (0-25 each) | See pipelineIntelligence.ts |
+| Past Due Delta (d/d) | `today_past_due - yesterday_past_due` | Negative = improving, positive = deteriorating |
+
+### Revenue Model Data Sources
+
+Agent-level stats require minimum 3 days of data and 2+ sales (premium) or 5+ leads (close rate).
+Below threshold, falls back to tier-level averages computed from same 30-day window.
+Fallback constants when no data: T1=$400/8%, T2=$300/6%, T3=$250/4%.
+
+## Follow-Up Compliance
+
+| Metric | Formula | Notes |
+|---|---|---|
+| F/U Compliance % | `(1 - pastDue / (pastDue + todaysFollowUps)) * 100` | Point-in-time ratio |
+| Past Due Delta | `today.pastDue - prior_day.pastDue` | d/d trend indicator |
+
+If both pastDue and todaysFollowUps are 0, compliance = 100% (clean pipeline or no assignments).
+The delta is the more actionable signal — a rising past-due count regardless of ratio means deterioration.
+
+## Contact Rate vs Connect Rate
+
+- **Contact Rate** = production dials answered (daily_scrape_data)
+- **Connect Rate** = pool leads meaningfully contacted (leads_pool_daily_data)
+- These are distinct metrics — never conflate them

@@ -177,8 +177,36 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
                   <div className="flex justify-between"><span className="text-muted-foreground">Total Stale</span><span className="text-amber-400">{agent.totalStale}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Rev at Risk</span><span className="text-red-400">{fmt(agent.revenueAtRisk)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Proj. Recovery</span><span className="text-emerald-400">{fmt(agent.projectedRecovery)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Avg Premium</span>
+                    <span>
+                      {fmt(agent.avgPremium)}
+                      <span className={cn("ml-1 text-[8px]", agent.premiumSource === "agent" ? "text-emerald-500" : "text-muted-foreground/60")}>
+                        {agent.premiumSource === "agent" ? "agent" : "tier avg"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Close Rate</span>
+                    <span>
+                      {(agent.closeRate * 100).toFixed(1)}%
+                      <span className={cn("ml-1 text-[8px]", agent.closeRateSource === "agent" ? "text-emerald-500" : "text-muted-foreground/60")}>
+                        {agent.closeRateSource === "agent" ? "agent" : "tier avg"}
+                      </span>
+                    </span>
+                  </div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Waste Ratio</span><span>{agent.wasteRatio.toFixed(1)}%</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">F/U Compliance</span><span>{agent.followUpCompliance.toFixed(0)}%</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">F/U Compliance</span>
+                    <span>
+                      {agent.followUpCompliance.toFixed(0)}%
+                      {agent.pastDueDelta != null && (
+                        <span className={cn("ml-1 text-[9px]", agent.pastDueDelta > 0 ? "text-red-400" : agent.pastDueDelta < 0 ? "text-emerald-400" : "text-muted-foreground")}>
+                          {agent.pastDueDelta > 0 ? "+" : ""}{agent.pastDueDelta} d/d
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -319,13 +347,13 @@ export default function PipelineIntelligence() {
             <MetricCard
               label="Total Revenue at Risk"
               value={fmt(summary.totalRevenueAtRisk)}
-              subtext="Stale pipeline value"
+              subtext="Stale × agent avg premium"
               color="red"
             />
             <MetricCard
               label="Projected Recovery"
               value={fmt(summary.totalProjectedRecovery)}
-              subtext="Est. @ 12% stale conversion"
+              subtext="Stale × agent close rate × premium"
               color="green"
             />
             <MetricCard

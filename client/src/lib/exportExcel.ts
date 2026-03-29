@@ -635,10 +635,15 @@ const PIPELINE_COLS = [
   { key: "combinedDials", header: "Total Dials", width: 10, format: "number" as const },
   { key: "totalSales", header: "Sales", width: 8, format: "number" as const },
   { key: "totalPremium", header: "Premium", width: 12, format: "currency" as const },
+  { key: "avgPremium", header: "Avg Premium", width: 12, format: "currency" as const },
+  { key: "premiumSource", header: "Prem Source", width: 12, format: "text" as const },
+  { key: "closeRatePct", header: "Close Rate %", width: 12, format: "decimal" as const },
+  { key: "closeRateSource", header: "CR Source", width: 12, format: "text" as const },
   { key: "revenueAtRisk", header: "Rev at Risk", width: 12, format: "currency" as const, gradient: true },
   { key: "projectedRecovery", header: "Proj. Recovery $", width: 14, format: "currency" as const, gradient: true },
   { key: "wasteRatio", header: "Waste %", width: 10, format: "decimal" as const },
   { key: "followUpCompliance", header: "F/U Compl %", width: 12, format: "decimal" as const },
+  { key: "pastDueDelta", header: "PD Delta d/d", width: 12, format: "number" as const },
 ];
 
 function flattenPipelineAgent(agent: PipelineAgent): ExportableRow {
@@ -664,10 +669,15 @@ function flattenPipelineAgent(agent: PipelineAgent): ExportableRow {
     combinedDials: agent.totalDials + agent.poolDials,
     totalSales: agent.totalSales,
     totalPremium: agent.totalPremium,
+    avgPremium: agent.avgPremium,
+    premiumSource: agent.premiumSource,
+    closeRatePct: agent.closeRate * 100,
+    closeRateSource: agent.closeRateSource,
     revenueAtRisk: agent.revenueAtRisk,
     projectedRecovery: agent.projectedRecovery,
     wasteRatio: agent.wasteRatio,
     followUpCompliance: agent.followUpCompliance,
+    pastDueDelta: agent.pastDueDelta ?? "",
   };
 }
 

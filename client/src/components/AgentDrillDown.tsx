@@ -526,13 +526,15 @@ export function AgentDrillDown({
                     <StatCard
                       label="F/U Compliance"
                       value={pa.followUpCompliance.toFixed(0) + "%"}
-                      sub={`${pa.pastDue} past due · ${pa.todaysFollowUps} today`}
+                      sub={pa.pastDueDelta != null
+                        ? `${pa.pastDue} past due (${pa.pastDueDelta > 0 ? "+" : ""}${pa.pastDueDelta} d/d)`
+                        : `${pa.pastDue} past due · ${pa.todaysFollowUps} today`}
                       color={pa.followUpCompliance >= 70 ? "text-emerald-400" : pa.followUpCompliance >= 50 ? "text-amber-400" : "text-red-400"}
                     />
                     <StatCard
                       label="Waste Ratio"
                       value={pa.wasteRatio > 0 ? pa.wasteRatio.toFixed(0) + "%" : "--"}
-                      sub={`${fmt(pa.revenueAtRisk)} at risk`}
+                      sub={`${fmt(pa.revenueAtRisk)} risk · ${(pa.closeRate * 100).toFixed(1)}% CR (${pa.closeRateSource})`}
                       color={pa.wasteRatio > 50 ? "text-red-400" : pa.wasteRatio > 25 ? "text-amber-400" : "text-emerald-400"}
                     />
                   </div>
@@ -564,7 +566,18 @@ export function AgentDrillDown({
                         <div className="flex justify-between"><span className="text-muted-foreground">Past Due</span><span className={pa.pastDue > 10 ? "text-red-400 font-bold" : ""}>{pa.pastDue}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Stale</span><span className={pa.totalStale > 10 ? "text-amber-400" : ""}>{pa.totalStale}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Post-Sale</span><span>{pa.postSaleLeads}</span></div>
-                        <div className="flex justify-between border-t border-border/30 pt-1 mt-1"><span className="text-muted-foreground">Proj. Recovery</span><span className="text-emerald-400 text-[9px]" title="Estimated at 12% stale conversion rate × avg premium">{fmt(pa.projectedRecovery)}</span></div>
+                        <div className="flex justify-between border-t border-border/30 pt-1 mt-1">
+                          <span className="text-muted-foreground">Rev at Risk</span>
+                          <span className="text-red-400">{fmt(pa.revenueAtRisk)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Proj. Recovery</span>
+                          <span className="text-emerald-400" title={`${pa.totalStale} stale × ${(pa.closeRate * 100).toFixed(1)}% CR × ${fmt(pa.avgPremium)} premium`}>{fmt(pa.projectedRecovery)}</span>
+                        </div>
+                        <div className="flex justify-between text-[9px] text-muted-foreground/60 pt-0.5">
+                          <span>Avg Prem: {fmt(pa.avgPremium)} ({pa.premiumSource})</span>
+                          <span>CR: {(pa.closeRate * 100).toFixed(1)}% ({pa.closeRateSource})</span>
+                        </div>
                       </div>
                     </div>
                   </div>

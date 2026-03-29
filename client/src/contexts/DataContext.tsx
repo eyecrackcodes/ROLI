@@ -6,7 +6,7 @@ import {
 } from "@/lib/sampleData";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { EvaluationWindow } from "@/hooks/useEvaluationWindows";
-import type { PipelineAgent, PipelineComplianceRow, ProductionRow, PoolRow as PipelinePoolRow } from "@/lib/pipelineIntelligence";
+import type { PipelineAgent, PipelineComplianceRow, ProductionRow, PoolRow as PipelinePoolRow, HistoricalAgentStats, PriorDayCompliance } from "@/lib/pipelineIntelligence";
 import { buildPipelineAgents } from "@/lib/pipelineIntelligence";
 
 interface DailyScrapeRow {
@@ -512,12 +512,45 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       const targetDate = isRangeMode ? dateRange.end : selectedDate;
 
-      const [{ data: compRows }, { data: prodRows }, { data: plRows }, agentMap] = await Promise.all([
+      // 30-day lookback for rolling avg premium & close rate
+      const lookbackDate = (() => {
+        const d = new Date(targetDate);
+        d.setDate(d.getDate() - 30);
+        return d.toISOString().slice(0, 10);
+      })();
+
+      // Prior business day for follow-up delta
+      const priorDate = (() => {
+        const idx = availableDates.indexOf(targetDate);
+        return idx >= 0 && idx < availableDates.length - 1 ? availableDates[idx + 1] : null;
+      })();
+
+      const queries: [
+        ReturnType<typeof supabase.from>,
+        ReturnType<typeof supabase.from>,
+        ReturnType<typeof supabase.from>,
+        Promise<Map<string, { name: string; site: string; tier: string }>>,
+        ReturnType<typeof supabase.from>,
+        ReturnType<typeof supabase.from> | Promise<{ data: null }>,
+      ] = [
         supabase.from("pipeline_compliance_daily").select("*").eq("scrape_date", targetDate),
         supabase.from("daily_scrape_data").select("agent_name, tier, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes").eq("scrape_date", targetDate),
         supabase.from("leads_pool_daily_data").select("agent_name, calls_made, talk_time_minutes, sales_made, premium, self_assigned_leads, answered_calls").eq("scrape_date", targetDate),
         fetchAgentMap(),
-      ]);
+        supabase.from("daily_scrape_data").select("agent_name, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, scrape_date").gte("scrape_date", lookbackDate).lte("scrape_date", targetDate),
+        priorDate
+          ? supabase.from("pipeline_compliance_daily").select("agent_name, past_due_follow_ups").eq("scrape_date", priorDate)
+          : Promise.resolve({ data: null }),
+      ];
+
+      const [{ data: compRows }, { data: prodRows }, { data: plRows }, agentMap, { data: histRows }, { data: priorRows }] = await Promise.all(queries) as [
+        { data: PipelineComplianceRow[] | null },
+        { data: ProductionRow[] | null },
+        { data: PipelinePoolRow[] | null },
+        Map<string, { name: string; site: string; tier: string }>,
+        { data: Array<{ agent_name: string; ib_leads_delivered: number; ob_leads_delivered: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; scrape_date: string }> | null },
+        { data: Array<{ agent_name: string; past_due_follow_ups: number }> | null },
+      ];
 
       const typedComp = (compRows ?? []) as PipelineComplianceRow[];
       const typedProd = (prodRows ?? []) as ProductionRow[];
@@ -528,14 +561,41 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const agents = buildPipelineAgents(typedProd, typedPool, typedComp, agentMap);
+      // Build rolling historical stats per agent
+      const historicalStats = new Map<string, HistoricalAgentStats>();
+      if (histRows && histRows.length > 0) {
+        const byAgent = new Map<string, typeof histRows>();
+        for (const r of histRows) {
+          const existing = byAgent.get(r.agent_name) ?? [];
+          existing.push(r);
+          byAgent.set(r.agent_name, existing);
+        }
+        for (const [name, rows] of Array.from(byAgent)) {
+          historicalStats.set(name, {
+            totalSales: rows.reduce((s, r) => s + r.ib_sales + r.ob_sales + r.custom_sales, 0),
+            totalLeads: rows.reduce((s, r) => s + r.ib_leads_delivered + r.ob_leads_delivered, 0),
+            totalPremium: rows.reduce((s, r) => s + r.ib_premium + r.ob_premium + r.custom_premium, 0),
+            days: new Set(rows.map(r => r.scrape_date)).size,
+          });
+        }
+      }
+
+      // Build prior-day compliance map
+      const priorDayCompliance = new Map<string, PriorDayCompliance>();
+      if (priorRows) {
+        for (const r of priorRows) {
+          priorDayCompliance.set(r.agent_name, { pastDue: r.past_due_follow_ups ?? 0 });
+        }
+      }
+
+      const agents = buildPipelineAgents(typedProd, typedPool, typedComp, agentMap, historicalStats, priorDayCompliance);
       setPipelineAgents(agents);
     } catch {
       // keep existing data
     } finally {
       setPipelineLoading(false);
     }
-  }, [selectedDate, isRangeMode, dateRange, fetchAgentMap]);
+  }, [selectedDate, isRangeMode, dateRange, fetchAgentMap, availableDates]);
 
   useEffect(() => {
     if (isSupabaseConfigured) refreshPipeline();

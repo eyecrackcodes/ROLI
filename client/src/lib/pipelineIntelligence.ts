@@ -71,6 +71,17 @@ export interface PipelineAgent {
   revenueAtRisk: number;
   projectedRecovery: number;
 
+  // Revenue model transparency
+  avgPremium: number;
+  closeRate: number;
+  premiumSource: "agent" | "tier";
+  closeRateSource: "agent" | "tier";
+  tierAvgPremium: number;
+  tierAvgCloseRate: number;
+
+  // Follow-up compliance (enhanced)
+  pastDueDelta: number | null;
+
   // Derived sub-scores (0–25 each)
   followUpDiscipline: number;
   pipelineFreshness: number;
@@ -190,11 +201,29 @@ export interface PoolRow {
   answered_calls: number;
 }
 
+export interface HistoricalAgentStats {
+  totalSales: number;
+  totalLeads: number;
+  totalPremium: number;
+  days: number;
+}
+
+export interface PriorDayCompliance {
+  pastDue: number;
+}
+
+const STALE_QUEUE_RATE: Record<string, number> = { T1: 0.15, T2: 0.10, T3: 0.08 };
+const FALLBACK_PREMIUM: Record<string, number> = { T1: 400, T2: 300, T3: 250 };
+const FALLBACK_CR: Record<string, number> = { T1: 0.08, T2: 0.06, T3: 0.04 };
+const MIN_DAYS_FOR_AGENT_STATS = 3;
+
 export function buildPipelineAgents(
   productionRows: ProductionRow[],
   poolRows: PoolRow[],
   complianceRows: PipelineComplianceRow[],
   agentRoster: Map<string, { name: string; site: string; tier: string }>,
+  historicalStats?: Map<string, HistoricalAgentStats>,
+  priorDayCompliance?: Map<string, PriorDayCompliance>,
 ): PipelineAgent[] {
   const complianceMap = new Map<string, PipelineComplianceRow>();
   for (const row of complianceRows) complianceMap.set(row.agent_name, row);
@@ -210,40 +239,50 @@ export function buildPipelineAgents(
     ...Array.from(prodMap.keys()),
   ]);
 
-  const tierSalesMap = new Map<string, { totalSales: number; totalLeads: number; count: number }>();
+  // Aggregate tier-level stats from historical data (or today's data as fallback)
+  const tierAgg = new Map<string, { totalSales: number; totalLeads: number; totalPremium: number }>();
 
-  // First pass: aggregate tier-level stats for CR normalization
-  for (const name of Array.from(allNames)) {
-    const prod = prodMap.get(name);
-    const roster = agentRoster.get(name);
-    const tier = prod?.tier ?? roster?.tier ?? "T3";
-    const ibLeads = prod?.ib_leads_delivered ?? 0;
-    const obLeads = prod?.ob_leads_delivered ?? 0;
-    const ibSales = prod?.ib_sales ?? 0;
-    const obSales = prod?.ob_sales ?? 0;
-
-    const existing = tierSalesMap.get(tier) ?? { totalSales: 0, totalLeads: 0, count: 0 };
-    existing.totalSales += ibSales + obSales;
-    existing.totalLeads += ibLeads + obLeads;
-    existing.count++;
-    tierSalesMap.set(tier, existing);
+  if (historicalStats && historicalStats.size > 0) {
+    for (const [name, stats] of Array.from(historicalStats)) {
+      const roster = agentRoster.get(name);
+      const tier = roster?.tier ?? "T3";
+      const agg = tierAgg.get(tier) ?? { totalSales: 0, totalLeads: 0, totalPremium: 0 };
+      agg.totalSales += stats.totalSales;
+      agg.totalLeads += stats.totalLeads;
+      agg.totalPremium += stats.totalPremium;
+      tierAgg.set(tier, agg);
+    }
+  } else {
+    for (const name of Array.from(allNames)) {
+      const prod = prodMap.get(name);
+      if (!prod) continue;
+      const roster = agentRoster.get(name);
+      const tier = prod.tier ?? roster?.tier ?? "T3";
+      const agg = tierAgg.get(tier) ?? { totalSales: 0, totalLeads: 0, totalPremium: 0 };
+      agg.totalSales += (prod.ib_sales ?? 0) + (prod.ob_sales ?? 0) + (prod.custom_sales ?? 0);
+      agg.totalLeads += (prod.ib_leads_delivered ?? 0) + (prod.ob_leads_delivered ?? 0);
+      agg.totalPremium += (prod.ib_premium ?? 0) + (prod.ob_premium ?? 0) + (prod.custom_premium ?? 0);
+      tierAgg.set(tier, agg);
+    }
   }
 
   const tierAvgCRMap = new Map<string, number>();
-  for (const [tier, stats] of Array.from(tierSalesMap)) {
-    tierAvgCRMap.set(tier, stats.totalLeads > 0 ? stats.totalSales / stats.totalLeads : 0);
+  const tierAvgPremMap = new Map<string, number>();
+  for (const [tier, agg] of Array.from(tierAgg)) {
+    tierAvgCRMap.set(tier, agg.totalLeads > 0 ? agg.totalSales / agg.totalLeads : FALLBACK_CR[tier] ?? 0.06);
+    tierAvgPremMap.set(tier, agg.totalSales > 0 ? agg.totalPremium / agg.totalSales : FALLBACK_PREMIUM[tier] ?? 300);
   }
 
-  // Second pass: build PipelineAgent for every agent that has compliance data
   const agents: PipelineAgent[] = [];
 
   for (const name of Array.from(allNames)) {
     const comp = complianceMap.get(name);
-    if (!comp) continue; // Only include agents with pipeline compliance data
+    if (!comp) continue;
 
     const prod = prodMap.get(name);
     const pool = poolMap.get(name);
     const roster = agentRoster.get(name);
+    const hist = historicalStats?.get(name);
 
     const tier = (roster?.tier ?? comp.tier ?? "T3") as Tier;
     const site = roster?.site ?? "CHA";
@@ -267,14 +306,44 @@ export function buildPipelineAgents(
     const callQueue = comp.call_queue_count ?? 0;
     const todaysFollowUps = comp.todays_follow_ups ?? 0;
     const postSaleLeads = comp.post_sale_leads ?? 0;
-    const totalStale = comp.total_stale ?? 0;
-    const revenueAtRisk = comp.revenue_at_risk ?? 0;
-    const projectedRecovery = comp.projected_recovery ?? 0;
+
+    // --- Data-driven financial modeling ---
+    const tierAvgPrem = tierAvgPremMap.get(tier) ?? FALLBACK_PREMIUM[tier] ?? 300;
+    const tierAvgCR = tierAvgCRMap.get(tier) ?? FALLBACK_CR[tier] ?? 0.06;
+
+    let avgPremium: number;
+    let premiumSource: "agent" | "tier";
+    if (hist && hist.days >= MIN_DAYS_FOR_AGENT_STATS && hist.totalSales >= 2) {
+      avgPremium = hist.totalPremium / hist.totalSales;
+      premiumSource = "agent";
+    } else {
+      avgPremium = tierAvgPrem;
+      premiumSource = "tier";
+    }
+
+    let closeRate: number;
+    let closeRateSource: "agent" | "tier";
+    if (hist && hist.days >= MIN_DAYS_FOR_AGENT_STATS && hist.totalLeads >= 5) {
+      closeRate = hist.totalSales / hist.totalLeads;
+      closeRateSource = "agent";
+    } else {
+      closeRate = tierAvgCR;
+      closeRateSource = "tier";
+    }
+
+    const staleRate = STALE_QUEUE_RATE[tier] ?? 0.10;
+    const staleCallQueue = Math.round(callQueue * staleRate);
+    const totalStale = pastDue + newLeads + staleCallQueue;
+    const revenueAtRisk = Math.round(totalStale * avgPremium);
+    const projectedRecovery = Math.round(totalStale * closeRate * avgPremium);
+
+    // --- Follow-up compliance with day-over-day delta ---
+    const prior = priorDayCompliance?.get(name);
+    const pastDueDelta = prior != null ? pastDue - prior.pastDue : null;
 
     const followUpDiscipline = calcFollowUpDiscipline(pastDue, todaysFollowUps);
     const pipelineFreshness = calcPipelineFreshness(totalStale, newLeads, callQueue, pastDue);
     const workRateScore = calcWorkRate(totalDials, poolDials, newLeads, callQueue, pastDue, todaysFollowUps);
-    const tierAvgCR = tierAvgCRMap.get(tier) ?? 0;
     const totalLeads = ibLeads + obLeads;
     const conversionEfficiency = calcConversionEfficiency(totalSales, totalLeads, tierAvgCR);
 
@@ -295,9 +364,12 @@ export function buildPipelineAgents(
       poolDials, poolTalk, poolSelfAssigned, poolSales, poolAnswered,
       pastDue, newLeads, callQueue, todaysFollowUps, postSaleLeads,
       totalStale, revenueAtRisk, projectedRecovery,
+      avgPremium, closeRate, premiumSource, closeRateSource,
+      tierAvgPremium: tierAvgPrem, tierAvgCloseRate: tierAvgCR,
+      pastDueDelta,
       followUpDiscipline, pipelineFreshness, workRate: workRateScore, conversionEfficiency,
       healthScore,
-      healthGrade: "C", // placeholder, computed after flags
+      healthGrade: "C",
       flags: [],
       followUpCompliance,
       wasteRatio,

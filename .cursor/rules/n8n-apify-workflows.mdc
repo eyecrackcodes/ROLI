@@ -1,0 +1,47 @@
+---
+description: n8n workflow and Apify actor conventions
+globs: "n8n/**,apify/**"
+alwaysApply: false
+---
+
+# n8n & Apify Conventions
+
+## Secrets
+
+NEVER commit real secrets. Replace with `YOUR_ACTUAL_*` placeholders:
+- `YOUR_ACTUAL_SUPABASE_API_KEY`
+- `YOUR_ACTUAL_APIFY_TOKEN`
+- `YOUR_ACTUAL_CRM_USERNAME` / `YOUR_ACTUAL_CRM_PASSWORD`
+- `YOUR_ACTUAL_SLACK_WEBHOOK_URL`
+
+## Scrape Date Logic
+
+Always adjust to last business day — no Saturday/Sunday dates:
+
+```javascript
+const d = new Date();
+const day = d.getDay();
+if (day === 0) d.setDate(d.getDate() - 2); // Sun → Fri
+if (day === 6) d.setDate(d.getDate() - 1); // Sat → Fri
+```
+
+## Agent Matching Priority
+
+1. Use stored `crm_agent_id` from `agents` table (direct URL navigation)
+2. Fall back to fuzzy matching with `agent_name_aliases` table
+3. Require ALL name tokens to appear in CRM dropdown name (strict matching)
+
+## Apify Actor Stability
+
+The DSB CRM loads data via multiple AJAX calls. The scraper must:
+1. `waitForFunction` until target spans are populated
+2. Read all values → wait 2s → re-read → compare
+3. Repeat up to 4 times until values stabilize
+4. Use the last stable reading
+
+## n8n Workflow Files
+
+Files in `/n8n` are JSON exports for version control. The live workflows run on `jkdbga.app.n8n.cloud`. When updating:
+1. Edit code locally
+2. Test in n8n cloud UI
+3. Export and save to `/n8n` with secrets replaced

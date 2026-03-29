@@ -1,0 +1,37 @@
+---
+description: React component and hook patterns for ROLI frontend
+globs: "client/src/**/*.tsx,client/src/**/*.ts"
+alwaysApply: false
+---
+
+# React Patterns
+
+## Data Flow
+
+1. `DataContext` provides: `selectedDate`, `dateRange`, `agentMap`, daily/pipeline/pool data
+2. Page components consume context and pass processed data to display components
+3. Custom hooks (`useAgentTrends`, `useDailyPulse`, `useAgents`) encapsulate feature-specific queries
+4. Export functions in `lib/exportExcel.ts` fetch data independently for custom date ranges
+
+## Component Conventions
+
+- Use shadcn/ui primitives (`Button`, `Dialog`, `Tabs`, `Table`, `Input`, `Select`)
+- Loading states: show skeleton or spinner, never blank screens
+- Error states: display user-friendly message with retry option
+- All numeric displays: use `toLocaleString()` for thousands separators
+- Currency: prefix with `$`, no decimals for large values
+- Percentages: one decimal place with `%` suffix
+- Durations: `MM:SS` format via helper function
+
+## Chart Components
+
+- `TrendLineChart` — time-series line charts
+- `TrendBarChart` — bar charts with optional trend lines
+- `Sparkline` — inline mini charts for table cells
+- `DeltaBadge` — shows change with color coding (supports `invert` prop for "lower is better" metrics)
+
+## Tier Color Coding
+
+```typescript
+const TIER_COLORS = { T1: "blue", T2: "amber", T3: "emerald" };
+```
