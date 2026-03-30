@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useTeamPerformance, type TeamSummary, type TeamAgentStats } from "@/hooks/useTeamPerformance";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, Trophy, TrendingUp, TrendingDown, Users, DollarSign, Target, Award } from "lucide-react";
+import { ChevronDown, ChevronRight, Trophy, TrendingUp, TrendingDown, Users, DollarSign, Target, Award, Activity, AlertTriangle, ShieldCheck } from "lucide-react";
 
 function fmt(v: number) { return "$" + v.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
 
@@ -38,6 +38,18 @@ function TierBadge({ tier }: { tier: string }) {
   );
 }
 
+function HealthBadge({ score }: { score: number | null }) {
+  if (score === null) return <span className="text-muted-foreground/40 text-[10px]">—</span>;
+  const color = score >= 70 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+    : score >= 40 ? "text-amber-400 bg-amber-500/10 border-amber-500/30"
+    : "text-red-400 bg-red-500/10 border-red-500/30";
+  return (
+    <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border tabular-nums", color)}>
+      {score}
+    </span>
+  );
+}
+
 function AgentRow({ agent, isTop, isBottom }: { agent: TeamAgentStats; isTop: boolean; isBottom: boolean }) {
   return (
     <tr className="border-b border-border/30 hover:bg-accent/20 transition-colors">
@@ -57,6 +69,9 @@ function AgentRow({ agent, isTop, isBottom }: { agent: TeamAgentStats; isTop: bo
       <td className="px-3 py-2 font-mono text-xs text-right tabular-nums">{agent.closeRate.toFixed(1)}%</td>
       <td className="px-3 py-2 font-mono text-xs text-right tabular-nums text-muted-foreground">{agent.daysActive}</td>
       <td className="px-3 py-2 font-mono text-xs text-right tabular-nums text-muted-foreground">{agent.avgDailySales.toFixed(1)}</td>
+      <td className="px-3 py-2 text-right"><HealthBadge score={agent.healthScore} /></td>
+      <td className="px-3 py-2 font-mono text-xs text-right tabular-nums">{agent.pastDue > 0 ? <span className="text-red-400">{agent.pastDue}</span> : <span className="text-muted-foreground/40">0</span>}</td>
+      <td className="px-3 py-2 font-mono text-xs text-right tabular-nums">{agent.followUpCompliance.toFixed(0)}%</td>
     </tr>
   );
 }
@@ -95,6 +110,12 @@ function TeamCard({ team, expanded, onToggle }: { team: TeamSummary; expanded: b
               </div>
             </div>
             <div className="text-right hidden sm:block">
+              <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Health</div>
+              <div className="flex items-center gap-1 justify-end">
+                <HealthBadge score={team.pipelineAgentCount > 0 ? Math.round(team.avgHealthScore) : null} />
+              </div>
+            </div>
+            <div className="text-right hidden sm:block">
               <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Premium</div>
               <div className="font-mono text-xs tabular-nums">{fmt(team.totalPremium)}</div>
             </div>
@@ -107,8 +128,8 @@ function TeamCard({ team, expanded, onToggle }: { team: TeamSummary; expanded: b
               <div className="font-mono text-xs tabular-nums">{team.totalSales}</div>
             </div>
             <div className="text-right hidden md:block">
-              <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Avg CR</div>
-              <div className="font-mono text-xs tabular-nums">{team.avgCloseRate.toFixed(1)}%</div>
+              <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Past Due</div>
+              <div className={cn("font-mono text-xs tabular-nums", team.totalPastDue > 20 ? "text-red-400" : "text-muted-foreground")}>{team.totalPastDue}</div>
             </div>
           </div>
         </div>
@@ -116,11 +137,14 @@ function TeamCard({ team, expanded, onToggle }: { team: TeamSummary; expanded: b
 
       {expanded && (
         <div className="border-t border-border">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 py-3 bg-card/50 border-b border-border/50">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 px-4 py-3 bg-card/50 border-b border-border/50">
             <Stat icon={<DollarSign className="h-3 w-3" />} label="Lead Cost" value={fmt(team.totalLeadCost)} />
             <Stat icon={<Target className="h-3 w-3" />} label="Avg Agent ROLI" value={`${(team.avgAgentROLI * 100).toFixed(0)}%`} />
             <Stat icon={<Award className="h-3 w-3 text-emerald-400" />} label="Top" value={team.topPerformer} />
             <Stat icon={<TrendingDown className="h-3 w-3 text-red-400" />} label="Bottom" value={team.bottomPerformer} />
+            <Stat icon={<Activity className="h-3 w-3 text-blue-400" />} label="Pipeline Health" value={team.pipelineAgentCount > 0 ? `${team.avgHealthScore.toFixed(0)}/100` : "—"} />
+            <Stat icon={<AlertTriangle className="h-3 w-3 text-amber-400" />} label="Past Due" value={team.totalPastDue.toLocaleString()} />
+            <Stat icon={<ShieldCheck className="h-3 w-3 text-emerald-400" />} label="F/U Compliance" value={team.pipelineAgentCount > 0 ? `${team.avgFollowUpCompliance.toFixed(0)}%` : "—"} />
           </div>
 
           <div className="overflow-x-auto">
@@ -137,6 +161,9 @@ function TeamCard({ team, expanded, onToggle }: { team: TeamSummary; expanded: b
                   <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">CR%</th>
                   <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Days</th>
                   <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Avg/Day</th>
+                  <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Health</th>
+                  <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Past Due</th>
+                  <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">F/U%</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,7 +199,7 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 export default function TeamLeaderboard() {
   const { teams, loading, windowName, startDate, endDate } = useTeamPerformance();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [sortBy, setSortBy] = useState<"roli" | "premium" | "profit" | "sales">("roli");
+  const [sortBy, setSortBy] = useState<"roli" | "premium" | "profit" | "sales" | "pipeline">("roli");
 
   const sorted = useMemo(() => {
     const copy = [...teams];
@@ -181,6 +208,7 @@ export default function TeamLeaderboard() {
       case "premium": copy.sort((a, b) => b.totalPremium - a.totalPremium); break;
       case "profit": copy.sort((a, b) => b.totalProfit - a.totalProfit); break;
       case "sales": copy.sort((a, b) => b.totalSales - a.totalSales); break;
+      case "pipeline": copy.sort((a, b) => b.avgHealthScore - a.avgHealthScore); break;
     }
     copy.forEach((t, i) => { t.rank = i + 1; });
     return copy;
@@ -202,6 +230,14 @@ export default function TeamLeaderboard() {
   const totalProfit = teams.reduce((s, t) => s + t.totalProfit, 0);
   const totalLeadCost = teams.reduce((s, t) => s + t.totalLeadCost, 0);
   const overallROLI = totalLeadCost > 0 ? totalProfit / totalLeadCost : 0;
+  const teamsWithPipeline = teams.filter((t) => t.pipelineAgentCount > 0);
+  const orgAvgHealth = teamsWithPipeline.length > 0
+    ? teamsWithPipeline.reduce((s, t) => s + t.avgHealthScore, 0) / teamsWithPipeline.length
+    : 0;
+  const orgTotalPastDue = teams.reduce((s, t) => s + t.totalPastDue, 0);
+  const orgAvgFUCompliance = teamsWithPipeline.length > 0
+    ? teamsWithPipeline.reduce((s, t) => s + t.avgFollowUpCompliance, 0) / teamsWithPipeline.length
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -214,7 +250,7 @@ export default function TeamLeaderboard() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         <div className="bg-card border border-border rounded-md px-3 py-2.5">
           <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Teams</div>
           <div className="text-lg font-bold font-mono tabular-nums">{teams.length}</div>
@@ -237,13 +273,28 @@ export default function TeamLeaderboard() {
           <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Lead Investment</div>
           <div className="text-lg font-bold font-mono tabular-nums text-muted-foreground">{fmt(totalLeadCost)}</div>
         </div>
+        <div className="bg-card border border-border rounded-md px-3 py-2.5">
+          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1"><Activity className="h-3 w-3" />Pipeline Health</div>
+          <div className="text-lg font-bold font-mono tabular-nums"><HealthBadge score={teamsWithPipeline.length > 0 ? Math.round(orgAvgHealth) : null} /></div>
+          <div className="text-[10px] font-mono text-muted-foreground">Org average</div>
+        </div>
+        <div className="bg-card border border-border rounded-md px-3 py-2.5">
+          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Past Due</div>
+          <div className={cn("text-lg font-bold font-mono tabular-nums", orgTotalPastDue > 50 ? "text-red-400" : "text-foreground")}>{orgTotalPastDue.toLocaleString()}</div>
+          <div className="text-[10px] font-mono text-muted-foreground">All teams</div>
+        </div>
+        <div className="bg-card border border-border rounded-md px-3 py-2.5">
+          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1"><ShieldCheck className="h-3 w-3" />F/U Compliance</div>
+          <div className={cn("text-lg font-bold font-mono tabular-nums", orgAvgFUCompliance >= 80 ? "text-emerald-400" : orgAvgFUCompliance >= 50 ? "text-amber-400" : "text-red-400")}>{orgAvgFUCompliance.toFixed(0)}%</div>
+          <div className="text-[10px] font-mono text-muted-foreground">Org average</div>
+        </div>
       </div>
 
       {/* Controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Rank by:</span>
-          {(["roli", "premium", "profit", "sales"] as const).map((key) => (
+          {(["roli", "pipeline", "premium", "profit", "sales"] as const).map((key) => (
             <button
               key={key}
               onClick={() => setSortBy(key)}

@@ -19,6 +19,12 @@ export interface TeamAgentStats {
   ibLeads: number;
   obLeads: number;
   avgDailySales: number;
+  // Pipeline
+  healthScore: number | null;
+  pastDue: number;
+  totalStale: number;
+  revenueAtRisk: number;
+  followUpCompliance: number;
 }
 
 export interface TeamSummary {
@@ -35,6 +41,13 @@ export interface TeamSummary {
   topPerformer: string;
   bottomPerformer: string;
   rank: number;
+  // Pipeline
+  avgHealthScore: number;
+  totalRevenueAtRisk: number;
+  totalStale: number;
+  avgFollowUpCompliance: number;
+  totalPastDue: number;
+  pipelineAgentCount: number;
 }
 
 interface UseTeamPerformanceReturn {
@@ -72,7 +85,16 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
       setStartDate(windowData.start_date);
       setEndDate(windowData.end_date);
 
-      const [{ data: prodRows }, { data: agentRows }] = await Promise.all([
+      const latestPipelineDate = await supabase
+        .from("pipeline_compliance_daily")
+        .select("scrape_date")
+        .order("scrape_date", { ascending: false })
+        .limit(1)
+        .single();
+
+      const pipelineDate = latestPipelineDate.data?.scrape_date ?? null;
+
+      const [{ data: prodRows }, { data: agentRows }, { data: pipelineRows }] = await Promise.all([
         supabase
           .from("daily_scrape_data")
           .select("agent_name, tier, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, scrape_date")
@@ -81,11 +103,34 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
         supabase
           .from("agents")
           .select("name, tier, site, manager, is_active, terminated_date"),
+        pipelineDate
+          ? supabase
+              .from("pipeline_compliance_daily")
+              .select("agent_name, past_due_follow_ups, new_leads, call_queue_count, todays_follow_ups, post_sale_leads")
+              .eq("scrape_date", pipelineDate)
+          : Promise.resolve({ data: null }),
       ]);
 
       if (!prodRows || !agentRows) {
         setLoading(false);
         return;
+      }
+
+      // Pipeline lookup: agent_name -> raw pipeline numbers
+      const pipelineLookup = new Map<string, {
+        pastDue: number; newLeads: number; callQueue: number;
+        todaysFollowUps: number; postSale: number;
+      }>();
+      if (pipelineRows) {
+        for (const r of pipelineRows) {
+          pipelineLookup.set(r.agent_name, {
+            pastDue: r.past_due_follow_ups ?? 0,
+            newLeads: r.new_leads ?? 0,
+            callQueue: r.call_queue_count ?? 0,
+            todaysFollowUps: r.todays_follow_ups ?? 0,
+            postSale: r.post_sale_leads ?? 0,
+          });
+        }
       }
 
       const agentMeta = new Map<string, { tier: Tier; site: string; manager: string | null }>();
@@ -141,6 +186,26 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
         const closeRate = totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0;
         const daysActive = agg.dates.size;
 
+        // Pipeline metrics for this agent
+        const pl = pipelineLookup.get(name);
+        const pastDue = pl?.pastDue ?? 0;
+        const newLeadsP = pl?.newLeads ?? 0;
+        const callQueue = pl?.callQueue ?? 0;
+        const todaysFollowUps = pl?.todaysFollowUps ?? 0;
+        const postSale = pl?.postSale ?? 0;
+        const totalStale = newLeadsP + callQueue + pastDue;
+        const fuTotal = pastDue + todaysFollowUps;
+        const followUpCompliance = fuTotal > 0 ? (1 - pastDue / fuTotal) * 100 : 100;
+
+        // Simplified health score (follow-up discipline + pipeline freshness, 0–50 scaled to 0–100)
+        let healthScore: number | null = null;
+        if (pl) {
+          const fuDiscipline = fuTotal === 0 ? 25 : Math.max(0, 25 * (1 - pastDue / fuTotal));
+          const freshTotal = newLeadsP + callQueue + pastDue;
+          const freshness = freshTotal === 0 ? 25 : Math.max(0, 25 * (1 - totalStale / (freshTotal + postSale + todaysFollowUps + 1)));
+          healthScore = Math.round(((fuDiscipline + freshness) / 50) * 100);
+        }
+
         const agentStats: TeamAgentStats = {
           name, tier: agg.tier, site: agg.site,
           totalSales, totalPremium, totalLeads, leadCost, profit, roli,
@@ -148,6 +213,8 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
           ibSales: agg.ibSales, obSales: agg.obSales,
           ibLeads: agg.ibLeads, obLeads: agg.obLeads,
           avgDailySales: daysActive > 0 ? totalSales / daysActive : 0,
+          healthScore, pastDue, totalStale, revenueAtRisk: 0,
+          followUpCompliance,
         };
 
         const mgr = agg.manager!;
@@ -168,6 +235,18 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
         const avgAgentROLI = agents.length > 0 ? agents.reduce((s, a) => s + a.roli, 0) / agents.length : 0;
         const avgCloseRate = agents.length > 0 ? agents.reduce((s, a) => s + a.closeRate, 0) / agents.length : 0;
 
+        const pipelineAgents = agents.filter((a) => a.healthScore !== null);
+        const pipelineAgentCount = pipelineAgents.length;
+        const avgHealthScore = pipelineAgentCount > 0
+          ? pipelineAgents.reduce((s, a) => s + (a.healthScore ?? 0), 0) / pipelineAgentCount
+          : 0;
+        const totalRevenueAtRisk = agents.reduce((s, a) => s + a.revenueAtRisk, 0);
+        const teamTotalStale = agents.reduce((s, a) => s + a.totalStale, 0);
+        const avgFollowUpCompliance = pipelineAgentCount > 0
+          ? pipelineAgents.reduce((s, a) => s + a.followUpCompliance, 0) / pipelineAgentCount
+          : 0;
+        const teamTotalPastDue = agents.reduce((s, a) => s + a.pastDue, 0);
+
         teamSummaries.push({
           manager,
           agentCount: agents.length,
@@ -182,6 +261,12 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
           topPerformer: sorted[0]?.name ?? "—",
           bottomPerformer: sorted[sorted.length - 1]?.name ?? "—",
           rank: 0,
+          avgHealthScore,
+          totalRevenueAtRisk,
+          totalStale: teamTotalStale,
+          avgFollowUpCompliance,
+          totalPastDue: teamTotalPastDue,
+          pipelineAgentCount,
         });
       }
 
