@@ -813,12 +813,11 @@ export function AgentDrillDown({
               const totPoolLong = poolDays.reduce((s, d) => s + d.poolLongCalls, 0);
               const totPoolSelfAssigned = poolDays.reduce((s, d) => s + d.poolSelfAssigned, 0);
               const avgContactRate = totPoolDials > 0 ? (totPoolAnswered / totPoolDials) * 100 : 0;
-              const avgConnectRate = totPoolDials > 0
-                ? (Math.max(totPoolLong, totPoolSelfAssigned) / totPoolDials) * 100
+              const avgAssignRate = totPoolAnswered > 0
+                ? (totPoolSelfAssigned / totPoolAnswered) * 100
                 : 0;
 
-              const todayConnected = Math.max(latestDay.poolLongCalls, latestDay.poolSelfAssigned);
-              const todayConnectRate = latestDay.poolDials > 0 ? (todayConnected / latestDay.poolDials) * 100 : 0;
+              const todayAssignRate = latestDay.poolAnswered > 0 ? (latestDay.poolSelfAssigned / latestDay.poolAnswered) * 100 : 0;
               const ghostAssigns = latestDay.poolSelfAssigned - latestDay.poolLongCalls;
               const isGaming = ghostAssigns > 0;
 
@@ -843,10 +842,10 @@ export function AgentDrillDown({
                       color={latestDay.poolContactRate >= 50 ? "text-emerald-400" : latestDay.poolContactRate >= 30 ? "text-amber-400" : "text-red-400"}
                     />
                     <StatCard
-                      label="Connect Rate"
-                      value={todayConnectRate.toFixed(0) + "%"}
-                      sub={hasPoolHistory ? `${poolDays.length}d avg: ${avgConnectRate.toFixed(0)}%` : "connected / dials"}
-                      color={todayConnectRate >= 10 ? "text-emerald-400" : todayConnectRate >= 5 ? "text-amber-400" : "text-red-400"}
+                      label="Assign Rate"
+                      value={todayAssignRate.toFixed(0) + "%"}
+                      sub={hasPoolHistory ? `${poolDays.length}d avg: ${avgAssignRate.toFixed(0)}%` : "assigned / answered"}
+                      color={todayAssignRate >= 65 ? "text-emerald-400" : todayAssignRate >= 45 ? "text-amber-400" : "text-red-400"}
                     />
                     <StatCard
                       label="Self-Assigned"
@@ -917,7 +916,7 @@ export function AgentDrillDown({
                   ...(daily.some(d => d.poolDials > 0)
                     ? [
                         { label: "Contact %", data: daily.map(d => d.poolContactRate), color: "#22d3ee" },
-                        { label: "Connect %", data: daily.map(d => d.poolConnectRate), color: "#f472b6" },
+                        { label: "Assign %", data: daily.map(d => d.poolAssignRate), color: "#f472b6" },
                       ]
                     : []),
                 ].map(({ label, data: sparkData, color }) => (

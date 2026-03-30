@@ -19,8 +19,19 @@ alwaysApply: true
 | Metric | Formula | Notes |
 |---|---|---|
 | Pool Efficiency | `pool_talk_time_min / pool_dials` | Minutes per dial — key gaming indicator |
-| Connect Rate | `max(long_calls, self_assigned_leads) / pool_dials` | Uses whichever count is higher to avoid undercounting |
+| Assign Rate | `self_assigned_leads / answered_calls × 100` | % of answered calls the agent self-assigned as leads |
 | Gaming Flag | Based on Pool Efficiency thresholds | See below |
+
+### Assign Rate Thresholds
+
+All pool leads are unassigned. Agents should self-assign every answered contact — including
+not interested and DNC — to remove leads from rotation and prevent unnecessary repeat calls.
+
+| Assign Rate | Interpretation |
+|---|---|
+| >= 65% | Healthy — properly managing pool contacts and cleaning rotation |
+| 45–64% | Below target — leaving contacted leads in pool to get called again |
+| < 45% | Cherry-picking — only assigning interested leads, ignoring DNC/not interested |
 
 ### Pool Efficiency Thresholds
 

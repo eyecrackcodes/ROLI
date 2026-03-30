@@ -61,7 +61,7 @@ function sortPoolAgents(agents: PoolAgent[], sort: SortState): PoolAgent[] {
       case "answered": return a.pool.answeredCalls;
       case "longCalls": return a.pool.longCalls;
       case "contactRate": return a.pool.contactRate;
-      case "assignRate": return a.pool.expectedAssignmentRate ?? 0;
+      case "assignRate": return a.pool.assignRate;
       default: return 0;
     }
   };
@@ -76,15 +76,15 @@ function sortPoolAgents(agents: PoolAgent[], sort: SortState): PoolAgent[] {
   });
 }
 
-const ASSIGNMENT_RATE_TARGET = 90;
+const ASSIGN_RATE_TARGET = 65;
 
-function AssignmentRateBadge({ rate }: { rate: number | undefined }) {
-  if (rate === undefined) return <span className="text-muted-foreground">--</span>;
-  const isGood = rate >= ASSIGNMENT_RATE_TARGET;
+function AssignmentRateBadge({ rate }: { rate: number }) {
+  if (rate === 0) return <span className="text-muted-foreground">--</span>;
+  const isGood = rate >= ASSIGN_RATE_TARGET;
   return (
     <span className={cn(
       "inline-flex items-center gap-1 font-bold",
-      isGood ? "text-emerald-400" : rate >= 50 ? "text-amber-400" : "text-red-400"
+      isGood ? "text-emerald-400" : rate >= 45 ? "text-amber-400" : "text-red-400"
     )}>
       {rate.toFixed(0)}%
       {isGood ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
@@ -167,7 +167,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
   }), [agents]);
 
   const totalContactRate = totals.callsMade > 0 ? (totals.answered / totals.callsMade) * 100 : 0;
-  const totalAssignRate = totals.longCalls > 0 ? (totals.selfAssigned / totals.longCalls) * 100 : 0;
+  const totalAssignRate = totals.answered > 0 ? (totals.selfAssigned / totals.answered) * 100 : 0;
 
   return (
     <div className="overflow-x-auto">
@@ -189,7 +189,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
         </thead>
         <tbody>
           {sorted.map((agent, i) => {
-            const belowTarget = (agent.pool.expectedAssignmentRate ?? 0) < assignTarget && agent.pool.longCalls > 0;
+            const belowTarget = agent.pool.assignRate < assignTarget && agent.pool.answeredCalls > 0;
             return (
               <tr
                 key={agent.name}
@@ -220,7 +220,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.longCalls}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.selfAssignedLeads}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
-                  <AssignmentRateBadge rate={agent.pool.expectedAssignmentRate} />
+                  <AssignmentRateBadge rate={agent.pool.assignRate} />
                 </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.salesMade}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
@@ -243,7 +243,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
             <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totals.longCalls}</td>
             <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{totals.selfAssigned}</td>
             <td className="px-3 py-2.5 font-mono text-right tabular-nums">
-              <AssignmentRateBadge rate={totals.longCalls > 0 ? totalAssignRate : undefined} />
+              <AssignmentRateBadge rate={totals.answered > 0 ? totalAssignRate : 0} />
             </td>
             <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totals.sales}</td>
             <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">
@@ -265,8 +265,7 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
 
   const poolVelocity = totalPoolLeads > 0 ? ((totalCallsMade / totalPoolLeads) * 100).toFixed(0) : "--";
   const avgCallsPerAgent = agents.length > 0 ? (totalCallsMade / agents.length).toFixed(0) : "--";
-  const connected = Math.max(totalLongCalls, totalSelfAssigned);
-  const connectRate = totalCallsMade > 0 ? ((connected / totalCallsMade) * 100).toFixed(1) : "--";
+  const assignRate = totalAnswered > 0 ? ((totalSelfAssigned / totalAnswered) * 100).toFixed(1) : "--";
   const contactRate = totalCallsMade > 0 ? ((totalAnswered / totalCallsMade) * 100).toFixed(0) : "--";
 
   return (
@@ -289,10 +288,10 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
         subtext={`${totalAnswered} answered`}
       />
       <MetricCard
-        label="Connect Rate"
-        value={`${connectRate}%`}
-        color={Number(connectRate) >= 5 ? "green" : "amber"}
-        subtext={`${connected} connected (max of long calls, assigns)`}
+        label="Assign Rate"
+        value={`${assignRate}%`}
+        color={Number(assignRate) >= ASSIGN_RATE_TARGET ? "green" : Number(assignRate) >= 45 ? "amber" : "red"}
+        subtext={`${totalSelfAssigned} assigned / ${totalAnswered} answered`}
       />
       <MetricCard
         label="Self Assigned"
@@ -401,13 +400,14 @@ export default function LeadsPool() {
                   Assignment Target
                 </h3>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-mono font-bold text-emerald-400">{ASSIGNMENT_RATE_TARGET}%</span>
-                  <span className="text-xs font-mono text-muted-foreground">of long calls should result in self-assignment</span>
+                  <span className="text-3xl font-mono font-bold text-emerald-400">{ASSIGN_RATE_TARGET}%</span>
+                  <span className="text-xs font-mono text-muted-foreground">of answered calls should result in self-assignment</span>
                 </div>
                 <p className="text-[11px] font-mono text-muted-foreground mt-3 leading-relaxed">
-                  Agents below target are flagged in the table.
-                  A long call (&gt;2 min, no VM drop) indicates a meaningful
-                  conversation that should typically convert to an assigned lead.
+                  Every pool lead is unassigned. When an agent answers and reaches
+                  someone, they should self-assign regardless of outcome — including
+                  not interested or DNC — to remove the lead from pool rotation.
+                  Low assign rates mean leads keep getting recycled unnecessarily.
                 </p>
               </div>
 
@@ -432,7 +432,7 @@ export default function LeadsPool() {
                 </div>
               )}
 
-              {poolAgents.some((a) => a.pool.longCalls > 0 && (a.pool.expectedAssignmentRate ?? 0) < ASSIGNMENT_RATE_TARGET) && (
+              {poolAgents.some((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < ASSIGN_RATE_TARGET) && (
                 <div className="bg-red-500/5 border border-red-500/20 rounded-md p-4">
                   <h3 className="text-xs font-mono uppercase tracking-widest text-red-400 mb-3 flex items-center gap-2">
                     <AlertTriangle className="h-3.5 w-3.5" />
@@ -440,19 +440,17 @@ export default function LeadsPool() {
                   </h3>
                   <div className="space-y-2">
                     {poolAgents
-                      .filter((a) => a.pool.longCalls > 0 && (a.pool.expectedAssignmentRate ?? 0) < ASSIGNMENT_RATE_TARGET)
-                      .sort((a, b) => (a.pool.expectedAssignmentRate ?? 0) - (b.pool.expectedAssignmentRate ?? 0))
+                      .filter((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < ASSIGN_RATE_TARGET)
+                      .sort((a, b) => a.pool.assignRate - b.pool.assignRate)
                       .map((a) => (
                         <div key={a.name} className="flex items-center gap-2">
                           <span className="text-sm font-medium flex-1 truncate">{a.name}</span>
-                          <span className="text-xs font-mono text-muted-foreground">{a.pool.longCalls} long</span>
-                          <span className="text-xs font-mono text-muted-foreground">→</span>
-                          <span className="text-xs font-mono text-muted-foreground">{a.pool.selfAssignedLeads} assigned</span>
+                          <span className="text-xs font-mono text-muted-foreground">{a.pool.selfAssignedLeads}/{a.pool.answeredCalls} answered</span>
                           <span className={cn(
                             "text-sm font-mono font-bold tabular-nums",
-                            (a.pool.expectedAssignmentRate ?? 0) < 50 ? "text-red-400" : "text-amber-400"
+                            a.pool.assignRate < 45 ? "text-red-400" : "text-amber-400"
                           )}>
-                            {(a.pool.expectedAssignmentRate ?? 0).toFixed(0)}%
+                            {a.pool.assignRate.toFixed(0)}%
                           </span>
                         </div>
                       ))}
@@ -469,7 +467,7 @@ export default function LeadsPool() {
                 Agent Pool Activity
               </h3>
             </div>
-            <PoolAgentTable agents={poolAgents} assignTarget={ASSIGNMENT_RATE_TARGET} />
+            <PoolAgentTable agents={poolAgents} assignTarget={ASSIGN_RATE_TARGET} />
           </div>
         </>
       ) : (

@@ -98,7 +98,7 @@ export interface PoolMetrics {
   answeredCalls: number;
   longCalls: number;
   contactRate: number;
-  expectedAssignmentRate?: number;
+  assignRate: number; // selfAssigned / answeredCalls × 100
 }
 
 export interface PoolInventorySnapshot {

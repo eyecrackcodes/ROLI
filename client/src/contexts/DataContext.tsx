@@ -172,7 +172,7 @@ function buildPoolMetricsMap(poolRows: PoolDailyRow[]): Map<string, PoolMetrics>
       answeredCalls,
       longCalls,
       contactRate: callsMade > 0 ? (answeredCalls / callsMade) * 100 : 0,
-      expectedAssignmentRate: longCalls > 0 ? (selfAssigned / longCalls) * 100 : undefined,
+      assignRate: answeredCalls > 0 ? (selfAssigned / answeredCalls) * 100 : 0,
     });
   }
   return result;

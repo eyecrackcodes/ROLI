@@ -23,7 +23,7 @@ export interface DailyTrend {
   poolLongCalls: number;
   poolSelfAssigned: number;
   poolContactRate: number;
-  poolConnectRate: number;
+  poolAssignRate: number;
 }
 
 export interface IntradayPoint {
@@ -227,8 +227,8 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
         poolLongCalls: p?.long_calls ?? 0,
         poolSelfAssigned: p?.self_assigned_leads ?? 0,
         poolContactRate: p?.contact_rate ?? 0,
-        poolConnectRate: (p?.calls_made ?? 0) > 0
-          ? (Math.max(p?.long_calls ?? 0, p?.self_assigned_leads ?? 0) / (p?.calls_made ?? 1)) * 100
+        poolAssignRate: (p?.answered_calls ?? 0) > 0
+          ? ((p?.self_assigned_leads ?? 0) / (p?.answered_calls ?? 1)) * 100
           : 0,
       };
     });
