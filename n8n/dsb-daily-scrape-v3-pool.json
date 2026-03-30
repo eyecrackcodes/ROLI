@@ -101,7 +101,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\n\nif (!datasetId) {\n  return [{\n    json: {\n      error: true,\n      message: 'No defaultDatasetId in run status. runId=' + runId + ' status=' + (runStatus?.data?.status || 'unknown')\n    }\n  }];\n}\n\nconst token = 'APIFY_TOKEN_PLACEHOLDER';\n\nasync function fetchDataset(dsId, attempt) {\n  const url = `https://api.apify.com/v2/datasets/${dsId}/items?token=${token}`;\n  const raw = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    encoding: 'utf-8',\n    returnFullResponse: false,\n    timeout: 60000,\n    headers: { 'Accept': 'application/json' },\n  });\n  let parsed = raw;\n  if (typeof raw === 'string') {\n    try { parsed = JSON.parse(raw); } catch (e) {\n      throw new Error(`JSON parse failed (attempt ${attempt}): ${raw.substring(0, 200)}`);\n    }\n  }\n  return parsed;\n}\n\nlet datasetItems;\nlet lastErr;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    datasetItems = await fetchDataset.call(this, datasetId, attempt);\n    if (Array.isArray(datasetItems) && datasetItems.length > 0) break;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  } catch (err) {\n    lastErr = err;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  }\n}\n\nif (lastErr && (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0)) {\n  return [{\n    json: {\n      error: true,\n      message: `Fetch dataset failed after 3 attempts: ${lastErr.message}`,\n      datasetId, runId\n    }\n  }];\n}\n\nif (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0) {\n  return [{\n    json: {\n      error: true,\n      message: `Dataset ${datasetId} empty after 3 attempts (runId=${runId}). Type=${typeof datasetItems}`,\n      datasetId, runId\n    }\n  }];\n}\n\nconst central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst [cy,cm,cd] = central.split('-').map(Number);\nconst today = new Date(cy, cm-1, cd);\nconst day = today.getDay();\nif (day === 0) today.setDate(today.getDate() - 2);\nelse if (day === 6) today.setDate(today.getDate() - 1);\nconst scrapeDate = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');\n\n// Separate flat agent records from the pool_data typed item\nconst agents = datasetItems.filter(item => !item._type);\nconst poolItem = datasetItems.find(item => item._type === 'pool_data');\nconst poolAgents = poolItem ? (poolItem.pool_agents || []) : [];\nconst poolInventory = poolItem ? (poolItem.pool_inventory || []) : [];\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents,\n    pool_agents: poolAgents,\n    pool_inventory: poolInventory\n  }\n}];"
+        "jsCode": "const runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\n\nif (!datasetId) {\n  return [{\n    json: {\n      error: true,\n      message: 'No defaultDatasetId in run status. runId=' + runId + ' status=' + (runStatus?.data?.status || 'unknown')\n    }\n  }];\n}\n\nconst token = 'APIFY_TOKEN_PLACEHOLDER';\n\nasync function fetchDataset(dsId, attempt) {\n  const url = `https://api.apify.com/v2/datasets/${dsId}/items?token=${token}`;\n  const raw = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    encoding: 'utf-8',\n    returnFullResponse: false,\n    timeout: 60000,\n    headers: { 'Accept': 'application/json' },\n  });\n  let parsed = raw;\n  if (typeof raw === 'string') {\n    try { parsed = JSON.parse(raw); } catch (e) {\n      throw new Error(`JSON parse failed (attempt ${attempt}): ${raw.substring(0, 200)}`);\n    }\n  }\n  return parsed;\n}\n\nlet datasetItems;\nlet lastErr;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    datasetItems = await fetchDataset.call(this, datasetId, attempt);\n    if (Array.isArray(datasetItems) && datasetItems.length > 0) break;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  } catch (err) {\n    lastErr = err;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  }\n}\n\nif (lastErr && (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0)) {\n  return [{\n    json: {\n      error: true,\n      message: `Fetch dataset failed after 3 attempts: ${lastErr.message}`,\n      datasetId, runId\n    }\n  }];\n}\n\nif (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0) {\n  return [{\n    json: {\n      error: true,\n      message: `Dataset ${datasetId} empty after 3 attempts (runId=${runId}). Type=${typeof datasetItems}`,\n      datasetId, runId\n    }\n  }];\n}\n\nconst central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst [cy,cm,cd] = central.split('-').map(Number);\nconst today = new Date(cy, cm-1, cd);\nconst day = today.getDay();\nif (day === 0) today.setDate(today.getDate() - 2);\nelse if (day === 6) today.setDate(today.getDate() - 1);\nconst scrapeDate = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');\n\n// Separate flat agent records from typed items\nconst agents = datasetItems.filter(item => !item._type);\nconst poolItem = datasetItems.find(item => item._type === 'pool_data');\nconst poolAgents = poolItem ? (poolItem.pool_agents || []) : [];\nconst poolInventory = poolItem ? (poolItem.pool_inventory || []) : [];\nconst perfItem = datasetItems.find(item => item._type === 'agent_performance');\nconst perfAgents = perfItem ? (perfItem.agents || []) : [];\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents,\n    pool_agents: poolAgents,\n    pool_inventory: poolInventory,\n    perf_agents: perfAgents\n  }\n}];"
       },
       "id": "6e371585-1aba-40ae-88cc-8cd5b5b401f3",
       "name": "Fetch Dataset & Build Payload",
@@ -231,7 +231,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const payload = $node['Fetch Dataset & Build Payload'].json;\nconst poolAgents = payload.pool_agents || [];\nconst poolInventory = payload.pool_inventory || [];\n\nif (poolAgents.length === 0 && poolInventory.length === 0) {\n  return [{ json: { skip: true, message: 'No pool data to ingest' } }];\n}\n\nreturn [{\n  json: {\n    scrape_date: payload.scrape_date,\n    agents: poolAgents,\n    inventory: poolInventory\n  }\n}];"
+        "jsCode": "const payload = $node['Fetch Dataset & Build Payload'].json;\nconst poolAgents = payload.pool_agents || [];\nconst poolInventory = payload.pool_inventory || [];\n\nreturn [{\n  json: {\n    scrape_date: payload.scrape_date,\n    agents: poolAgents,\n    inventory: poolInventory\n  }\n}];"
       },
       "id": "b1a2c3d4-e5f6-7890-abcd-ef1234567890",
       "name": "Build Pool Payload",
@@ -250,11 +250,11 @@
           "conditions": [
             {
               "id": "has-pool-data",
-              "leftValue": "={{ $json.skip }}",
-              "rightValue": true,
+              "leftValue": "={{ $json.agents.length }}",
+              "rightValue": 0,
               "operator": {
-                "type": "boolean",
-                "operation": "notTrue"
+                "type": "number",
+                "operation": "gt"
               }
             }
           ],
@@ -293,6 +293,71 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [2032, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $node['Fetch Dataset & Build Payload'].json;\nconst perfAgents = payload.perf_agents || [];\n\nreturn [{\n  json: {\n    scrape_date: payload.scrape_date,\n    agents: perfAgents\n  }\n}];"
+      },
+      "id": "e1f2a3b4-c5d6-7890-abcd-ef9876543210",
+      "name": "Build Perf Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1552, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-perf-data",
+              "leftValue": "={{ $json.agents.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f2e3d4c5-b6a7-8901-dcba-fe0987654321",
+      "name": "Has Perf Data?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1792, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://bcibmmbxrjfiulofserv.supabase.co/functions/v1/ingest-agent-performance",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a3b4c5d6-e7f8-9012-abcd-0123456789ab",
+      "name": "POST Perf to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2032, 150]
     },
     {
       "parameters": {
@@ -467,6 +532,11 @@
             "node": "Build Pool Payload",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Build Perf Payload",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -505,6 +575,29 @@
         [
           {
             "node": "POST Pool to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Build Perf Payload": {
+      "main": [
+        [
+          {
+            "node": "Has Perf Data?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Perf Data?": {
+      "main": [
+        [
+          {
+            "node": "POST Perf to Supabase",
             "type": "main",
             "index": 0
           }

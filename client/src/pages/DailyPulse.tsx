@@ -77,6 +77,9 @@ function sortAgents(agents: DailyPulseAgent[], sort: SortState): DailyPulseAgent
       case "mtdPace": return a.mtdPace ?? 0;
       case "mtdROLI": return a.mtdROLI ?? 0;
       case "leads": return (a.obLeads ?? 0) + (a.ibCalls ?? 0);
+      case "contacts": return a.funnel?.contactsMade ?? 0;
+      case "conversations": return a.funnel?.conversations ?? 0;
+      case "presentations": return a.funnel?.presentations ?? 0;
       case "cr": {
         const leads = (a.ibCalls ?? 0) + (a.obLeads ?? 0);
         return leads > 0 ? (a.salesToday / leads) * 100 : 0;
@@ -168,6 +171,7 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
     return dailyT3.filter((a) => a.manager === teamFilter);
   }, [dailyT3, teamFilter]);
   const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
+  const hasFunnel = filtered.some(a => a.funnel && a.funnel.dials > 0);
 
   const totalPremium = filtered.reduce((s, a) => s + a.premiumToday, 0);
   const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
@@ -198,6 +202,9 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <SortHeader label="Talk Time" sortKey="talkTime" current={sort} onToggle={toggle} />
               <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
               <SortHeader label="CR" sortKey="cr" current={sort} onToggle={toggle} />
+              {hasFunnel && <SortHeader label="Contacts" sortKey="contacts" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Convos" sortKey="conversations" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Pres" sortKey="presentations" current={sort} onToggle={toggle} />}
               <SortHeader label="Premium" sortKey="premium" current={sort} onToggle={toggle} />
               <SortHeader label="Bonus" sortKey="bonus" current={sort} onToggle={toggle} />
               <SortHeader label="MTD Sales" sortKey="mtdSales" current={sort} onToggle={toggle} />
@@ -226,6 +233,9 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{agent.talkTimeMin ?? 0} min</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.salesToday}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.salesToday} leads={agent.obLeads ?? 0} /></td>
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.contactsMade ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.premiumToday)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ? <span className="text-purple-400">{agent.bonusSales}</span> : <span className="text-muted-foreground">--</span>}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.mtdSales ?? 0}</td>
@@ -245,6 +255,9 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0)} min</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalSales}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalSales} leads={totalLeads} /></td>
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.contactsMade ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT3.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.mtdSales ?? 0), 0)}</td>
@@ -266,6 +279,7 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
     return dailyT2.filter((a) => a.manager === teamFilter);
   }, [dailyT2, teamFilter]);
   const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
+  const hasFunnel = filtered.some(a => a.funnel && a.funnel.dials > 0);
 
   const totalPremium = filtered.reduce((s, a) => s + a.totalPremium, 0);
   const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
@@ -296,6 +310,9 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <SortHeader label="OB Leads" sortKey="obLeads" current={sort} onToggle={toggle} />
               <SortHeader label="OB Sales" sortKey="obSales" current={sort} onToggle={toggle} />
               <SortHeader label="OB CR" sortKey="obCR" current={sort} onToggle={toggle} />
+              {hasFunnel && <SortHeader label="Contacts" sortKey="contacts" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Convos" sortKey="conversations" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Pres" sortKey="presentations" current={sort} onToggle={toggle} />}
               <SortHeader label="Premium" sortKey="totalPremium" current={sort} onToggle={toggle} />
               <SortHeader label="Bonus" sortKey="bonus" current={sort} onToggle={toggle} />
               <SortHeader label="MTD ROLI" sortKey="mtdROLI" current={sort} onToggle={toggle} />
@@ -324,6 +341,9 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obSales ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.obSales ?? 0} leads={agent.obLeads ?? 0} /></td>
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.contactsMade ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ? <span className="text-purple-400">{agent.bonusSales}</span> : <span className="text-muted-foreground">--</span>}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
@@ -348,6 +368,9 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalOB}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalOBSales}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalOBSales} leads={totalOB} /></td>
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.contactsMade ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT2.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
               <td className="px-3 py-2.5" />
@@ -368,6 +391,7 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
     return dailyT1.filter((a) => a.manager === teamFilter);
   }, [dailyT1, teamFilter]);
   const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
+  const hasFunnel = filtered.some(a => a.funnel && a.funnel.dials > 0);
 
   const totalPremium = filtered.reduce((s, a) => s + a.totalPremium, 0);
   const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
@@ -392,6 +416,9 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <SortHeader label="IB Calls" sortKey="ibCalls" current={sort} onToggle={toggle} />
               <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
               <SortHeader label="CR" sortKey="ibCR" current={sort} onToggle={toggle} />
+              {hasFunnel && <SortHeader label="Contacts" sortKey="contacts" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Convos" sortKey="conversations" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Pres" sortKey="presentations" current={sort} onToggle={toggle} />}
               <SortHeader label="Premium" sortKey="premium" current={sort} onToggle={toggle} />
               <SortHeader label="Bonus" sortKey="bonus" current={sort} onToggle={toggle} />
               <SortHeader label="Total" sortKey="totalPremium" current={sort} onToggle={toggle} />
@@ -415,6 +442,9 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.salesToday}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.ibSales ?? 0} leads={agent.ibCalls ?? 0} /></td>
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.contactsMade ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.premiumToday)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
@@ -437,6 +467,9 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalIB}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalSales}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalIBSales} leads={totalIB} /></td>
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.contactsMade ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(dailyT1.reduce((s, a) => s + a.premiumToday, 0))}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT1.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>

@@ -51,6 +51,20 @@ interface PoolInventoryRecord {
   total_leads: number;
 }
 
+interface AgentPerformanceRecord {
+  agent_name: string;
+  tier: "T1" | "T2" | "T3";
+  dials: number;
+  leads_worked: number;
+  contacts_made: number;
+  conversations: number;
+  presentations: number;
+  follow_ups_set: number;
+  sales: number;
+  talk_time_minutes: number;
+  premium: number;
+}
+
 const CRM_BASE = "https://crm.digitalseniorbenefits.com";
 
 const TIERS: Array<{ tier: "T1" | "T2" | "T3"; agencyId: string }> = [
@@ -93,6 +107,11 @@ function buildLeadsPoolReportUrl(scrapeDate: string): string {
 }
 
 const LEADS_POOL_INVENTORY_URL = `${CRM_BASE}/admin-in-leads-pool-status-report/?status=reports_currently_in_leads_pool_status_default_group`;
+
+function buildAgentPerformanceUrl(agencyId: string, scrapeDate: string): string {
+  const d = encodeDate(scrapeDate);
+  return `${CRM_BASE}/admin-daily-agent-performance/?period=custom&start_date=${d}&end_date=${d}&agent_id=all&coach=&agency_id=${agencyId}`;
+}
 
 function emptyRecord(name: string, tier: "T1" | "T2" | "T3"): AgentRecord {
   return {
@@ -562,6 +581,71 @@ async function scrapeLeadsPoolInventory(
   return results;
 }
 
+// ---- Daily Agent Performance Report: HTML table scrape ----
+// Columns: Agent, Dials, Leads Worked, Contact Made, Conversations, Presentations,
+//          Follow Up (Appt Set), Sale, Talk Min, Contact %, Contact to Close %,
+//          Conversation to Close %, Presentation to Close %, Sale Made AP
+
+async function scrapeAgentPerformance(
+  page: Page,
+  agencyId: string,
+  scrapeDate: string,
+  tier: "T1" | "T2" | "T3",
+): Promise<AgentPerformanceRecord[]> {
+  const url = buildAgentPerformanceUrl(agencyId, scrapeDate);
+  log.info(`Agent Performance [${tier}]: ${url}`);
+  await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+  await page.waitForTimeout(3000);
+  await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
+
+  const headers = await page.$$eval('table thead th', (ths) =>
+    ths.map((th) => th.textContent?.trim().toLowerCase() ?? "")
+  );
+  const rows = await page.$$eval('table tbody tr', (trs) =>
+    trs.map((tr) => {
+      const cells = Array.from(tr.querySelectorAll('td'));
+      return cells.map((td) => td.textContent?.trim() ?? "");
+    })
+  );
+
+  const agentIdx = headers.findIndex((h) => h.includes("agent"));
+  const dialsIdx = headers.findIndex((h) => h === "dials" || h.includes("dial"));
+  const leadsWorkedIdx = headers.findIndex((h) => h.includes("leads worked"));
+  const contactIdx = headers.findIndex((h) => h.includes("contact made"));
+  const convoIdx = headers.findIndex((h) => h.includes("conversation"));
+  const presIdx = headers.findIndex((h) => h.includes("presentation"));
+  const fuIdx = headers.findIndex((h) => h.includes("follow up") || h.includes("appt set"));
+  const saleIdx = headers.findIndex((h) => h === "sale" || (h.includes("sale") && !h.includes("made ap") && !h.includes("%")));
+  const talkIdx = headers.findIndex((h) => h.includes("talk min") || h.includes("talk time"));
+  const premiumIdx = headers.findIndex((h) => h.includes("sale made ap") || h.includes("premium"));
+
+  log.info(`Agent Performance [${tier}]: ${rows.length} rows, columns: agent=${agentIdx}, dials=${dialsIdx}, leadsWorked=${leadsWorkedIdx}, contact=${contactIdx}, convo=${convoIdx}, pres=${presIdx}, fu=${fuIdx}, sale=${saleIdx}, talk=${talkIdx}, premium=${premiumIdx}`);
+
+  const results: AgentPerformanceRecord[] = [];
+
+  for (const cells of rows) {
+    const agentName = cells[agentIdx >= 0 ? agentIdx : 0]?.trim();
+    if (!agentName || agentName.toLowerCase() === "total" || agentName === "Agent") continue;
+
+    results.push({
+      agent_name: agentName,
+      tier,
+      dials: parseNumber(cells[dialsIdx >= 0 ? dialsIdx : 1]),
+      leads_worked: parseNumber(cells[leadsWorkedIdx >= 0 ? leadsWorkedIdx : 2]),
+      contacts_made: parseNumber(cells[contactIdx >= 0 ? contactIdx : 3]),
+      conversations: parseNumber(cells[convoIdx >= 0 ? convoIdx : 4]),
+      presentations: parseNumber(cells[presIdx >= 0 ? presIdx : 5]),
+      follow_ups_set: parseNumber(cells[fuIdx >= 0 ? fuIdx : 6]),
+      sales: parseNumber(cells[saleIdx >= 0 ? saleIdx : 7]),
+      talk_time_minutes: parseNumber(cells[talkIdx >= 0 ? talkIdx : 8]),
+      premium: parseNumber(cells[premiumIdx >= 0 ? premiumIdx : 13]?.replace(/[$,_]/g, "") ?? "0"),
+    });
+  }
+
+  log.info(`Agent Performance [${tier}]: parsed ${results.length} agent records`);
+  return results;
+}
+
 // ---- Main ----
 
 await Actor.init();
@@ -607,6 +691,19 @@ try {
     }
   }
 
+  // ---- Daily Agent Performance (per tier) ----
+  let perfAgents: AgentPerformanceRecord[] = [];
+
+  for (const { tier, agencyId } of TIERS) {
+    try {
+      log.info(`\n========== AGENT PERFORMANCE ${tier} ==========`);
+      const tierPerf = await scrapeAgentPerformance(page, agencyId, scrapeDate, tier);
+      perfAgents.push(...tierPerf);
+    } catch (err) {
+      log.error(`Agent Performance [${tier}] failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   // ---- Leads Pool (cross-tier, no agency filter) ----
   let poolAgents: PoolAgentRecord[] = [];
   let poolInventory: PoolInventoryRecord[] = [];
@@ -645,6 +742,13 @@ try {
     log.info(`  Pool: ${totalPoolCalls} calls, ${totalSelfAssigned} self-assigned, ${totalLongCalls} long calls`);
   }
 
+  if (perfAgents.length > 0) {
+    const totalContacts = perfAgents.reduce((s, a) => s + a.contacts_made, 0);
+    const totalConvos = perfAgents.reduce((s, a) => s + a.conversations, 0);
+    const totalPres = perfAgents.reduce((s, a) => s + a.presentations, 0);
+    log.info(`  Performance funnel: ${perfAgents.length} agents, ${totalContacts} contacts, ${totalConvos} conversations, ${totalPres} presentations`);
+  }
+
   const dataset = await Actor.openDataset();
 
   // Push agent records as individual items (backward-compatible with existing n8n pipeline)
@@ -660,8 +764,17 @@ try {
     });
   }
 
+  // Push agent performance funnel data as a separate typed item
+  if (perfAgents.length > 0) {
+    await dataset.pushData({
+      _type: "agent_performance",
+      scrape_date: scrapeDate,
+      agents: perfAgents,
+    });
+  }
+
   const { count } = await dataset.getInfo() ?? { count: 0 };
-  log.info(`Dataset verified: ${count} items stored (${agents.length} agents + ${poolAgents.length > 0 ? 1 : 0} pool item). Actor complete.`);
+  log.info(`Dataset verified: ${count} items stored (${agents.length} agents + ${poolAgents.length > 0 ? 1 : 0} pool + ${perfAgents.length > 0 ? 1 : 0} perf). Actor complete.`);
 } catch (err) {
   log.error(`Actor failed: ${err instanceof Error ? err.message : err}`);
   throw err;

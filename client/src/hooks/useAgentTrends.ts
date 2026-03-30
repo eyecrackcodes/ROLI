@@ -53,6 +53,21 @@ export interface WeeklyTrend {
   days: number;
 }
 
+export interface FunnelTrend {
+  date: string;
+  dials: number;
+  leadsWorked: number;
+  contactsMade: number;
+  conversations: number;
+  presentations: number;
+  followUpsSet: number;
+  sales: number;
+  contactPct: number;              // contactsMade / leadsWorked × 100
+  contactToClosePct: number;       // sales / contactsMade × 100
+  conversationToClosePct: number;  // sales / conversations × 100
+  presentationToClosePct: number;  // sales / presentations × 100
+}
+
 export interface PipelineTrend {
   date: string;
   pastDue: number;
@@ -153,6 +168,7 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
   const [weekly, setWeekly] = useState<WeeklyTrend[]>([]);
   const [windows, setWindows] = useState<WindowTrend[]>([]);
   const [pipelineTrends, setPipelineTrends] = useState<PipelineTrend[]>([]);
+  const [funnelTrends, setFunnelTrends] = useState<FunnelTrend[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchDayOverDay = useCallback(async () => {
@@ -404,14 +420,54 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
     })));
   }, [agentName, daysBack]);
 
+  const fetchFunnelTrends = useCallback(async () => {
+    if (!isSupabaseConfigured || !agentName) return;
+
+    const startDate = daysAgoCST(Math.ceil(daysBack * 1.5));
+
+    const { data } = await supabase
+      .from("agent_performance_daily")
+      .select("scrape_date, dials, leads_worked, contacts_made, conversations, presentations, follow_ups_set, sales")
+      .eq("agent_name", agentName)
+      .is("scrape_hour", null)
+      .gte("scrape_date", startDate)
+      .order("scrape_date", { ascending: true });
+
+    const rows = (data ?? []) as Array<{
+      scrape_date: string;
+      dials: number;
+      leads_worked: number;
+      contacts_made: number;
+      conversations: number;
+      presentations: number;
+      follow_ups_set: number;
+      sales: number;
+    }>;
+
+    setFunnelTrends(rows.map((r) => ({
+      date: r.scrape_date,
+      dials: r.dials,
+      leadsWorked: r.leads_worked,
+      contactsMade: r.contacts_made,
+      conversations: r.conversations,
+      presentations: r.presentations,
+      followUpsSet: r.follow_ups_set,
+      sales: r.sales,
+      contactPct: r.leads_worked > 0 ? (r.contacts_made / r.leads_worked) * 100 : 0,
+      contactToClosePct: r.contacts_made > 0 ? (r.sales / r.contacts_made) * 100 : 0,
+      conversationToClosePct: r.conversations > 0 ? (r.sales / r.conversations) * 100 : 0,
+      presentationToClosePct: r.presentations > 0 ? (r.sales / r.presentations) * 100 : 0,
+    })));
+  }, [agentName, daysBack]);
+
   useEffect(() => {
     if (!agentName) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all([fetchDayOverDay(), fetchIntraday(), fetchWeekly(), fetchWindows(), fetchPipelineTrends()])
+    Promise.all([fetchDayOverDay(), fetchIntraday(), fetchWeekly(), fetchWindows(), fetchPipelineTrends(), fetchFunnelTrends()])
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [agentName, fetchDayOverDay, fetchIntraday, fetchWeekly, fetchWindows, fetchPipelineTrends]);
+  }, [agentName, fetchDayOverDay, fetchIntraday, fetchWeekly, fetchWindows, fetchPipelineTrends, fetchFunnelTrends]);
 
   const yesterday = daily.length >= 2 ? daily[daily.length - 2] : null;
   const latestDay = daily.length >= 1 ? daily[daily.length - 1] : null;
@@ -423,5 +479,5 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
     premiumVsLastWeek: weekly.length >= 2 ? weekly[weekly.length - 1].premium - weekly[weekly.length - 2].premium : null,
   };
 
-  return { daily, intraday, weekly, windows, pipelineTrends, loading, deltas };
+  return { daily, intraday, weekly, windows, pipelineTrends, funnelTrends, loading, deltas };
 }

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
-import type { DailyPulseAgent, MonthlyAgent, Tier, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
+import type { DailyPulseAgent, MonthlyAgent, Tier, PoolMetrics, PoolInventorySnapshot, FunnelMetrics } from "@/lib/types";
 import {
   sampleDailyT1, sampleDailyT2, sampleDailyT3,
   sampleMonthlyT1, sampleMonthlyT2, sampleMonthlyT3,
@@ -59,6 +59,22 @@ interface PoolDailyRow {
   long_calls: number;
   contact_rate: number;
   scrape_date: string;
+}
+
+interface AgentPerfRow {
+  agent_name: string;
+  tier: string;
+  dials: number;
+  leads_worked: number;
+  contacts_made: number;
+  conversations: number;
+  presentations: number;
+  follow_ups_set: number;
+  sales: number;
+  talk_time_minutes: number;
+  premium: number;
+  scrape_date: string;
+  scrape_hour: number | null;
 }
 
 export interface DateRange {
@@ -162,12 +178,50 @@ function buildPoolMetricsMap(poolRows: PoolDailyRow[]): Map<string, PoolMetrics>
   return result;
 }
 
+function buildFunnelMap(perfRows: AgentPerfRow[]): Map<string, FunnelMetrics> {
+  const grouped = new Map<string, AgentPerfRow[]>();
+  for (const row of perfRows) {
+    const existing = grouped.get(row.agent_name) ?? [];
+    existing.push(row);
+    grouped.set(row.agent_name, existing);
+  }
+
+  const result = new Map<string, FunnelMetrics>();
+  for (const [name, rows] of grouped) {
+    const dials = rows.reduce((s, r) => s + r.dials, 0);
+    const leadsWorked = rows.reduce((s, r) => s + r.leads_worked, 0);
+    const contactsMade = rows.reduce((s, r) => s + r.contacts_made, 0);
+    const conversations = rows.reduce((s, r) => s + r.conversations, 0);
+    const presentations = rows.reduce((s, r) => s + r.presentations, 0);
+    const followUpsSet = rows.reduce((s, r) => s + r.follow_ups_set, 0);
+    const sales = rows.reduce((s, r) => s + r.sales, 0);
+
+    result.set(name, {
+      dials,
+      leadsWorked,
+      contactsMade,
+      conversations,
+      presentations,
+      followUpsSet,
+      sales,
+      talkTimeMinutes: rows.reduce((s, r) => s + r.talk_time_minutes, 0),
+      premium: rows.reduce((s, r) => s + r.premium, 0),
+      contactPct: leadsWorked > 0 ? (contactsMade / leadsWorked) * 100 : 0,
+      contactToClosePct: contactsMade > 0 ? (sales / contactsMade) * 100 : 0,
+      conversationToClosePct: conversations > 0 ? (sales / conversations) * 100 : 0,
+      presentationToClosePct: presentations > 0 ? (sales / presentations) * 100 : 0,
+    });
+  }
+  return result;
+}
+
 function buildPulseAgents(
   rows: DailyScrapeRow[],
   agentMap: Map<string, { name: string; site: string; tier: string; manager?: string | null }>,
   mtdMap: Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>,
   daysActiveMap?: Map<string, number>,
   poolMap?: Map<string, PoolMetrics>,
+  funnelMap?: Map<string, FunnelMetrics>,
 ): { t1: DailyPulseAgent[]; t2: DailyPulseAgent[]; t3: DailyPulseAgent[] } {
   const t1: DailyPulseAgent[] = [];
   const t2: DailyPulseAgent[] = [];
@@ -204,6 +258,7 @@ function buildPulseAgents(
     const totalPremium = ibPrem + obPrem + customPrem;
     const mtd = mtdMap.get(name);
     const pool = poolMap?.get(name);
+    const funnel = funnelMap?.get(name);
 
     const pulseAgent: DailyPulseAgent = {
       name,
@@ -226,6 +281,7 @@ function buildPulseAgents(
       mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
       daysActive: daysActiveMap?.get(name),
       pool,
+      funnel,
     };
 
     if (tier === "T1") t1.push(pulseAgent);
@@ -242,6 +298,7 @@ function buildPulseAgents(
       const tier = agent.tier as Tier;
       const mtd = mtdMap.get(name);
 
+      const funnel = funnelMap?.get(name);
       const pulseAgent: DailyPulseAgent = {
         name,
         site: agent.site ?? "CHA",
@@ -254,6 +311,7 @@ function buildPulseAgents(
         mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
         daysActive: daysActiveMap?.get(name),
         pool,
+        funnel,
       };
 
       if (tier === "T1") t1.push(pulseAgent);
@@ -292,10 +350,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured) return;
     (async () => {
       try {
-        const [{ data: windowData }, { data: dateRows }, { data: pipelineDateRows }] = await Promise.all([
+        const [{ data: windowData }, { data: dateRows }, { data: pipelineDateRows }, { data: perfDateRows }] = await Promise.all([
           supabase.from("evaluation_windows").select("*").eq("is_active", true).single(),
           supabase.from("daily_scrape_data").select("scrape_date").order("scrape_date", { ascending: false }),
           supabase.from("pipeline_compliance_daily").select("scrape_date").order("scrape_date", { ascending: false }),
+          supabase.from("agent_performance_daily").select("scrape_date").order("scrape_date", { ascending: false }),
         ]);
 
         if (windowData) {
@@ -309,6 +368,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const allDateSet = new Set<string>();
         for (const r of (dateRows ?? []) as Array<{ scrape_date: string }>) allDateSet.add(r.scrape_date);
         for (const r of (pipelineDateRows ?? []) as Array<{ scrape_date: string }>) allDateSet.add(r.scrape_date);
+        for (const r of (perfDateRows ?? []) as Array<{ scrape_date: string }>) allDateSet.add(r.scrape_date);
         const uniqueDates = Array.from(allDateSet).sort().reverse();
         setAvailableDates(uniqueDates);
 
@@ -383,16 +443,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       let query = supabase.from("daily_scrape_data").select("*");
       let poolQuery = supabase.from("leads_pool_daily_data").select("*");
+      let perfQuery = supabase.from("agent_performance_daily").select("*").is("scrape_hour", null);
 
       if (isRangeMode && dateRange.start && dateRange.end) {
         query = query.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
         poolQuery = poolQuery.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
+        perfQuery = perfQuery.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
       } else {
         query = query.eq("scrape_date", selectedDate);
         poolQuery = poolQuery.eq("scrape_date", selectedDate);
+        perfQuery = perfQuery.eq("scrape_date", selectedDate);
       }
 
-      const [{ data: dailyRows }, { data: poolRows }, { data: inventoryRows }] = await Promise.all([
+      const [{ data: dailyRows }, { data: poolRows }, { data: inventoryRows }, { data: perfRows }] = await Promise.all([
         query,
         poolQuery,
         supabase
@@ -400,10 +463,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .select("*")
           .eq("scrape_date", isRangeMode ? dateRange.end : selectedDate)
           .order("scrape_hour", { ascending: false }),
+        perfQuery,
       ]);
 
       const typedRows = (dailyRows ?? []) as DailyScrapeRow[];
       const typedPoolRows = (poolRows ?? []) as PoolDailyRow[];
+      const typedPerfRows = (perfRows ?? []) as AgentPerfRow[];
 
       // Build pool inventory (use latest hour's snapshot)
       if (inventoryRows && inventoryRows.length > 0) {
@@ -417,8 +482,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
 
       const poolMap = typedPoolRows.length > 0 ? buildPoolMetricsMap(typedPoolRows) : undefined;
+      const funnelMap = typedPerfRows.length > 0 ? buildFunnelMap(typedPerfRows) : undefined;
 
-      if (typedRows.length === 0 && !poolMap) {
+      if (typedRows.length === 0 && !poolMap && !funnelMap) {
         setDailyT1([]);
         setDailyT2([]);
         setDailyT3([]);
@@ -444,7 +510,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const { t1, t2, t3 } = buildPulseAgents(typedRows, agentMap, mtdMap, daysActiveMap, poolMap);
+      const { t1, t2, t3 } = buildPulseAgents(typedRows, agentMap, mtdMap, daysActiveMap, poolMap, funnelMap);
       setDailyT1(t1);
       setDailyT2(t2);
       setDailyT3(t3);
@@ -527,14 +593,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         return idx >= 0 && idx < availableDates.length - 1 ? availableDates[idx + 1] : null;
       })();
 
-      const queries: [
-        ReturnType<typeof supabase.from>,
-        ReturnType<typeof supabase.from>,
-        ReturnType<typeof supabase.from>,
-        Promise<Map<string, { name: string; site: string; tier: string }>>,
-        ReturnType<typeof supabase.from>,
-        ReturnType<typeof supabase.from> | Promise<{ data: null }>,
-      ] = [
+      const [
+        { data: compRows },
+        { data: prodRows },
+        { data: plRows },
+        agentMap,
+        { data: histRows },
+        { data: priorRows },
+        { data: perfRows2 },
+      ] = await Promise.all([
         supabase.from("pipeline_compliance_daily").select("*").eq("scrape_date", targetDate),
         supabase.from("daily_scrape_data").select("agent_name, tier, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes").eq("scrape_date", targetDate),
         supabase.from("leads_pool_daily_data").select("agent_name, calls_made, talk_time_minutes, sales_made, premium, self_assigned_leads, answered_calls").eq("scrape_date", targetDate),
@@ -543,15 +610,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         priorDate
           ? supabase.from("pipeline_compliance_daily").select("agent_name, past_due_follow_ups").eq("scrape_date", priorDate)
           : Promise.resolve({ data: null }),
-      ];
-
-      const [{ data: compRows }, { data: prodRows }, { data: plRows }, agentMap, { data: histRows }, { data: priorRows }] = await Promise.all(queries) as [
+        supabase.from("agent_performance_daily").select("*").eq("scrape_date", targetDate).is("scrape_hour", null),
+      ]) as [
         { data: PipelineComplianceRow[] | null },
         { data: ProductionRow[] | null },
         { data: PipelinePoolRow[] | null },
         Map<string, { name: string; site: string; tier: string }>,
         { data: Array<{ agent_name: string; ib_leads_delivered: number; ob_leads_delivered: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; scrape_date: string }> | null },
         { data: Array<{ agent_name: string; past_due_follow_ups: number }> | null },
+        { data: AgentPerfRow[] | null },
       ];
 
       const typedComp = (compRows ?? []) as PipelineComplianceRow[];
@@ -590,7 +657,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const agents = buildPipelineAgents(typedProd, typedPool, typedComp, agentMap, historicalStats, priorDayCompliance);
+      const pipelineFunnelMap = (perfRows2 ?? []).length > 0 ? buildFunnelMap((perfRows2 ?? []) as AgentPerfRow[]) : undefined;
+      const agents = buildPipelineAgents(typedProd, typedPool, typedComp, agentMap, historicalStats, priorDayCompliance, pipelineFunnelMap);
       setPipelineAgents(agents);
     } catch {
       // keep existing data

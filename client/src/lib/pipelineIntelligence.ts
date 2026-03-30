@@ -1,4 +1,4 @@
-import type { Tier } from "./types";
+import type { Tier, FunnelMetrics } from "./types";
 
 // ============================================================
 // Pipeline Intelligence — Types & Computation Engine
@@ -122,11 +122,29 @@ function calcWorkRate(
   return ratio * 25;
 }
 
-function calcConversionEfficiency(totalSales: number, totalLeads: number, tierAvgCR: number): number {
+function calcConversionEfficiency(
+  totalSales: number,
+  totalLeads: number,
+  tierAvgCR: number,
+  funnel?: FunnelMetrics,
+): number {
   if (totalLeads === 0 || tierAvgCR === 0) return 12.5;
+
   const agentCR = totalSales / totalLeads;
-  const ratio = Math.min(agentCR / tierAvgCR, 1.5);
-  return Math.min((ratio / 1.5) * 25, 25);
+  const crRatio = Math.min(agentCR / tierAvgCR, 1.5);
+  const baseScore = (crRatio / 1.5) * 25;
+
+  if (!funnel || funnel.leadsWorked === 0) return Math.min(baseScore, 25);
+
+  // Presentation to Close % — how well the agent converts 15+ min calls to sales
+  const presToClose = funnel.presentationToClosePct / 100;
+  // Contact to Close % — overall efficiency from contact to sale
+  const contactToClose = funnel.contactToClosePct / 100;
+
+  const presBonus = (presToClose > 0.3 ? 3 : presToClose > 0.15 ? 1.5 : presToClose > 0 ? 0 : -1.5);
+  const contactBonus = (contactToClose > 0.15 ? 3 : contactToClose > 0.08 ? 1.5 : contactToClose > 0 ? 0 : -1.5);
+
+  return Math.max(0, Math.min(25, baseScore + presBonus + contactBonus));
 }
 
 function calcHealthGrade(score: number, flags: BehavioralFlag[]): HealthGrade {
@@ -225,6 +243,7 @@ export function buildPipelineAgents(
   agentRoster: Map<string, { name: string; site: string; tier: string; manager?: string | null }>,
   historicalStats?: Map<string, HistoricalAgentStats>,
   priorDayCompliance?: Map<string, PriorDayCompliance>,
+  funnelMap?: Map<string, FunnelMetrics>,
 ): PipelineAgent[] {
   const complianceMap = new Map<string, PipelineComplianceRow>();
   for (const row of complianceRows) complianceMap.set(row.agent_name, row);
@@ -347,7 +366,8 @@ export function buildPipelineAgents(
     const pipelineFreshness = calcPipelineFreshness(totalStale, newLeads, callQueue, pastDue);
     const workRateScore = calcWorkRate(totalDials, poolDials, newLeads, callQueue, pastDue, todaysFollowUps);
     const totalLeads = ibLeads + obLeads;
-    const conversionEfficiency = calcConversionEfficiency(totalSales, totalLeads, tierAvgCR);
+    const agentFunnel = funnelMap?.get(name);
+    const conversionEfficiency = calcConversionEfficiency(totalSales, totalLeads, tierAvgCR, agentFunnel);
 
     const healthScore = Math.round(followUpDiscipline + pipelineFreshness + workRateScore + conversionEfficiency);
 

@@ -85,6 +85,8 @@ export interface DailyPulseAgent {
   daysActive?: number;
   // Leads Pool metrics
   pool?: PoolMetrics;
+  // Sales funnel metrics (from agent_performance_daily)
+  funnel?: FunnelMetrics;
 }
 
 export interface PoolMetrics {
@@ -102,6 +104,23 @@ export interface PoolMetrics {
 export interface PoolInventorySnapshot {
   status: string;
   totalLeads: number;
+}
+
+export interface FunnelMetrics {
+  dials: number;
+  leadsWorked: number;
+  contactsMade: number;
+  conversations: number;   // calls 2–15 min (duration bucket, NOT sequential)
+  presentations: number;   // calls 15+ min (duration bucket, NOT sequential)
+  followUpsSet: number;
+  sales: number;
+  talkTimeMinutes: number;
+  premium: number;
+  // CRM-defined rates
+  contactPct: number;             // contactsMade / leadsWorked × 100
+  contactToClosePct: number;      // sales / contactsMade × 100
+  conversationToClosePct: number; // sales / conversations × 100
+  presentationToClosePct: number; // sales / presentations × 100
 }
 
 export interface MonthlyAgent {

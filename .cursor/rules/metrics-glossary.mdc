@@ -57,8 +57,35 @@ Fallback constants when no data: T1=$400/8%, T2=$300/6%, T3=$250/4%.
 If both pastDue and todaysFollowUps are 0, compliance = 100% (clean pipeline or no assignments).
 The delta is the more actionable signal — a rising past-due count regardless of ratio means deterioration.
 
-## Contact Rate vs Connect Rate
+## Agent Performance Funnel (from agent_performance_daily)
+
+| Metric | Definition | Notes |
+|---|---|---|
+| Dials | Total outbound dials | Self-explanatory |
+| Leads Worked | Unique leads agent worked in the period | Each lead counts once per agent |
+| Contact Made | Leads that hit "contact made" status as first occurrence | CRM status change, not just call answered |
+| Conversations | Calls between 2 min and < 15 min | Duration bucket — mutually exclusive with Presentations |
+| Presentations | Calls 15 min or more | Duration bucket — mutually exclusive with Conversations |
+| Follow Up (Appt Set) | Follow-up appointments set | Self-explanatory |
+| Sale Made | Sales closed | Self-explanatory |
+| Talk Min | Total talk time in minutes | Self-explanatory |
+
+### Funnel Conversion Rates
+
+| Rate | Formula | Notes |
+|---|---|---|
+| Contact % | `contactsMade / leadsWorked × 100` | What % of worked leads were meaningfully contacted |
+| Contact to Close % | `sales / contactsMade × 100` | Overall sales efficiency from contact |
+| Conversation to Close % | `sales / conversations × 100` | Close rate from 2-15 min calls |
+| Presentation to Close % | `sales / presentations × 100` | Close rate from 15+ min calls |
+
+**Critical**: Conversations and Presentations are **parallel duration buckets**, NOT sequential funnel stages.
+A call is either a Conversation (2-15 min) OR a Presentation (15+ min), never both.
+All close % rates are calculated as `sales / [stage]`, not stage-to-stage.
+
+## Contact Rate vs Connect Rate vs Contact %
 
 - **Contact Rate** = production dials answered (daily_scrape_data)
 - **Connect Rate** = pool leads meaningfully contacted (leads_pool_daily_data)
-- These are distinct metrics — never conflate them
+- **Contact %** = leads that hit contact-made status / leads worked (agent_performance_daily)
+- These are three distinct metrics from three different reports — never conflate them

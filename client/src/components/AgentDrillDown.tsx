@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { calcLeadCost, calcROLI } from "@/lib/types";
-import type { Tier } from "@/lib/types";
+import type { Tier, FunnelMetrics } from "@/lib/types";
 import type { PipelineAgent } from "@/lib/pipelineIntelligence";
 import { FLAG_META, getGradeColor, getGradeBg } from "@/lib/pipelineIntelligence";
 
@@ -131,7 +131,7 @@ export function AgentDrillDown({
   open,
   onOpenChange,
 }: AgentDrillDownProps) {
-  const { daily, weekly, pipelineTrends, deltas, loading } = useAgentTrends(agentName, 14);
+  const { daily, weekly, pipelineTrends, funnelTrends, deltas, loading } = useAgentTrends(agentName, 14);
   const data = useData();
   const pipelineAgent: PipelineAgent | undefined = useMemo(
     () => agentName ? data.pipelineAgents.find(a => a.name === agentName) : undefined,
@@ -429,6 +429,66 @@ export function AgentDrillDown({
                 </div>
               )}
 
+            {/* Sales Funnel */}
+            {(() => {
+              const allAgents = [...data.dailyT1, ...data.dailyT2, ...data.dailyT3];
+              const currentAgent = allAgents.find(a => a.name === agentName);
+              const funnel = currentAgent?.funnel;
+              if (!funnel || funnel.dials === 0) return null;
+
+              const stages: Array<{ label: string; value: number; color: string; rate: string; rateLabel: string }> = [
+                { label: "Dials", value: funnel.dials, color: "#a78bfa", rate: "", rateLabel: "" },
+                { label: "Leads Worked", value: funnel.leadsWorked, color: "#818cf8", rate: funnel.dials > 0 ? ((funnel.leadsWorked / funnel.dials) * 100).toFixed(0) + "%" : "--", rateLabel: "work rate" },
+                { label: "Contacts", value: funnel.contactsMade, color: "#60a5fa", rate: funnel.contactPct.toFixed(0) + "%", rateLabel: "contact %" },
+                { label: "Convos (2-15m)", value: funnel.conversations, color: "#22d3ee", rate: funnel.conversationToClosePct.toFixed(0) + "%", rateLabel: "convo→close" },
+                { label: "Pres (15m+)", value: funnel.presentations, color: "#fbbf24", rate: funnel.presentationToClosePct.toFixed(0) + "%", rateLabel: "pres→close" },
+                { label: "Sales", value: funnel.sales, color: "#34d399", rate: funnel.contactToClosePct.toFixed(0) + "%", rateLabel: "contact→close" },
+              ];
+              const maxVal = Math.max(...stages.map(s => s.value), 1);
+
+              return (
+                <div>
+                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-orange-400 mb-2">
+                    Sales Funnel
+                  </h3>
+                  <div className="p-3 bg-card rounded-md border border-border space-y-1.5">
+                    {stages.map((stage, i) => {
+                      const pct = maxVal > 0 ? (stage.value / maxVal) * 100 : 0;
+                      return (
+                        <div key={stage.label} className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-muted-foreground w-24 text-right shrink-0">
+                            {stage.label}
+                          </span>
+                          <div className="flex-1 h-4 bg-border/30 rounded overflow-hidden relative">
+                            <div
+                              className="h-full rounded transition-all"
+                              style={{ width: `${pct}%`, backgroundColor: stage.color, opacity: 0.85 }}
+                            />
+                            {stage.value > 0 && (
+                              <span className="absolute inset-0 flex items-center pl-1.5 text-[9px] font-mono font-bold text-white drop-shadow">
+                                {stage.value}
+                              </span>
+                            )}
+                          </div>
+                          {i > 0 && (
+                            <span className="text-[9px] font-mono w-16 text-right shrink-0" style={{ color: stage.color }}>
+                              {stage.rate}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {funnel.followUpsSet > 0 && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-border/30">
+                        <span className="text-[10px] font-mono text-muted-foreground w-24 text-right shrink-0">F/U Set</span>
+                        <span className="text-[11px] font-mono font-bold text-foreground">{funnel.followUpsSet}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* MTD Summary */}
             {mtd && (
               <div>
@@ -666,6 +726,77 @@ export function AgentDrillDown({
                         <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
                         <Bar dataKey="revenueAtRisk" name="Rev at Risk" fill="#ef444480" />
                         <Bar dataKey="projectedRecovery" name="Proj. Recovery" fill="#22c55e80" />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Funnel Trends */}
+            {funnelTrends.length > 1 && (
+              <div>
+                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-orange-400 mb-2">
+                  Funnel Trends ({funnelTrends.length} days)
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="bg-card border border-border rounded-md p-3">
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block mb-2">
+                      Funnel Volumes
+                    </span>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <ComposedChart data={funnelTrends} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          tickFormatter={(d: string) => d.slice(5)}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 10, color: "#e2e8f0" }}
+                          labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+                        />
+                        <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
+                        <Line type="monotone" dataKey="contactsMade" name="Contacts" stroke="#60a5fa" strokeWidth={2} dot={{ r: 3, fill: "#60a5fa" }} />
+                        <Line type="monotone" dataKey="conversations" name="Convos" stroke="#22d3ee" strokeWidth={2} dot={{ r: 3, fill: "#22d3ee" }} />
+                        <Line type="monotone" dataKey="presentations" name="Pres" stroke="#fbbf24" strokeWidth={2} dot={{ r: 3, fill: "#fbbf24" }} />
+                        <Line type="monotone" dataKey="sales" name="Sales" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: "#34d399" }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="bg-card border border-border rounded-md p-3">
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block mb-2">
+                      Conversion Rates
+                    </span>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <ComposedChart data={funnelTrends} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          tickFormatter={(d: string) => d.slice(5)}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 9, fontFamily: "JetBrains Mono", fill: "#94a3b8" }}
+                          stroke="#334155" tickLine={false} axisLine={false}
+                          tickFormatter={(v: number) => v.toFixed(0) + "%"}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid #334155", borderRadius: 8, fontFamily: "JetBrains Mono", fontSize: 10, color: "#e2e8f0" }}
+                          labelStyle={{ color: "#e2e8f0", fontWeight: "bold" }}
+                          formatter={(value: number, name: string) => [value.toFixed(1) + "%", name]}
+                        />
+                        <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
+                        <Line type="monotone" dataKey="contactPct" name="Contact %" stroke="#60a5fa" strokeWidth={2} dot={{ r: 3, fill: "#60a5fa" }} />
+                        <Line type="monotone" dataKey="contactToClosePct" name="Contact→Close %" stroke="#22d3ee" strokeWidth={2} dot={{ r: 3, fill: "#22d3ee" }} />
+                        <Line type="monotone" dataKey="conversationToClosePct" name="Convo→Close %" stroke="#fbbf24" strokeWidth={2} dot={{ r: 3, fill: "#fbbf24" }} />
+                        <Line type="monotone" dataKey="presentationToClosePct" name="Pres→Close %" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: "#34d399" }} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
