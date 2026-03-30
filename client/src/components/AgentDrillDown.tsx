@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { useAgentTrends, type IntradayPoint } from "@/hooks/useAgentTrends";
 import { useData } from "@/contexts/DataContext";
+import SalesFunnel from "@/components/SalesFunnel";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import {
   TrendLineChart,
@@ -435,58 +436,7 @@ export function AgentDrillDown({
               const currentAgent = allAgents.find(a => a.name === agentName);
               const funnel = currentAgent?.funnel;
               if (!funnel || funnel.dials === 0) return null;
-
-              const stages: Array<{ label: string; value: number; color: string; rate: string; rateLabel: string }> = [
-                { label: "Dials", value: funnel.dials, color: "#a78bfa", rate: "", rateLabel: "" },
-                { label: "Leads Worked", value: funnel.leadsWorked, color: "#818cf8", rate: funnel.dials > 0 ? ((funnel.leadsWorked / funnel.dials) * 100).toFixed(0) + "%" : "--", rateLabel: "work rate" },
-                { label: "Contacts", value: funnel.contactsMade, color: "#60a5fa", rate: funnel.contactPct.toFixed(0) + "%", rateLabel: "contact %" },
-                { label: "Convos (2-15m)", value: funnel.conversations, color: "#22d3ee", rate: funnel.conversationToClosePct.toFixed(0) + "%", rateLabel: "convo→close" },
-                { label: "Pres (15m+)", value: funnel.presentations, color: "#fbbf24", rate: funnel.presentationToClosePct.toFixed(0) + "%", rateLabel: "pres→close" },
-                { label: "Sales", value: funnel.sales, color: "#34d399", rate: funnel.contactToClosePct.toFixed(0) + "%", rateLabel: "contact→close" },
-              ];
-              const maxVal = Math.max(...stages.map(s => s.value), 1);
-
-              return (
-                <div>
-                  <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-orange-400 mb-2">
-                    Sales Funnel
-                  </h3>
-                  <div className="p-3 bg-card rounded-md border border-border space-y-1.5">
-                    {stages.map((stage, i) => {
-                      const pct = maxVal > 0 ? (stage.value / maxVal) * 100 : 0;
-                      return (
-                        <div key={stage.label} className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-muted-foreground w-24 text-right shrink-0">
-                            {stage.label}
-                          </span>
-                          <div className="flex-1 h-4 bg-border/30 rounded overflow-hidden relative">
-                            <div
-                              className="h-full rounded transition-all"
-                              style={{ width: `${pct}%`, backgroundColor: stage.color, opacity: 0.85 }}
-                            />
-                            {stage.value > 0 && (
-                              <span className="absolute inset-0 flex items-center pl-1.5 text-[9px] font-mono font-bold text-white drop-shadow">
-                                {stage.value}
-                              </span>
-                            )}
-                          </div>
-                          {i > 0 && (
-                            <span className="text-[9px] font-mono w-16 text-right shrink-0" style={{ color: stage.color }}>
-                              {stage.rate}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {funnel.followUpsSet > 0 && (
-                      <div className="flex items-center gap-2 pt-1 border-t border-border/30">
-                        <span className="text-[10px] font-mono text-muted-foreground w-24 text-right shrink-0">F/U Set</span>
-                        <span className="text-[11px] font-mono font-bold text-foreground">{funnel.followUpsSet}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
+              return <SalesFunnel funnel={funnel} />;
             })()}
 
             {/* MTD Summary */}
@@ -855,6 +805,12 @@ export function AgentDrillDown({
                         : hasPoolHistory ? `${totPoolSelfAssigned} total (${poolDays.length}d)` : undefined}
                       color={isGaming ? "text-red-400" : "text-cyan-400"}
                     />
+                    <StatCard
+                      label="Pool Close Rate"
+                      value={latestDay.poolCloseRate > 0 ? latestDay.poolCloseRate.toFixed(1) + "%" : "--"}
+                      sub={`${latestDay.poolSales} sale${latestDay.poolSales !== 1 ? "s" : ""} / ${latestDay.poolSelfAssigned} assigned` + (latestDay.poolPremium > 0 ? ` · $${latestDay.poolPremium.toLocaleString()}` : "")}
+                      color={latestDay.poolCloseRate >= 8 ? "text-emerald-400" : latestDay.poolCloseRate >= 4 ? "text-amber-400" : latestDay.poolCloseRate > 0 ? "text-red-400" : undefined}
+                    />
                     {(() => {
                       const mpa = latestDay.poolAnswered > 0 ? latestDay.poolTalk / latestDay.poolAnswered : 0;
                       const effColor = mpa > 3 ? "text-amber-400" : mpa >= 1 ? "text-emerald-400" : mpa >= 0.5 ? "text-blue-400" : mpa > 0 ? "text-red-400" : undefined;
@@ -917,6 +873,7 @@ export function AgentDrillDown({
                     ? [
                         { label: "Contact %", data: daily.map(d => d.poolContactRate), color: "#22d3ee" },
                         { label: "Assign %", data: daily.map(d => d.poolAssignRate), color: "#f472b6" },
+                        { label: "Pool CR %", data: daily.map(d => d.poolCloseRate), color: "#34d399" },
                       ]
                     : []),
                 ].map(({ label, data: sparkData, color }) => (

@@ -173,6 +173,7 @@ function buildPoolMetricsMap(poolRows: PoolDailyRow[]): Map<string, PoolMetrics>
       longCalls,
       contactRate: callsMade > 0 ? (answeredCalls / callsMade) * 100 : 0,
       assignRate: answeredCalls > 0 ? (selfAssigned / answeredCalls) * 100 : 0,
+      closeRate: selfAssigned > 0 ? (rows.reduce((s, r) => s + r.sales_made, 0) / selfAssigned) * 100 : 0,
     });
   }
   return result;
@@ -443,19 +444,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       let query = supabase.from("daily_scrape_data").select("*");
       let poolQuery = supabase.from("leads_pool_daily_data").select("*");
-      let perfQuery = supabase.from("agent_performance_daily").select("*").is("scrape_hour", null);
-
       if (isRangeMode && dateRange.start && dateRange.end) {
         query = query.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
         poolQuery = poolQuery.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
-        perfQuery = perfQuery.gte("scrape_date", dateRange.start).lte("scrape_date", dateRange.end);
       } else {
         query = query.eq("scrape_date", selectedDate);
         poolQuery = poolQuery.eq("scrape_date", selectedDate);
-        perfQuery = perfQuery.eq("scrape_date", selectedDate);
       }
 
-      const [{ data: dailyRows }, { data: poolRows }, { data: inventoryRows }, { data: perfRows }] = await Promise.all([
+      const perfDateFilter = isRangeMode && dateRange.start && dateRange.end
+        ? { start: dateRange.start, end: dateRange.end }
+        : { eq: selectedDate };
+
+      const [{ data: dailyRows }, { data: poolRows }, { data: inventoryRows }] = await Promise.all([
         query,
         poolQuery,
         supabase
@@ -463,8 +464,23 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .select("*")
           .eq("scrape_date", isRangeMode ? dateRange.end : selectedDate)
           .order("scrape_hour", { ascending: false }),
-        perfQuery,
       ]);
+
+      let perfBase = supabase.from("agent_performance_daily").select("*").is("scrape_hour", null);
+      if (perfDateFilter.eq) perfBase = perfBase.eq("scrape_date", perfDateFilter.eq);
+      else perfBase = perfBase.gte("scrape_date", perfDateFilter.start!).lte("scrape_date", perfDateFilter.end!);
+      let { data: perfRows } = await perfBase;
+
+      if (!perfRows || perfRows.length === 0) {
+        let hourlyQ = supabase.from("agent_performance_daily").select("*").order("scrape_hour", { ascending: false });
+        if (perfDateFilter.eq) hourlyQ = hourlyQ.eq("scrape_date", perfDateFilter.eq);
+        else hourlyQ = hourlyQ.gte("scrape_date", perfDateFilter.start!).lte("scrape_date", perfDateFilter.end!);
+        const { data: hourlyRows } = await hourlyQ;
+        if (hourlyRows && hourlyRows.length > 0) {
+          const maxHour = Math.max(...(hourlyRows as AgentPerfRow[]).map(r => r.scrape_hour ?? 0));
+          perfRows = hourlyRows.filter((r: AgentPerfRow) => r.scrape_hour === maxHour);
+        }
+      }
 
       const typedRows = (dailyRows ?? []) as DailyScrapeRow[];
       const typedPoolRows = (poolRows ?? []) as PoolDailyRow[];
@@ -600,7 +616,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         agentMap,
         { data: histRows },
         { data: priorRows },
-        { data: perfRows2 },
       ] = await Promise.all([
         supabase.from("pipeline_compliance_daily").select("*").eq("scrape_date", targetDate),
         supabase.from("daily_scrape_data").select("agent_name, tier, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes").eq("scrape_date", targetDate),
@@ -610,7 +625,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         priorDate
           ? supabase.from("pipeline_compliance_daily").select("agent_name, past_due_follow_ups").eq("scrape_date", priorDate)
           : Promise.resolve({ data: null }),
-        supabase.from("agent_performance_daily").select("*").eq("scrape_date", targetDate).is("scrape_hour", null),
       ]) as [
         { data: PipelineComplianceRow[] | null },
         { data: ProductionRow[] | null },
@@ -618,8 +632,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         Map<string, { name: string; site: string; tier: string }>,
         { data: Array<{ agent_name: string; ib_leads_delivered: number; ob_leads_delivered: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; scrape_date: string }> | null },
         { data: Array<{ agent_name: string; past_due_follow_ups: number }> | null },
-        { data: AgentPerfRow[] | null },
       ];
+
+      let { data: perfRows2 } = await supabase.from("agent_performance_daily").select("*").eq("scrape_date", targetDate).is("scrape_hour", null);
+      if (!perfRows2 || perfRows2.length === 0) {
+        const { data: hourlyRows } = await supabase.from("agent_performance_daily").select("*").eq("scrape_date", targetDate).order("scrape_hour", { ascending: false });
+        if (hourlyRows && hourlyRows.length > 0) {
+          const maxHour = Math.max(...(hourlyRows as AgentPerfRow[]).map(r => r.scrape_hour ?? 0));
+          perfRows2 = hourlyRows.filter((r: AgentPerfRow) => r.scrape_hour === maxHour);
+        }
+      }
 
       const typedComp = (compRows ?? []) as PipelineComplianceRow[];
       const typedProd = (prodRows ?? []) as ProductionRow[];

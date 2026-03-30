@@ -20,6 +20,7 @@ alwaysApply: true
 |---|---|---|
 | Pool Efficiency | `pool_talk_time_min / pool_dials` | Minutes per dial — key gaming indicator |
 | Assign Rate | `self_assigned_leads / answered_calls × 100` | % of answered calls the agent self-assigned as leads |
+| Pool Close Rate | `sales_made / self_assigned_leads × 100` | Conversion rate on pool leads the agent self-assigned |
 | Gaming Flag | Based on Pool Efficiency thresholds | See below |
 
 ### Assign Rate Thresholds

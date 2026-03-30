@@ -172,10 +172,13 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
   }, [dailyT3, teamFilter]);
   const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
   const hasFunnel = filtered.some(a => a.funnel && a.funnel.dials > 0);
+  const hasPool = filtered.some(a => a.pool && a.pool.callsMade > 0);
 
   const totalPremium = filtered.reduce((s, a) => s + a.premiumToday, 0);
   const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
   const totalLeads = filtered.reduce((s, a) => s + (a.obLeads ?? 0), 0);
+  const totalPoolSales = filtered.reduce((s, a) => s + (a.pool?.salesMade ?? 0), 0);
+  const totalPoolAssigned = filtered.reduce((s, a) => s + (a.pool?.selfAssignedLeads ?? 0), 0);
   const avgTalkTime = filtered.length
     ? filtered.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0) / filtered.length
     : 0;
@@ -202,6 +205,8 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <SortHeader label="Talk Time" sortKey="talkTime" current={sort} onToggle={toggle} />
               <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
               <SortHeader label="CR" sortKey="cr" current={sort} onToggle={toggle} />
+              {hasPool && <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-cyan-400/70 text-right">Pool Sales</th>}
+              {hasPool && <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-cyan-400/70 text-right">Pool CR</th>}
               {hasFunnel && <SortHeader label="Contacts" sortKey="contacts" current={sort} onToggle={toggle} />}
               {hasFunnel && <SortHeader label="Convos" sortKey="conversations" current={sort} onToggle={toggle} />}
               {hasFunnel && <SortHeader label="Pres" sortKey="presentations" current={sort} onToggle={toggle} />}
@@ -233,6 +238,8 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{agent.talkTimeMin ?? 0} min</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.salesToday}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.salesToday} leads={agent.obLeads ?? 0} /></td>
+                {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{agent.pool?.salesMade ? agent.pool.salesMade : <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.pool?.salesMade ?? 0} leads={agent.pool?.selfAssignedLeads ?? 0} /></td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.contactsMade ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
@@ -255,6 +262,8 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0)} min</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalSales}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalSales} leads={totalLeads} /></td>
+              {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{totalPoolSales || "--"}</td>}
+              {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalPoolSales} leads={totalPoolAssigned} /></td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.contactsMade ?? 0), 0)}</td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}

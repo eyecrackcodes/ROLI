@@ -262,11 +262,14 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
   const totalLongCalls = agents.reduce((s, a) => s + a.pool.longCalls, 0);
   const totalSelfAssigned = agents.reduce((s, a) => s + a.pool.selfAssignedLeads, 0);
   const totalAnswered = agents.reduce((s, a) => s + a.pool.answeredCalls, 0);
+  const totalPoolSales = agents.reduce((s, a) => s + a.pool.salesMade, 0);
+  const totalPoolPremium = agents.reduce((s, a) => s + a.pool.premium, 0);
 
   const poolVelocity = totalPoolLeads > 0 ? ((totalCallsMade / totalPoolLeads) * 100).toFixed(0) : "--";
   const avgCallsPerAgent = agents.length > 0 ? (totalCallsMade / agents.length).toFixed(0) : "--";
   const assignRate = totalAnswered > 0 ? ((totalSelfAssigned / totalAnswered) * 100).toFixed(1) : "--";
   const contactRate = totalCallsMade > 0 ? ((totalAnswered / totalCallsMade) * 100).toFixed(0) : "--";
+  const poolCR = totalSelfAssigned > 0 ? ((totalPoolSales / totalSelfAssigned) * 100).toFixed(1) : "--";
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -294,10 +297,10 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
         subtext={`${totalSelfAssigned} assigned / ${totalAnswered} answered`}
       />
       <MetricCard
-        label="Self Assigned"
-        value={totalSelfAssigned}
-        color="green"
-        subtext={`From ${totalLongCalls} long calls`}
+        label="Pool Close Rate"
+        value={`${poolCR}%`}
+        color={Number(poolCR) >= 8 ? "green" : Number(poolCR) >= 4 ? "amber" : "red"}
+        subtext={`${totalPoolSales} sales / ${totalSelfAssigned} assigned · $${totalPoolPremium.toLocaleString()}`}
       />
       <MetricCard
         label="Pool Velocity"

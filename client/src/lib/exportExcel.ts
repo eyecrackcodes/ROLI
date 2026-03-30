@@ -214,6 +214,9 @@ const PULSE_COLS = {
   totalTalk: { key: "totalTalk", header: "Total Talk", format: "number" as const, gradient: true },
   poolContactRate: { key: "poolContactRate", header: "Contact %", format: "decimal" as const, gradient: true },
   poolAssignRate: { key: "poolAssignRate", header: "Assign %", format: "decimal" as const, gradient: true },
+  poolCloseRate: { key: "poolCloseRate", header: "Pool CR%", format: "decimal" as const, gradient: true },
+  poolSales: { key: "poolSales", header: "Pool Sales", format: "number" as const },
+  poolPremium: { key: "poolPremium", header: "Pool Premium", format: "currency" as const },
   poolSelfAssigned: { key: "poolSelfAssigned", header: "Self-Assigned", format: "number" as const },
   poolGhostAssigns: { key: "poolGhostAssigns", header: "No Long Call", format: "number" as const },
   salesToday: { key: "salesToday", header: "Sales", format: "number" as const, gradient: true },
@@ -264,6 +267,9 @@ function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
     totalTalk: Math.round((agent.talkTimeMin ?? 0) + (agent.pool?.talkTimeMin ?? 0)),
     poolContactRate: agent.pool?.contactRate ?? 0,
     poolAssignRate: answered > 0 ? (selfAssigned / answered) * 100 : 0,
+    poolCloseRate: agent.pool?.closeRate ?? 0,
+    poolSales: agent.pool?.salesMade ?? 0,
+    poolPremium: agent.pool?.premium ?? 0,
     poolSelfAssigned: selfAssigned,
     poolGhostAssigns: Math.max(0, selfAssigned - longCalls),
     closeRate: totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0,
@@ -336,7 +342,7 @@ export async function exportDailyPulse(
       "obLeads", "obSales", "obCR",
       ...(hasPool
         ? ["dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk",
-           "poolContactRate", "poolAssignRate", "poolSelfAssigned", "poolGhostAssigns"]
+           "poolContactRate", "poolAssignRate", "poolCloseRate", "poolSales", "poolPremium", "poolSelfAssigned", "poolGhostAssigns"]
         : ["dials", "talkTimeMin"]),
       "salesToday", "premiumToday", "closeRate", "totalPremium", "mtdSales", "mtdPace"];
     configs.push({
@@ -442,6 +448,7 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
       longCalls,
       contactRate: callsMade > 0 ? (answered / callsMade) * 100 : 0,
       assignRate: answered > 0 ? (selfAssigned / answered) * 100 : 0,
+      closeRate: selfAssigned > 0 ? (rows.reduce((s: number, r: PoolRow) => s + r.sales_made, 0) / selfAssigned) * 100 : 0,
     });
   }
 

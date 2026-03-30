@@ -24,6 +24,9 @@ export interface DailyTrend {
   poolSelfAssigned: number;
   poolContactRate: number;
   poolAssignRate: number;
+  poolSales: number;
+  poolPremium: number;
+  poolCloseRate: number;
 }
 
 export interface IntradayPoint {
@@ -230,6 +233,11 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
         poolAssignRate: (p?.answered_calls ?? 0) > 0
           ? ((p?.self_assigned_leads ?? 0) / (p?.answered_calls ?? 1)) * 100
           : 0,
+        poolSales: p?.sales_made ?? 0,
+        poolPremium: p?.premium ?? 0,
+        poolCloseRate: (p?.self_assigned_leads ?? 0) > 0
+          ? ((p?.sales_made ?? 0) / (p?.self_assigned_leads ?? 1)) * 100
+          : 0,
       };
     });
 
@@ -425,16 +433,35 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
 
     const startDate = daysAgoCST(Math.ceil(daysBack * 1.5));
 
-    const { data } = await supabase
+    let { data } = await supabase
       .from("agent_performance_daily")
-      .select("scrape_date, dials, leads_worked, contacts_made, conversations, presentations, follow_ups_set, sales")
+      .select("scrape_date, scrape_hour, dials, leads_worked, contacts_made, conversations, presentations, follow_ups_set, sales")
       .eq("agent_name", agentName)
       .is("scrape_hour", null)
       .gte("scrape_date", startDate)
       .order("scrape_date", { ascending: true });
 
+    if (!data || data.length === 0) {
+      const { data: hourlyData } = await supabase
+        .from("agent_performance_daily")
+        .select("scrape_date, scrape_hour, dials, leads_worked, contacts_made, conversations, presentations, follow_ups_set, sales")
+        .eq("agent_name", agentName)
+        .gte("scrape_date", startDate)
+        .order("scrape_date", { ascending: true })
+        .order("scrape_hour", { ascending: false });
+
+      if (hourlyData && hourlyData.length > 0) {
+        const byDate = new Map<string, typeof hourlyData[0]>();
+        for (const r of hourlyData) {
+          if (!byDate.has(r.scrape_date)) byDate.set(r.scrape_date, r);
+        }
+        data = Array.from(byDate.values());
+      }
+    }
+
     const rows = (data ?? []) as Array<{
       scrape_date: string;
+      scrape_hour: number | null;
       dials: number;
       leads_worked: number;
       contacts_made: number;
