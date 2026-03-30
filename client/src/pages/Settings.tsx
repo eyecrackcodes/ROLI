@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Upload, Play, WifiOff } from "lucide-react";
+import { Plus, Upload, Play, WifiOff, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ---- Agent Roster Tab ----
@@ -32,7 +32,10 @@ function AgentRosterTab() {
   const { agents, loading, addAgent, updateAgent, toggleActive, terminateAgent, bulkImport } = useAgents();
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [reassignManager, setReassignManager] = useState("");
+  const [reassignSelected, setReassignSelected] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({ name: "", site: "CHA" as "CHA" | "AUS", tier: "T3" as "T1" | "T2" | "T3", daily_lead_volume: 25, is_active: true, manager: "" as string, agent_status: "selling" as "selling" | "training" | "unlicensed" });
   const [csvInput, setCsvInput] = useState("");
   const [rosterFilter, setRosterFilter] = useState<"all" | string>("all");
@@ -128,6 +131,30 @@ function AgentRosterTab() {
     }
   };
 
+  const handleBulkReassign = async () => {
+    if (reassignSelected.size === 0) { toast.error("Select at least one agent"); return; }
+    try {
+      const targetManager = reassignManager.trim() || null;
+      for (const agentId of Array.from(reassignSelected)) {
+        await updateAgent(agentId, { manager: targetManager } as Partial<Agent>);
+      }
+      toast.success(`${reassignSelected.size} agent(s) reassigned to ${targetManager ?? "Unassigned"}`);
+      setReassignSelected(new Set());
+      setReassignManager("");
+      setShowReassign(false);
+    } catch {
+      toast.error("Reassignment failed");
+    }
+  };
+
+  const toggleReassignAgent = (id: string) => {
+    setReassignSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const startEdit = (agent: Agent) => {
     setEditingId(agent.id);
     setForm({
@@ -153,6 +180,10 @@ function AgentRosterTab() {
           </span>
         </div>
         <div className="flex gap-2">
+          <Button onClick={() => { setReassignSelected(new Set()); setReassignManager(""); setShowReassign(true); }} variant="outline" className="font-mono text-xs gap-1.5">
+            <UserPlus className="h-3.5 w-3.5" />
+            REASSIGN
+          </Button>
           <Button onClick={() => setShowBulk(true)} variant="outline" className="font-mono text-xs gap-1.5">
             <Upload className="h-3.5 w-3.5" />
             BULK CSV
@@ -328,6 +359,72 @@ function AgentRosterTab() {
             <Button onClick={handleBulkImport} className="font-mono text-sm bg-blue-600 hover:bg-blue-700 gap-1.5">
               <Upload className="h-3.5 w-3.5" />
               IMPORT
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Reassign Dialog */}
+      <Dialog open={showReassign} onOpenChange={setShowReassign}>
+        <DialogContent className="bg-card border-border max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm uppercase tracking-widest">Bulk Reassign Teams</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 flex-1 overflow-hidden flex flex-col">
+            <div className="space-y-2">
+              <Label className="font-mono text-xs uppercase tracking-widest">Assign to Manager</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={reassignManager}
+                  onChange={(e) => setReassignManager(e.target.value)}
+                  placeholder="Manager name (empty = unassign)"
+                  className="font-mono bg-background text-sm flex-1"
+                />
+                {managers.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value) setReassignManager(e.target.value); }}
+                    className="text-[10px] font-mono bg-card border border-border rounded px-2 py-1 text-foreground"
+                  >
+                    <option value="">Pick existing...</option>
+                    {managers.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                )}
+              </div>
+            </div>
+            <div className="text-[10px] font-mono text-muted-foreground">
+              Select agents ({reassignSelected.size} selected):
+            </div>
+            <div className="overflow-y-auto flex-1 border border-border rounded-md divide-y divide-border/50 max-h-[40vh]">
+              {agents.filter((a) => a.is_active).map((agent) => (
+                <label key={agent.id} className="flex items-center gap-3 px-3 py-2 hover:bg-accent/30 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reassignSelected.has(agent.id)}
+                    onChange={() => toggleReassignAgent(agent.id)}
+                    className="accent-blue-500"
+                  />
+                  <span className="font-mono text-xs text-foreground flex-1">{agent.name}</span>
+                  <span className="text-[9px] font-mono text-muted-foreground">{agent.manager ?? "—"}</span>
+                  <span className={cn(
+                    "text-[9px] font-mono px-1.5 py-0.5 rounded border",
+                    agent.tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
+                    agent.tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                    "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                  )}>{agent.tier}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReassign(false)} className="font-mono text-sm">CANCEL</Button>
+            <Button
+              onClick={handleBulkReassign}
+              disabled={reassignSelected.size === 0}
+              className="font-mono text-sm bg-blue-600 hover:bg-blue-700 gap-1.5"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              REASSIGN ({reassignSelected.size})
             </Button>
           </DialogFooter>
         </DialogContent>
