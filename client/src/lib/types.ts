@@ -60,6 +60,7 @@ export interface DailyPulseAgent {
   name: string;
   site: string;
   tier: Tier;
+  manager?: string | null;
   // Inbound metrics
   ibCalls?: number;
   ibSales?: number;

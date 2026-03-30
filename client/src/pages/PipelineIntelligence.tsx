@@ -224,19 +224,30 @@ export default function PipelineIntelligence() {
   const [drillAgent, setDrillAgent] = useState<{ name: string; tier: string; site: string } | null>(null);
   const [tierFilter, setTierFilter] = useState<string>("ALL");
   const [flagFilter, setFlagFilter] = useState<string>("ALL");
+  const [teamFilter, setTeamFilter] = useState<string>("ALL");
   const [insightsOpen, setInsightsOpen] = useState(true);
+
+  const allManagers = useMemo(() => {
+    const mgrs = new Set<string>();
+    for (const a of pipelineAgents) if (a.manager) mgrs.add(a.manager);
+    return Array.from(mgrs).sort();
+  }, [pipelineAgents]);
 
   const summary = useMemo(() => buildPipelineSummary(pipelineAgents), [pipelineAgents]);
 
   const filtered = useMemo(() => {
     let agents = [...pipelineAgents];
     if (tierFilter !== "ALL") agents = agents.filter(a => a.tier === tierFilter);
+    if (teamFilter !== "ALL") {
+      if (teamFilter === "UNASSIGNED") agents = agents.filter(a => !a.manager);
+      else agents = agents.filter(a => a.manager === teamFilter);
+    }
     if (flagFilter !== "ALL") {
       if (flagFilter === "NONE") agents = agents.filter(a => a.flags.filter(f => FLAG_META[f].severity !== "positive").length === 0);
       else agents = agents.filter(a => a.flags.includes(flagFilter as BehavioralFlag));
     }
     return agents;
-  }, [pipelineAgents, tierFilter, flagFilter]);
+  }, [pipelineAgents, tierFilter, teamFilter, flagFilter]);
 
   const sorted = useMemo(() => {
     const key = sort.key as keyof PipelineAgent;
@@ -488,6 +499,22 @@ export default function PipelineIntelligence() {
                 </button>
               ))}
             </div>
+            {allManagers.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Team:</span>
+                <select
+                  value={teamFilter}
+                  onChange={(e) => setTeamFilter(e.target.value)}
+                  className="text-[10px] font-mono bg-card border border-border rounded px-2 py-1 text-foreground"
+                >
+                  <option value="ALL">All Teams</option>
+                  <option value="UNASSIGNED">Unassigned</option>
+                  {allManagers.map(m => (
+                    <option key={m} value={m}>{m} ({pipelineAgents.filter(a => a.manager === m).length})</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Flag:</span>
               <select

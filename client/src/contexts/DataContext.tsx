@@ -164,7 +164,7 @@ function buildPoolMetricsMap(poolRows: PoolDailyRow[]): Map<string, PoolMetrics>
 
 function buildPulseAgents(
   rows: DailyScrapeRow[],
-  agentMap: Map<string, { name: string; site: string; tier: string }>,
+  agentMap: Map<string, { name: string; site: string; tier: string; manager?: string | null }>,
   mtdMap: Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>,
   daysActiveMap?: Map<string, number>,
   poolMap?: Map<string, PoolMetrics>,
@@ -209,6 +209,7 @@ function buildPulseAgents(
       name,
       site,
       tier,
+      manager: agent?.manager ?? null,
       ibCalls: ibLeads || undefined,
       ibSales: ibSales || undefined,
       obLeads: obLeads || undefined,
@@ -245,6 +246,7 @@ function buildPulseAgents(
         name,
         site: agent.site ?? "CHA",
         tier,
+        manager: agent.manager ?? null,
         salesToday: 0,
         premiumToday: 0,
         totalPremium: 0,
@@ -336,7 +338,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const fetchAgentMap = useCallback(async () => {
     const { data: agents } = await supabase
       .from("agents")
-      .select("name, site, tier, is_active, terminated_date");
+      .select("name, site, tier, is_active, terminated_date, manager");
 
     const targetDate = isRangeMode ? dateRange.end : selectedDate;
     const filtered = (agents ?? []).filter((a: { is_active: boolean; terminated_date: string | null }) => {
@@ -345,7 +347,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return false;
     });
 
-    return new Map(filtered.map((a: { name: string; site: string; tier: string }) => [a.name, a]));
+    return new Map(filtered.map((a: { name: string; site: string; tier: string; manager: string | null }) => [a.name, a]));
   }, [selectedDate, isRangeMode, dateRange]);
 
   const fetchMtdMap = useCallback(async (endDate: string) => {

@@ -43,6 +43,7 @@ export interface PipelineAgent {
   name: string;
   tier: Tier;
   site: string;
+  manager: string | null;
 
   // Production (daily_scrape_data)
   totalDials: number;
@@ -221,7 +222,7 @@ export function buildPipelineAgents(
   productionRows: ProductionRow[],
   poolRows: PoolRow[],
   complianceRows: PipelineComplianceRow[],
-  agentRoster: Map<string, { name: string; site: string; tier: string }>,
+  agentRoster: Map<string, { name: string; site: string; tier: string; manager?: string | null }>,
   historicalStats?: Map<string, HistoricalAgentStats>,
   priorDayCompliance?: Map<string, PriorDayCompliance>,
 ): PipelineAgent[] {
@@ -286,6 +287,7 @@ export function buildPipelineAgents(
 
     const tier = (roster?.tier ?? comp.tier ?? "T3") as Tier;
     const site = roster?.site ?? "CHA";
+    const manager = roster?.manager ?? null;
 
     const totalDials = prod?.total_dials ?? 0;
     const ibLeads = prod?.ib_leads_delivered ?? 0;
@@ -358,7 +360,7 @@ export function buildPipelineAgents(
       : 0;
 
     const agent: PipelineAgent = {
-      name, tier, site,
+      name, tier, site, manager,
       totalDials, totalSales, totalPremium, talkTimeMin,
       ibLeads, obLeads, ibSales, obSales,
       poolDials, poolTalk, poolSelfAssigned, poolSales, poolAnswered,

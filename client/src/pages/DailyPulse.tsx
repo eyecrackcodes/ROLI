@@ -159,18 +159,23 @@ function PoolBadge({ pool }: { pool?: DailyPulseAgent["pool"] }) {
   );
 }
 
-function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => void }) {
+function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: DailyPulseAgent) => void; teamFilter?: string }) {
   const { dailyT3, workingDaysCompleted } = useData();
   const { sort, toggle } = useSort("talkTime");
-  const sorted = useMemo(() => sortAgents(dailyT3, sort), [dailyT3, sort]);
+  const filtered = useMemo(() => {
+    if (teamFilter === "ALL") return dailyT3;
+    if (teamFilter === "UNASSIGNED") return dailyT3.filter((a) => !a.manager);
+    return dailyT3.filter((a) => a.manager === teamFilter);
+  }, [dailyT3, teamFilter]);
+  const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
 
-  const totalPremium = dailyT3.reduce((s, a) => s + a.premiumToday, 0);
-  const totalSales = dailyT3.reduce((s, a) => s + a.salesToday, 0);
-  const totalLeads = dailyT3.reduce((s, a) => s + (a.obLeads ?? 0), 0);
-  const avgTalkTime = dailyT3.length
-    ? dailyT3.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0) / dailyT3.length
+  const totalPremium = filtered.reduce((s, a) => s + a.premiumToday, 0);
+  const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
+  const totalLeads = filtered.reduce((s, a) => s + (a.obLeads ?? 0), 0);
+  const avgTalkTime = filtered.length
+    ? filtered.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0) / filtered.length
     : 0;
-  const poolActiveCount = dailyT3.filter((a) => a.pool && a.pool.callsMade > 0).length;
+  const poolActiveCount = filtered.filter((a) => a.pool && a.pool.callsMade > 0).length;
 
   return (
     <div>
@@ -252,13 +257,18 @@ function T3Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
   );
 }
 
-function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => void }) {
+function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: DailyPulseAgent) => void; teamFilter?: string }) {
   const { dailyT2 } = useData();
   const { sort, toggle } = useSort("totalPremium");
-  const sorted = useMemo(() => sortAgents(dailyT2, sort), [dailyT2, sort]);
+  const filtered = useMemo(() => {
+    if (teamFilter === "ALL") return dailyT2;
+    if (teamFilter === "UNASSIGNED") return dailyT2.filter((a) => !a.manager);
+    return dailyT2.filter((a) => a.manager === teamFilter);
+  }, [dailyT2, teamFilter]);
+  const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
 
-  const totalPremium = dailyT2.reduce((s, a) => s + a.totalPremium, 0);
-  const totalSales = dailyT2.reduce((s, a) => s + a.salesToday, 0);
+  const totalPremium = filtered.reduce((s, a) => s + a.totalPremium, 0);
+  const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
   const totalIB = dailyT2.reduce((s, a) => s + (a.ibCalls ?? 0), 0);
   const totalIBSales = dailyT2.reduce((s, a) => s + (a.ibSales ?? 0), 0);
   const totalOB = dailyT2.reduce((s, a) => s + (a.obLeads ?? 0), 0);
@@ -349,13 +359,18 @@ function T2Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => 
   );
 }
 
-function T1Table({ onAgentClick }: { onAgentClick?: (agent: DailyPulseAgent) => void }) {
+function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: DailyPulseAgent) => void; teamFilter?: string }) {
   const { dailyT1 } = useData();
   const { sort, toggle } = useSort("totalPremium");
-  const sorted = useMemo(() => sortAgents(dailyT1, sort), [dailyT1, sort]);
+  const filtered = useMemo(() => {
+    if (teamFilter === "ALL") return dailyT1;
+    if (teamFilter === "UNASSIGNED") return dailyT1.filter((a) => !a.manager);
+    return dailyT1.filter((a) => a.manager === teamFilter);
+  }, [dailyT1, teamFilter]);
+  const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
 
-  const totalPremium = dailyT1.reduce((s, a) => s + a.totalPremium, 0);
-  const totalSales = dailyT1.reduce((s, a) => s + a.salesToday, 0);
+  const totalPremium = filtered.reduce((s, a) => s + a.totalPremium, 0);
+  const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
   const totalIB = dailyT1.reduce((s, a) => s + (a.ibCalls ?? 0), 0);
   const totalIBSales = dailyT1.reduce((s, a) => s + (a.ibSales ?? 0), 0);
 
@@ -558,6 +573,15 @@ export default function DailyPulse() {
   const data = useData();
   const [showExport, setShowExport] = useState(false);
   const [drillAgent, setDrillAgent] = useState<DailyPulseAgent | null>(null);
+  const [teamFilter, setTeamFilter] = useState<string>("ALL");
+
+  const allAgents = useMemo(() => [...data.dailyT1, ...data.dailyT2, ...data.dailyT3], [data.dailyT1, data.dailyT2, data.dailyT3]);
+  const allManagers = useMemo(() => {
+    const mgrs = new Set<string>();
+    for (const a of allAgents) if (a.manager) mgrs.add(a.manager);
+    return Array.from(mgrs).sort();
+  }, [allAgents]);
+
   const hasData = data.dailyT1.length > 0 || data.dailyT2.length > 0 || data.dailyT3.length > 0;
 
   const handleAgentClick = (agent: DailyPulseAgent) => setDrillAgent(agent);
@@ -766,7 +790,29 @@ export default function DailyPulse() {
       </div>
 
       {hasData && (
-        <SiteSummary agents={[...data.dailyT1, ...data.dailyT2, ...data.dailyT3]} />
+        <>
+          {allManagers.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Team:</span>
+              <select
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                className="text-[10px] font-mono bg-card border border-border rounded px-2 py-1 text-foreground"
+              >
+                <option value="ALL">All Teams</option>
+                <option value="UNASSIGNED">Unassigned</option>
+                {allManagers.map((m) => (
+                  <option key={m} value={m}>{m} ({allAgents.filter((a) => a.manager === m).length})</option>
+                ))}
+              </select>
+              {teamFilter !== "ALL" && (
+                <button onClick={() => setTeamFilter("ALL")} className="text-[9px] font-mono text-blue-400 hover:text-blue-300">Clear</button>
+              )}
+            </div>
+          )}
+          <SiteSummary agents={allAgents} />
+        </>
       )}
 
       {data.loading ? (
@@ -787,13 +833,13 @@ export default function DailyPulse() {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="t3" className="mt-4">
-            <T3Table onAgentClick={handleAgentClick} />
+            <T3Table onAgentClick={handleAgentClick} teamFilter={teamFilter} />
           </TabsContent>
           <TabsContent value="t2" className="mt-4">
-            <T2Table onAgentClick={handleAgentClick} />
+            <T2Table onAgentClick={handleAgentClick} teamFilter={teamFilter} />
           </TabsContent>
           <TabsContent value="t1" className="mt-4">
-            <T1Table onAgentClick={handleAgentClick} />
+            <T1Table onAgentClick={handleAgentClick} teamFilter={teamFilter} />
           </TabsContent>
         </Tabs>
       ) : (

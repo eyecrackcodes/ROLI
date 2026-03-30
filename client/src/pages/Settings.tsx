@@ -33,15 +33,18 @@ function AgentRosterTab() {
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", site: "CHA" as "CHA" | "AUS", tier: "T3" as "T1" | "T2" | "T3", daily_lead_volume: 25, is_active: true });
+  const [form, setForm] = useState({ name: "", site: "CHA" as "CHA" | "AUS", tier: "T3" as "T1" | "T2" | "T3", daily_lead_volume: 25, is_active: true, manager: "" as string, agent_status: "selling" as "selling" | "training" | "unlicensed" });
   const [csvInput, setCsvInput] = useState("");
+  const [rosterFilter, setRosterFilter] = useState<"all" | string>("all");
 
-  const resetForm = () => setForm({ name: "", site: "CHA", tier: "T3", daily_lead_volume: 25, is_active: true });
+  const resetForm = () => setForm({ name: "", site: "CHA", tier: "T3", daily_lead_volume: 25, is_active: true, manager: "", agent_status: "selling" });
+
+  const managers = [...new Set(agents.map((a) => a.manager).filter(Boolean))].sort() as string[];
 
   const handleAddAgent = async () => {
     if (!form.name.trim()) { toast.error("Name is required"); return; }
     try {
-      await addAgent(form);
+      await addAgent({ ...form, manager: form.manager || null });
       toast.success(`Agent ${form.name} added`);
       resetForm();
       setShowAdd(false);
@@ -53,7 +56,7 @@ function AgentRosterTab() {
   const handleUpdateAgent = async () => {
     if (!editingId) return;
     try {
-      await updateAgent(editingId, form);
+      await updateAgent(editingId, { ...form, manager: form.manager || null });
       toast.success("Agent updated");
       setEditingId(null);
       resetForm();
@@ -133,6 +136,8 @@ function AgentRosterTab() {
       tier: agent.tier,
       daily_lead_volume: agent.daily_lead_volume,
       is_active: agent.is_active,
+      manager: agent.manager ?? "",
+      agent_status: agent.agent_status ?? "selling",
     });
   };
 
@@ -159,11 +164,30 @@ function AgentRosterTab() {
         </div>
       </div>
 
+      {/* Team filter */}
+      {managers.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Team:</span>
+          <select
+            value={rosterFilter}
+            onChange={(e) => setRosterFilter(e.target.value)}
+            className="text-[10px] font-mono bg-card border border-border rounded px-2 py-1 text-foreground"
+          >
+            <option value="all">All Teams</option>
+            <option value="unassigned">Unassigned</option>
+            {managers.map((m) => (
+              <option key={m} value={m}>{m} ({agents.filter((a) => a.manager === m && a.is_active).length})</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left">
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Name</th>
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Team</th>
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Site</th>
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Tier</th>
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Daily Vol</th>
@@ -172,7 +196,7 @@ function AgentRosterTab() {
             </tr>
           </thead>
           <tbody>
-            {agents.map((agent, i) => (
+            {agents.filter((a) => rosterFilter === "all" || (rosterFilter === "unassigned" ? !a.manager : a.manager === rosterFilter)).map((agent, i) => (
               <tr
                 key={agent.id}
                 className={cn(
@@ -182,6 +206,7 @@ function AgentRosterTab() {
                 )}
               >
                 <td className="px-3 py-2.5 font-semibold text-foreground">{agent.name}</td>
+                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.manager ?? <span className="text-muted-foreground/40 italic">—</span>}</td>
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                 <td className="px-3 py-2.5">
                   <span className={cn(
@@ -242,10 +267,10 @@ function AgentRosterTab() {
                 </td>
               </tr>
             ))}
-            {agents.length === 0 && (
+            {agents.filter((a) => rosterFilter === "all" || (rosterFilter === "unassigned" ? !a.manager : a.manager === rosterFilter)).length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground font-mono text-sm">
-                  No agents in roster. Add agents or import via CSV.
+                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground font-mono text-sm">
+                  {rosterFilter === "all" ? "No agents in roster. Add agents or import via CSV." : `No agents in team "${rosterFilter}".`}
                 </td>
               </tr>
             )}
@@ -315,7 +340,7 @@ function AgentForm({
   form,
   setForm,
 }: {
-  form: { name: string; site: "CHA" | "AUS"; tier: "T1" | "T2" | "T3"; daily_lead_volume: number; is_active: boolean };
+  form: { name: string; site: "CHA" | "AUS"; tier: "T1" | "T2" | "T3"; daily_lead_volume: number; is_active: boolean; manager: string; agent_status: "selling" | "training" | "unlicensed" };
   setForm: (f: typeof form) => void;
 }) {
   return (
@@ -343,6 +368,23 @@ function AgentForm({
               <SelectItem value="T1">T1 — Inbound</SelectItem>
               <SelectItem value="T2">T2 — Hybrid</SelectItem>
               <SelectItem value="T3">T3 — Outbound</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label className="font-mono text-xs uppercase tracking-widest">Manager / Team</Label>
+          <Input value={form.manager} onChange={(e) => setForm({ ...form, manager: e.target.value })} placeholder="e.g. David Druxman" className="font-mono bg-background" />
+        </div>
+        <div className="space-y-2">
+          <Label className="font-mono text-xs uppercase tracking-widest">Agent Status</Label>
+          <Select value={form.agent_status} onValueChange={(v) => setForm({ ...form, agent_status: v as "selling" | "training" | "unlicensed" })}>
+            <SelectTrigger className="font-mono bg-background"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="selling">Selling</SelectItem>
+              <SelectItem value="training">Training</SelectItem>
+              <SelectItem value="unlicensed">Unlicensed</SelectItem>
             </SelectContent>
           </Select>
         </div>

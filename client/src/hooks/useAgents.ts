@@ -9,6 +9,8 @@ export interface Agent {
   daily_lead_volume: number;
   is_active: boolean;
   terminated_date: string | null;
+  manager: string | null;
+  agent_status: "selling" | "training" | "unlicensed";
   created_at: string;
   updated_at: string;
 }
