@@ -242,7 +242,7 @@ function buildPulseAgents(
     processedNames.add(name);
     const agent = agentMap.get(name);
     const site = agent?.site ?? "CHA";
-    const tier = (agentRows[0].tier as Tier) ?? (agent?.tier as Tier) ?? "T3";
+    const tier = (agent?.tier as Tier) ?? (agentRows[0].tier as Tier) ?? "T3";
 
     const ibLeads = agentRows.reduce((s, r) => s + r.ib_leads_delivered, 0);
     const obLeads = agentRows.reduce((s, r) => s + r.ob_leads_delivered, 0);

@@ -186,10 +186,18 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
 
   return (
     <div>
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+      <div className={cn("grid grid-cols-2 gap-3 mb-6", hasPool ? "sm:grid-cols-6" : "sm:grid-cols-5")}>
         <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
         <MetricCard label="Total Sales" value={totalSales} color="green" />
         <MetricCard label="CR" value={formatCR(totalSales, totalLeads)} color="yellow" />
+        {hasPool && (
+          <MetricCard
+            label="Pool CR"
+            value={totalPoolAssigned > 0 ? `${((totalPoolSales / totalPoolAssigned) * 100).toFixed(1)}%` : "--"}
+            color={totalPoolAssigned > 0 && (totalPoolSales / totalPoolAssigned) >= 0.10 ? "green" : totalPoolSales > 0 ? "amber" : "default"}
+            subtext={`${totalPoolSales} sales / ${totalPoolAssigned} assigned`}
+          />
+        )}
         <MetricCard label="Avg Talk Time" value={`${avgTalkTime.toFixed(0)} min`} />
         <MetricCard label="Day" value={`${workingDaysCompleted} of Window`} subtext={poolActiveCount > 0 ? `${poolActiveCount} in pool` : undefined} />
       </div>
