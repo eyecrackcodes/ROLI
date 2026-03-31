@@ -225,12 +225,6 @@ function PipelineMomentum({
     return { daySummaries: summaries, agentDeltas: deltas, priorDate: prior ?? "" };
   }, [history, dates, agents]);
 
-  if (loading || dates.length < 2) return null;
-
-  const improving = agentDeltas.filter(d => d.pastDueDelta < 0).sort((a, b) => a.pastDueDelta - b.pastDueDelta);
-  const deteriorating = agentDeltas.filter(d => d.pastDueDelta > 0).sort((a, b) => b.pastDueDelta - a.pastDueDelta);
-  const staleDeflators = agentDeltas.filter(d => d.staleDelta < 0).sort((a, b) => a.staleDelta - b.staleDelta);
-
   const tierSummary = useMemo(() => {
     const tiers = ["T1", "T2", "T3"];
     return tiers.map(tier => {
@@ -263,6 +257,12 @@ function PipelineMomentum({
       staleDelta: members.reduce((s, d) => s + d.staleDelta, 0),
     })).sort((a, b) => a.pastDueDelta - b.pastDueDelta);
   }, [agentDeltas]);
+
+  if (loading || dates.length < 2) return null;
+
+  const improving = agentDeltas.filter(d => d.pastDueDelta < 0).sort((a, b) => a.pastDueDelta - b.pastDueDelta);
+  const deteriorating = agentDeltas.filter(d => d.pastDueDelta > 0).sort((a, b) => b.pastDueDelta - a.pastDueDelta);
+  const staleDeflators = agentDeltas.filter(d => d.staleDelta < 0).sort((a, b) => a.staleDelta - b.staleDelta);
 
   const orgTotalDelta = agentDeltas.reduce((s, d) => s + d.pastDueDelta, 0);
   const orgStaleDelta = agentDeltas.reduce((s, d) => s + d.staleDelta, 0);
@@ -581,12 +581,16 @@ export default function PipelineIntelligence() {
   const { pipelineAgents, pipelineLoading, selectedDate, availableDates } = data;
   const { sort, toggle } = useSort("healthScore");
   const [drillAgent, setDrillAgent] = useState<{ name: string; tier: string; site: string } | null>(null);
-  const [tierFilter, setTierFilter] = useState<string>("ALL");
-  const [flagFilter, setFlagFilter] = useState<string>("ALL");
-  const [teamFilter, setTeamFilter] = useState<string>("ALL");
+  const [tierFilter, _setTierFilter] = useState<string>("ALL");
+  const [flagFilter, _setFlagFilter] = useState<string>("ALL");
+  const [teamFilter, _setTeamFilter] = useState<string>("ALL");
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 25;
+
+  const setTierFilter = useCallback((v: string) => { _setTierFilter(v); setPage(0); }, []);
+  const setFlagFilter = useCallback((v: string) => { _setFlagFilter(v); setPage(0); }, []);
+  const setTeamFilter = useCallback((v: string) => { _setTeamFilter(v); setPage(0); }, []);
 
   const allManagers = useMemo(() => {
     const mgrs = new Set<string>();
@@ -619,7 +623,7 @@ export default function PipelineIntelligence() {
     });
   }, [filtered, sort]);
 
-  useEffect(() => { setPage(0); }, [tierFilter, teamFilter, flagFilter, sort]);
+  useEffect(() => { setPage(0); }, [sort.key, sort.dir]);
 
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);

@@ -5,7 +5,7 @@ import { Info } from "lucide-react";
 
 interface MetricCardProps {
   label: string;
-  value: string | number;
+  value: React.ReactNode;
   subtext?: React.ReactNode;
   color?: "default" | "green" | "amber" | "red" | "blue";
   className?: string;
