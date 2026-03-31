@@ -607,19 +607,19 @@ export default function PipelineIntelligence() {
       if (flagFilter === "NONE") agents = agents.filter(a => a.flags.filter(f => FLAG_META[f].severity !== "positive").length === 0);
       else agents = agents.filter(a => a.flags.includes(flagFilter as BehavioralFlag));
     }
-    setPage(0);
     return agents;
   }, [pipelineAgents, tierFilter, teamFilter, flagFilter]);
 
   const sorted = useMemo(() => {
     const key = sort.key as keyof PipelineAgent;
-    setPage(0);
     return [...filtered].sort((a, b) => {
       const av = a[key] as number;
       const bv = b[key] as number;
       return sort.dir === "desc" ? bv - av : av - bv;
     });
   }, [filtered, sort]);
+
+  useEffect(() => { setPage(0); }, [tierFilter, teamFilter, flagFilter, sort]);
 
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
