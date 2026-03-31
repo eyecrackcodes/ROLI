@@ -3,7 +3,7 @@ import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Users, Phone, Clock, Target, Calendar, ChevronLeft, ChevronRight, Zap } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap } from "lucide-react";
 import type { DailyPulseAgent, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
 
 type SortDir = "asc" | "desc";
@@ -321,6 +321,7 @@ export default function LeadsPool() {
   const hasPoolData = poolAgents.length > 0;
 
   const latestDate = availableDates.length > 0 ? availableDates[0] : null;
+  const oldestDate = availableDates.length > 0 ? availableDates[availableDates.length - 1] : null;
   const isOnLatest = selectedDate === latestDate;
 
   const navToDate = (direction: -1 | 1) => {
@@ -346,40 +347,93 @@ export default function LeadsPool() {
         <div>
           <h1 className="text-xl font-bold text-foreground">Leads Pool</h1>
           <p className="text-sm text-muted-foreground font-mono mt-1">
-            Shared lead pool activity, assignment tracking, and inventory
+            {isRangeMode
+              ? `Aggregated pool activity — ${dateRange.start} to ${dateRange.end}`
+              : "Shared lead pool activity, assignment tracking, and inventory"}
           </p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
-            onClick={() => navToDate(-1)}
-            disabled={selectedDate === availableDates[availableDates.length - 1]}
-            className="p-1.5 rounded hover:bg-accent disabled:opacity-20 transition-colors"
+            onClick={() => data.setIsRangeMode(!isRangeMode)}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-mono font-bold uppercase tracking-widest transition-colors border",
+              isRangeMode
+                ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                : "bg-card text-muted-foreground border-border hover:text-foreground"
+            )}
           >
-            <ChevronLeft className="h-4 w-4" />
+            {isRangeMode ? <CalendarRange className="h-3.5 w-3.5" /> : <Calendar className="h-3.5 w-3.5" />}
+            {isRangeMode ? "Range" : "Single Day"}
           </button>
-          <div className="flex items-center gap-1.5 bg-card border border-border rounded-md px-2 py-1">
-            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => data.setSelectedDate(e.target.value)}
-              className="font-mono bg-transparent border-0 w-36 text-center text-xs h-6 p-0"
-            />
-          </div>
-          <button
-            onClick={() => navToDate(1)}
-            disabled={isOnLatest}
-            className="p-1.5 rounded hover:bg-accent disabled:opacity-20 transition-colors"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          {!isOnLatest && latestDate && (
-            <button
-              onClick={() => data.setSelectedDate(latestDate)}
-              className="ml-1 text-[10px] font-mono text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
-            >
-              <Zap className="h-3 w-3" /> Latest
-            </button>
+
+          <div className="h-5 w-px bg-border" />
+
+          {isRangeMode ? (
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                value={dateRange.start}
+                onChange={(e) => data.setDateRange({ ...dateRange, start: e.target.value })}
+                className="font-mono bg-background w-36 text-center text-xs h-8"
+              />
+              <span className="text-xs font-mono text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={dateRange.end}
+                onChange={(e) => data.setDateRange({ ...dateRange, end: e.target.value })}
+                className="font-mono bg-background w-36 text-center text-xs h-8"
+              />
+              {data.activeWindow && (
+                <button
+                  onClick={() => data.setDateRange({ start: data.windowStart, end: latestDate ?? data.windowEnd })}
+                  className="text-[10px] font-mono text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-accent transition-colors"
+                >
+                  WINDOW
+                </button>
+              )}
+              {oldestDate && latestDate && (
+                <button
+                  onClick={() => data.setDateRange({ start: oldestDate, end: latestDate })}
+                  className="text-[10px] font-mono text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-accent transition-colors"
+                >
+                  ALL DATA
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => navToDate(-1)}
+                disabled={selectedDate === availableDates[availableDates.length - 1]}
+                className="p-1.5 rounded hover:bg-accent disabled:opacity-20 transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <div className="flex items-center gap-1.5 bg-card border border-border rounded-md px-2 py-1">
+                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => data.setSelectedDate(e.target.value)}
+                  className="font-mono bg-transparent border-0 w-36 text-center text-xs h-6 p-0"
+                />
+              </div>
+              <button
+                onClick={() => navToDate(1)}
+                disabled={isOnLatest}
+                className="p-1.5 rounded hover:bg-accent disabled:opacity-20 transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              {!isOnLatest && latestDate && (
+                <button
+                  onClick={() => data.setSelectedDate(latestDate)}
+                  className="ml-1 text-[10px] font-mono text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
+                >
+                  <Zap className="h-3 w-3" /> Latest
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
