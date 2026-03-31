@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   ArrowUpDown, ArrowUp, ArrowDown, Calendar, ChevronLeft, ChevronRight,
-  Zap, AlertTriangle, Shield, TrendingUp, DollarSign, UserCheck, UserX,
-  ChevronDown, ChevronUp, Download,
+  Zap, AlertTriangle, Shield, TrendingUp, TrendingDown, Minus,
+  DollarSign, UserCheck, UserX,
+  ChevronDown, ChevronUp, Download, Activity,
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { exportPipelineIntelligence } from "@/lib/exportExcel";
 import type { PipelineAgent, BehavioralFlag, HealthGrade } from "@/lib/pipelineIntelligence";
 import {
@@ -100,6 +102,362 @@ function ScoreBar({ label, score, max = 25 }: { label: string; score: number; ma
   );
 }
 
+function DeltaChip({ value }: { value: number }) {
+  if (value === 0) return <span className="inline-flex items-center gap-0.5 text-muted-foreground/50 text-[10px]"><Minus className="h-2.5 w-2.5" />0</span>;
+  const isGood = value < 0;
+  return (
+    <span className={cn("inline-flex items-center gap-0.5 font-bold tabular-nums text-[10px]", isGood ? "text-emerald-400" : "text-red-400")}>
+      {isGood ? <TrendingDown className="h-2.5 w-2.5" /> : <TrendingUp className="h-2.5 w-2.5" />}
+      {value > 0 ? "+" : ""}{value}
+    </span>
+  );
+}
+
+interface PipelineSnapshotRow {
+  scrape_date: string;
+  agent_name: string;
+  tier: string;
+  past_due_follow_ups: number | null;
+  new_leads: number | null;
+  call_queue_count: number | null;
+  todays_follow_ups: number | null;
+}
+
+interface DaySummary {
+  date: string;
+  pastDue: number;
+  newLeads: number;
+  callQueue: number;
+  totalStale: number;
+  agents: number;
+}
+
+function usePipelineHistory(selectedDate: string) {
+  const [history, setHistory] = useState<PipelineSnapshotRow[]>([]);
+  const [dates, setDates] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from("pipeline_compliance_daily")
+        .select("scrape_date, agent_name, tier, past_due_follow_ups, new_leads, call_queue_count, todays_follow_ups")
+        .lte("scrape_date", selectedDate)
+        .order("scrape_date", { ascending: true });
+
+      if (cancelled) return;
+      const rows = (data ?? []) as PipelineSnapshotRow[];
+      const uniqueDates = [...new Set(rows.map(r => r.scrape_date))].sort();
+      setHistory(rows);
+      setDates(uniqueDates);
+      setLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [selectedDate]);
+
+  return { history, dates, loading };
+}
+
+function PipelineMomentum({
+  agents, tierFilter, teamFilter, selectedDate,
+}: {
+  agents: PipelineAgent[];
+  tierFilter: string;
+  teamFilter: string;
+  selectedDate: string;
+}) {
+  const { history, dates, loading } = usePipelineHistory(selectedDate);
+
+  const { daySummaries, agentDeltas, priorDate } = useMemo(() => {
+    if (dates.length === 0) return { daySummaries: [] as DaySummary[], agentDeltas: [] as Array<{ name: string; tier: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }>, priorDate: "" };
+
+    const agentSet = new Set(agents.map(a => a.name));
+
+    const summaries: DaySummary[] = dates.map(d => {
+      const dayRows = history.filter(r => r.scrape_date === d && agentSet.has(r.agent_name));
+      return {
+        date: d,
+        pastDue: dayRows.reduce((s, r) => s + (r.past_due_follow_ups ?? 0), 0),
+        newLeads: dayRows.reduce((s, r) => s + (r.new_leads ?? 0), 0),
+        callQueue: dayRows.reduce((s, r) => s + (r.call_queue_count ?? 0), 0),
+        totalStale: dayRows.reduce((s, r) => s + (r.past_due_follow_ups ?? 0) + (r.new_leads ?? 0) + (r.call_queue_count ?? 0), 0),
+        agents: dayRows.length,
+      };
+    });
+
+    const today = dates[dates.length - 1];
+    const prior = dates.length >= 2 ? dates[dates.length - 2] : null;
+
+    const deltas: Array<{ name: string; tier: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }> = [];
+
+    if (prior) {
+      const todayByAgent = new Map<string, PipelineSnapshotRow>();
+      const priorByAgent = new Map<string, PipelineSnapshotRow>();
+      for (const r of history) {
+        if (r.scrape_date === today && agentSet.has(r.agent_name)) todayByAgent.set(r.agent_name, r);
+        if (r.scrape_date === prior && agentSet.has(r.agent_name)) priorByAgent.set(r.agent_name, r);
+      }
+
+      for (const [name, t] of Array.from(todayByAgent)) {
+        const p = priorByAgent.get(name);
+        const agent = agents.find(a => a.name === name);
+        const pd = t.past_due_follow_ups ?? 0;
+        const nl = t.new_leads ?? 0;
+        const cq = t.call_queue_count ?? 0;
+        const ppd = p ? (p.past_due_follow_ups ?? 0) : pd;
+        const pnl = p ? (p.new_leads ?? 0) : nl;
+        const pcq = p ? (p.call_queue_count ?? 0) : cq;
+        deltas.push({
+          name, tier: t.tier, manager: agent?.manager ?? null,
+          pastDue: pd, pastDueDelta: pd - ppd,
+          newLeads: nl, newLeadsDelta: nl - pnl,
+          callQueue: cq, callQueueDelta: cq - pcq,
+          stale: pd + nl + cq, staleDelta: (pd + nl + cq) - (ppd + pnl + pcq),
+        });
+      }
+    }
+
+    return { daySummaries: summaries, agentDeltas: deltas, priorDate: prior ?? "" };
+  }, [history, dates, agents]);
+
+  if (loading || dates.length < 2) return null;
+
+  const improving = agentDeltas.filter(d => d.pastDueDelta < 0).sort((a, b) => a.pastDueDelta - b.pastDueDelta);
+  const deteriorating = agentDeltas.filter(d => d.pastDueDelta > 0).sort((a, b) => b.pastDueDelta - a.pastDueDelta);
+  const staleDeflators = agentDeltas.filter(d => d.staleDelta < 0).sort((a, b) => a.staleDelta - b.staleDelta);
+
+  const tierSummary = useMemo(() => {
+    const tiers = ["T1", "T2", "T3"];
+    return tiers.map(tier => {
+      const tAgents = agentDeltas.filter(d => d.tier === tier);
+      return {
+        tier,
+        count: tAgents.length,
+        pastDue: tAgents.reduce((s, d) => s + d.pastDue, 0),
+        pastDueDelta: tAgents.reduce((s, d) => s + d.pastDueDelta, 0),
+        stale: tAgents.reduce((s, d) => s + d.stale, 0),
+        staleDelta: tAgents.reduce((s, d) => s + d.staleDelta, 0),
+      };
+    }).filter(t => t.count > 0);
+  }, [agentDeltas]);
+
+  const teamSummary = useMemo(() => {
+    const teams = new Map<string, typeof agentDeltas>();
+    for (const d of agentDeltas) {
+      const key = d.manager ?? "Unassigned";
+      const arr = teams.get(key) ?? [];
+      arr.push(d);
+      teams.set(key, arr);
+    }
+    return Array.from(teams).map(([team, members]) => ({
+      team,
+      count: members.length,
+      pastDue: members.reduce((s, d) => s + d.pastDue, 0),
+      pastDueDelta: members.reduce((s, d) => s + d.pastDueDelta, 0),
+      stale: members.reduce((s, d) => s + d.stale, 0),
+      staleDelta: members.reduce((s, d) => s + d.staleDelta, 0),
+    })).sort((a, b) => a.pastDueDelta - b.pastDueDelta);
+  }, [agentDeltas]);
+
+  const orgTotalDelta = agentDeltas.reduce((s, d) => s + d.pastDueDelta, 0);
+  const orgStaleDelta = agentDeltas.reduce((s, d) => s + d.staleDelta, 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-mono uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-2">
+          <Activity className="h-3.5 w-3.5" />
+          Pipeline Momentum (d/d)
+        </h3>
+        <span className="text-[9px] font-mono text-muted-foreground/50">
+          {selectedDate} vs {priorDate} · {dates.length} snapshots available
+        </span>
+      </div>
+
+      {/* Org-level delta summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <MetricCard
+          label="Org Past Due Δ"
+          value={<DeltaChip value={orgTotalDelta} />}
+          subtext={`${improving.length} improving · ${deteriorating.length} rising`}
+          color={orgTotalDelta < 0 ? "green" : orgTotalDelta > 0 ? "red" : "default"}
+          tooltip="Net change in total past due follow-ups across all visible agents compared to previous pipeline snapshot."
+        />
+        <MetricCard
+          label="Org Stale Δ"
+          value={<DeltaChip value={orgStaleDelta} />}
+          subtext="past due + new leads + call queue"
+          color={orgStaleDelta < 0 ? "green" : orgStaleDelta > 0 ? "red" : "default"}
+          tooltip="Net change in total stale pipeline items (past due + new leads + call queue) across all visible agents."
+        />
+        <MetricCard
+          label="Deflators"
+          value={staleDeflators.length}
+          subtext={`of ${agentDeltas.length} agents reducing stale`}
+          color={staleDeflators.length > agentDeltas.length / 2 ? "green" : "amber"}
+          tooltip="Agents whose total stale count (past due + new leads + call queue) decreased since last snapshot."
+        />
+        <MetricCard
+          label="Biggest Win"
+          value={improving.length > 0 ? improving[0].name.split(" ").pop() ?? "--" : "--"}
+          subtext={improving.length > 0 ? `Past due ${improving[0].pastDueDelta} (${improving[0].pastDue} now)` : "No improvements"}
+          color="green"
+          tooltip="Agent with the largest single-day reduction in past due follow-ups."
+        />
+      </div>
+
+      {/* Tier and Team breakdowns */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* By Tier */}
+        <div className="bg-card border border-border rounded-md p-4">
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">By Tier</h4>
+          <div className="space-y-2">
+            {tierSummary.map(t => (
+              <div key={t.tier} className="flex items-center gap-3">
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border w-8 text-center",
+                  t.tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                    : t.tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                    : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                )}>{t.tier}</span>
+                <span className="text-[10px] font-mono text-muted-foreground w-16">{t.count} agents</span>
+                <div className="flex-1 flex items-center gap-4">
+                  <span className="text-[10px] font-mono">Past Due: {t.pastDue} <DeltaChip value={t.pastDueDelta} /></span>
+                  <span className="text-[10px] font-mono">Stale: {t.stale} <DeltaChip value={t.staleDelta} /></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* By Team */}
+        <div className="bg-card border border-border rounded-md p-4">
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">By Team</h4>
+          <div className="space-y-2 max-h-40 overflow-y-auto">
+            {teamSummary.map(t => (
+              <div key={t.team} className="flex items-center gap-3">
+                <span className="text-xs font-medium w-28 truncate">{t.team}</span>
+                <span className="text-[10px] font-mono text-muted-foreground w-16">{t.count} agents</span>
+                <div className="flex-1 flex items-center gap-4">
+                  <span className="text-[10px] font-mono">Past Due: {t.pastDue} <DeltaChip value={t.pastDueDelta} /></span>
+                  <span className="text-[10px] font-mono">Stale: {t.stale} <DeltaChip value={t.staleDelta} /></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Org-wide daily trend */}
+      {daySummaries.length > 1 && (
+        <div className="bg-card border border-border rounded-md p-4">
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">Historical Trend</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] font-mono">
+              <thead>
+                <tr className="border-b border-border text-muted-foreground">
+                  <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-widest">Date</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Agents</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Past Due</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Δ</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">New Leads</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Call Queue</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Total Stale</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...daySummaries].reverse().map((d, i, arr) => {
+                  const prev = i < arr.length - 1 ? arr[i + 1] : null;
+                  const pdDelta = prev ? d.pastDue - prev.pastDue : 0;
+                  const staleDelta = prev ? d.totalStale - prev.totalStale : 0;
+                  return (
+                    <tr key={d.date} className={cn("border-b border-border/30", d.date === selectedDate ? "bg-blue-500/5" : "")}>
+                      <td className="px-3 py-1.5 font-medium">{d.date}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{d.agents}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{d.pastDue}</td>
+                      <td className="px-3 py-1.5 text-right">{prev ? <DeltaChip value={pdDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{d.newLeads}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{d.callQueue}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums font-bold">{d.totalStale}</td>
+                      <td className="px-3 py-1.5 text-right">{prev ? <DeltaChip value={staleDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Top movers */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-card border border-emerald-500/20 rounded-md p-4">
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 mb-3 flex items-center gap-1.5">
+            <TrendingDown className="h-3 w-3" /> Reducing Past Due ({improving.length})
+          </h4>
+          {improving.length === 0 ? (
+            <p className="text-[10px] font-mono text-muted-foreground/50">No agents reduced past due d/d</p>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {improving.slice(0, 10).map(d => (
+                <div key={d.name} className="flex items-center gap-2 text-[11px]">
+                  <span className="font-medium flex-1 truncate">{d.name}</span>
+                  <span className="font-mono text-muted-foreground tabular-nums">{d.pastDue}</span>
+                  <DeltaChip value={d.pastDueDelta} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-card border border-red-500/20 rounded-md p-4">
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-red-400 mb-3 flex items-center gap-1.5">
+            <TrendingUp className="h-3 w-3" /> Rising Past Due ({deteriorating.length})
+          </h4>
+          {deteriorating.length === 0 ? (
+            <p className="text-[10px] font-mono text-muted-foreground/50">No agents with rising past due</p>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {deteriorating.slice(0, 10).map(d => (
+                <div key={d.name} className="flex items-center gap-2 text-[11px]">
+                  <span className="font-medium flex-1 truncate">{d.name}</span>
+                  <span className="font-mono text-muted-foreground tabular-nums">{d.pastDue}</span>
+                  <DeltaChip value={d.pastDueDelta} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-card border border-blue-500/20 rounded-md p-4">
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-blue-400 mb-3 flex items-center gap-1.5">
+            <TrendingDown className="h-3 w-3" /> Total Stale Deflation ({staleDeflators.length})
+          </h4>
+          {staleDeflators.length === 0 ? (
+            <p className="text-[10px] font-mono text-muted-foreground/50">No stale count reductions</p>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {staleDeflators.slice(0, 10).map(d => (
+                <div key={d.name} className="flex items-center gap-2 text-[11px]">
+                  <span className="font-medium flex-1 truncate">{d.name}</span>
+                  <span className="font-mono text-muted-foreground tabular-nums">{d.stale}</span>
+                  <DeltaChip value={d.staleDelta} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillDown: () => void }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -129,6 +487,7 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
           </div>
         </td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.pastDue}</td>
+        <td className="px-3 py-2 text-right">{agent.pastDueDelta != null ? <DeltaChip value={agent.pastDueDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.callQueue}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalStale}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalDials + agent.poolDials}</td>
@@ -142,7 +501,7 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
       </tr>
       {expanded && (
         <tr className="border-b border-border/30 bg-card/30">
-          <td colSpan={14} className="px-6 py-3">
+          <td colSpan={15} className="px-6 py-3">
             <div className="grid grid-cols-4 gap-4">
               <div className="space-y-1.5">
                 <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block">Sub-Scores</span>
@@ -226,6 +585,8 @@ export default function PipelineIntelligence() {
   const [flagFilter, setFlagFilter] = useState<string>("ALL");
   const [teamFilter, setTeamFilter] = useState<string>("ALL");
   const [insightsOpen, setInsightsOpen] = useState(true);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 25;
 
   const allManagers = useMemo(() => {
     const mgrs = new Set<string>();
@@ -246,17 +607,22 @@ export default function PipelineIntelligence() {
       if (flagFilter === "NONE") agents = agents.filter(a => a.flags.filter(f => FLAG_META[f].severity !== "positive").length === 0);
       else agents = agents.filter(a => a.flags.includes(flagFilter as BehavioralFlag));
     }
+    setPage(0);
     return agents;
   }, [pipelineAgents, tierFilter, teamFilter, flagFilter]);
 
   const sorted = useMemo(() => {
     const key = sort.key as keyof PipelineAgent;
+    setPage(0);
     return [...filtered].sort((a, b) => {
       const av = a[key] as number;
       const bv = b[key] as number;
       return sort.dir === "desc" ? bv - av : av - bv;
     });
   }, [filtered, sort]);
+
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const navToDate = (dir: -1 | 1) => {
     const idx = availableDates.indexOf(selectedDate);
@@ -480,6 +846,14 @@ export default function PipelineIntelligence() {
             )}
           </div>
 
+          {/* Pipeline Momentum */}
+          <PipelineMomentum
+            agents={filtered}
+            tierFilter={tierFilter}
+            teamFilter={teamFilter}
+            selectedDate={selectedDate}
+          />
+
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5">
@@ -545,6 +919,7 @@ export default function PipelineIntelligence() {
                   <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Grade</th>
                   <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Flags</th>
                   <SortHeader label="Past Due" sortKey="pastDue" current={sort} onToggle={toggle} />
+                  <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Δ d/d</th>
                   <SortHeader label="Queue" sortKey="callQueue" current={sort} onToggle={toggle} />
                   <SortHeader label="Stale" sortKey="totalStale" current={sort} onToggle={toggle} />
                   <SortHeader label="Dials" sortKey="totalDials" current={sort} onToggle={toggle} />
@@ -556,7 +931,7 @@ export default function PipelineIntelligence() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(agent => (
+                {paged.map(agent => (
                   <AgentExpandRow
                     key={agent.name}
                     agent={agent}
@@ -572,6 +947,7 @@ export default function PipelineIntelligence() {
                   <td className="px-3 py-2" />
                   <td className="px-3 py-2" />
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.pastDue, 0)}</td>
+                  <td className="px-3 py-2 text-right"><DeltaChip value={sorted.reduce((s, a) => s + (a.pastDueDelta ?? 0), 0)} /></td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.callQueue, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalStale, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalDials + a.poolDials, 0)}</td>
@@ -590,6 +966,59 @@ export default function PipelineIntelligence() {
               </tfoot>
             </table>
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] font-mono text-muted-foreground">
+                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(0)}
+                  disabled={page === 0}
+                  className="px-2 py-1 rounded text-[10px] font-mono border border-border hover:bg-accent disabled:opacity-30 transition-colors"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="p-1 rounded hover:bg-accent disabled:opacity-30 transition-colors"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i).map(i => (
+                  <button
+                    key={i}
+                    onClick={() => setPage(i)}
+                    className={cn(
+                      "w-7 h-7 rounded text-[10px] font-mono font-bold transition-colors",
+                      i === page
+                        ? "bg-blue-500/20 text-blue-400 border border-blue-500/40"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                    )}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="p-1 rounded hover:bg-accent disabled:opacity-30 transition-colors"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setPage(totalPages - 1)}
+                  disabled={page >= totalPages - 1}
+                  className="px-2 py-1 rounded text-[10px] font-mono border border-border hover:bg-accent disabled:opacity-30 transition-colors"
+                >
+                  Last
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 

@@ -277,36 +277,42 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
         label="Active Agents"
         value={agents.length}
         subtext="Working the pool"
+        tooltip="Count of agents who made at least 1 call in the leads pool today."
       />
       <MetricCard
         label="Total Calls"
         value={totalCallsMade}
         color="blue"
         subtext={`${avgCallsPerAgent} avg/agent`}
+        tooltip="Total dials made into the shared leads pool across all agents. Avg/agent = total calls ÷ active agents."
       />
       <MetricCard
         label="Contact Rate"
         value={`${contactRate}%`}
         color={Number(contactRate) >= 50 ? "green" : Number(contactRate) >= 30 ? "amber" : "red"}
         subtext={`${totalAnswered} answered`}
+        tooltip="Answered calls ÷ total calls × 100. Measures what % of pool dials actually reached a person. Green ≥ 50%, amber ≥ 30%, red < 30%."
       />
       <MetricCard
         label="Assign Rate"
         value={`${assignRate}%`}
         color={Number(assignRate) >= ASSIGN_RATE_TARGET ? "green" : Number(assignRate) >= 45 ? "amber" : "red"}
         subtext={`${totalSelfAssigned} assigned / ${totalAnswered} answered`}
+        tooltip={`Self-assigned leads ÷ answered calls × 100. Agents should self-assign ALL answered contacts (including DNC/not interested) to remove them from rotation. Target: ≥ ${ASSIGN_RATE_TARGET}%.`}
       />
       <MetricCard
         label="Pool Close Rate"
         value={`${poolCR}%`}
         color={Number(poolCR) >= 8 ? "green" : Number(poolCR) >= 4 ? "amber" : "red"}
         subtext={`${totalPoolSales} sales / ${totalSelfAssigned} assigned · $${totalPoolPremium.toLocaleString()}`}
+        tooltip="Pool sales ÷ self-assigned leads × 100. Conversion rate on leads agents took ownership of from the pool. Green ≥ 8%, amber ≥ 4%, red < 4%."
       />
       <MetricCard
         label="Pool Velocity"
         value={`${poolVelocity}%`}
         color="blue"
         subtext={totalPoolLeads > 0 ? `${totalPoolLeads} contactable leads` : "No inventory data"}
+        tooltip="Total calls made ÷ contactable leads in pool × 100. Measures how aggressively the team is working through the available pool inventory. Higher = faster burn-through of available leads."
       />
     </div>
   );
@@ -526,6 +532,7 @@ export default function LeadsPool() {
             </div>
             <PoolAgentTable agents={poolAgents} assignTarget={ASSIGN_RATE_TARGET} />
           </div>
+
         </>
       ) : (
         <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
