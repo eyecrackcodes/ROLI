@@ -3,7 +3,7 @@ import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX } from "lucide-react";
 import type { DailyPulseAgent, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
 
 type SortDir = "asc" | "desc";
@@ -62,6 +62,7 @@ function sortPoolAgents(agents: PoolAgent[], sort: SortState): PoolAgent[] {
       case "longCalls": return a.pool.longCalls;
       case "contactRate": return a.pool.contactRate;
       case "assignRate": return a.pool.assignRate;
+      case "presRate": return a.pool.selfAssignedLeads > 0 ? (a.pool.longCalls / a.pool.selfAssignedLeads) * 100 : 0;
       default: return 0;
     }
   };
@@ -77,6 +78,203 @@ function sortPoolAgents(agents: PoolAgent[], sort: SortState): PoolAgent[] {
 }
 
 const ASSIGN_RATE_TARGET = 65;
+
+// T3 Pool KPI Targets
+const T3_POOL_KPI = {
+  MIN_DIALS: 150,
+  MIN_ASSIGN_RATE: 40,
+  MIN_SELF_ASSIGNED: 30,
+  MIN_LONG_CALLS: 4,
+  GATES_TO_PASS: 3,
+} as const;
+
+type GateStatus = "pass" | "fail" | "na";
+
+interface ScorecardGate {
+  label: string;
+  target: string;
+  actual: number | string;
+  status: GateStatus;
+}
+
+interface AgentScorecard {
+  name: string;
+  site: string;
+  gates: ScorecardGate[];
+  gatesPassed: number;
+  compliant: boolean;
+  pool: PoolMetrics;
+}
+
+function buildT3Scorecards(agents: PoolAgent[]): AgentScorecard[] {
+  return agents
+    .filter((a) => a.tier === "T3")
+    .map((a) => {
+      const p = a.pool;
+
+      const dialGate: ScorecardGate = {
+        label: "Dials",
+        target: `≥ ${T3_POOL_KPI.MIN_DIALS}`,
+        actual: p.callsMade,
+        status: p.callsMade >= T3_POOL_KPI.MIN_DIALS ? "pass" : "fail",
+      };
+
+      const assignRateGate: ScorecardGate = {
+        label: "Assign %",
+        target: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}%`,
+        actual: p.answeredCalls > 0 ? `${p.assignRate.toFixed(0)}%` : "--",
+        status: p.answeredCalls === 0 ? "na" : p.assignRate >= T3_POOL_KPI.MIN_ASSIGN_RATE ? "pass" : "fail",
+      };
+
+      const assignCountGate: ScorecardGate = {
+        label: "Assigned",
+        target: `≥ ${T3_POOL_KPI.MIN_SELF_ASSIGNED}`,
+        actual: p.selfAssignedLeads,
+        status: p.selfAssignedLeads >= T3_POOL_KPI.MIN_SELF_ASSIGNED ? "pass" : "fail",
+      };
+
+      const longCallGate: ScorecardGate = {
+        label: "Long Calls",
+        target: `≥ ${T3_POOL_KPI.MIN_LONG_CALLS}`,
+        actual: p.longCalls,
+        status: p.longCalls >= T3_POOL_KPI.MIN_LONG_CALLS ? "pass" : "fail",
+      };
+
+      const gates = [dialGate, assignRateGate, assignCountGate, longCallGate];
+      const gatesPassed = gates.filter((g) => g.status === "pass").length;
+
+      return {
+        name: a.name,
+        site: a.site,
+        gates,
+        gatesPassed,
+        compliant: gatesPassed >= T3_POOL_KPI.GATES_TO_PASS,
+        pool: p,
+      };
+    })
+    .sort((a, b) => b.gatesPassed - a.gatesPassed || b.pool.callsMade - a.pool.callsMade);
+}
+
+function GateBadge({ status }: { status: GateStatus }) {
+  if (status === "pass") return <CheckCircle2 className="h-4 w-4 text-emerald-400" />;
+  if (status === "fail") return <XCircle className="h-4 w-4 text-red-400" />;
+  return <span className="text-muted-foreground text-xs">--</span>;
+}
+
+function PoolScorecard({ agents }: { agents: PoolAgent[] }) {
+  const scorecards = useMemo(() => buildT3Scorecards(agents), [agents]);
+  const t3Count = agents.filter((a) => a.tier === "T3").length;
+
+  if (t3Count === 0) return null;
+
+  const compliantCount = scorecards.filter((s) => s.compliant).length;
+  const compliancePct = t3Count > 0 ? ((compliantCount / t3Count) * 100).toFixed(0) : "0";
+
+  return (
+    <div className="bg-card border border-border rounded-md overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Shield className="h-4 w-4 text-blue-400" />
+          <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            T3 Pool Compliance
+          </h3>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
+            {compliantCount}/{t3Count} compliant
+          </span>
+          <span className={cn(
+            "text-sm font-mono font-bold tabular-nums",
+            Number(compliancePct) >= 80 ? "text-emerald-400" : Number(compliancePct) >= 50 ? "text-amber-400" : "text-red-400"
+          )}>
+            {compliancePct}%
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border/50 border-b border-border">
+        {[
+          { label: "Volume", desc: `≥ ${T3_POOL_KPI.MIN_DIALS} dials` },
+          { label: "Assign Rate", desc: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}% of answered` },
+          { label: "Assigned Count", desc: `≥ ${T3_POOL_KPI.MIN_SELF_ASSIGNED} leads` },
+          { label: "Quality", desc: `≥ ${T3_POOL_KPI.MIN_LONG_CALLS} long calls (15+ min)` },
+        ].map((gate) => (
+          <div key={gate.label} className="bg-card px-3 py-2">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground block">{gate.label}</span>
+            <span className="text-[10px] font-mono text-blue-400">{gate.desc}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="px-4 py-2 text-left font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Agent</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Dials</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Assign %</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Assigned</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Long Calls</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scorecards.map((sc, i) => (
+              <tr
+                key={sc.name}
+                className={cn(
+                  "border-b border-border/30 transition-colors hover:bg-accent/30",
+                  i % 2 === 0 ? "bg-transparent" : "bg-card/30",
+                  sc.compliant ? "bg-emerald-500/[0.03]" : "bg-red-500/[0.03]"
+                )}
+              >
+                <td className="px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground">{sc.name}</span>
+                  </div>
+                </td>
+                {sc.gates.map((gate) => (
+                  <td key={gate.label} className="px-3 py-2.5 text-center">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <GateBadge status={gate.status} />
+                      <span className={cn(
+                        "text-xs font-mono tabular-nums",
+                        gate.status === "pass" ? "text-emerald-400" : gate.status === "fail" ? "text-red-400" : "text-muted-foreground"
+                      )}>
+                        {gate.actual}
+                      </span>
+                    </div>
+                  </td>
+                ))}
+                <td className="px-3 py-2.5 text-center">
+                  <div className="flex items-center justify-center gap-1.5">
+                    {sc.compliant ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded px-2 py-0.5">
+                        <ShieldCheck className="h-3 w-3" />
+                        {sc.gatesPassed}/4
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-widest text-red-400 bg-red-500/10 border border-red-500/30 rounded px-2 py-0.5">
+                        <ShieldX className="h-3 w-3" />
+                        {sc.gatesPassed}/4
+                      </span>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {scorecards.length === 0 && (
+        <div className="px-4 py-6 text-center">
+          <p className="text-xs font-mono text-muted-foreground">No T3 agents with pool activity</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function AssignmentRateBadge({ rate }: { rate: number }) {
   if (rate === 0) return <span className="text-muted-foreground">--</span>;
@@ -152,6 +350,19 @@ function PoolInventoryPanel({ inventory }: { inventory: PoolInventorySnapshot[] 
   );
 }
 
+function PresentationRateBadge({ longCalls, selfAssigned }: { longCalls: number; selfAssigned: number }) {
+  if (selfAssigned === 0) return <span className="text-muted-foreground">--</span>;
+  const rate = (longCalls / selfAssigned) * 100;
+  return (
+    <span className={cn(
+      "font-bold",
+      rate >= 20 ? "text-emerald-400" : rate >= 12 ? "text-amber-400" : "text-red-400"
+    )}>
+      {rate.toFixed(0)}%
+    </span>
+  );
+}
+
 function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignTarget: number }) {
   const { sort, toggle } = useSort("callsMade");
   const sorted = useMemo(() => sortPoolAgents(agents, sort), [agents, sort]);
@@ -176,20 +387,23 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
           <tr className="border-b border-border text-left">
             <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-12">#</th>
             <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
-            <SortHeader label="Calls Made" sortKey="callsMade" current={sort} onToggle={toggle} />
+            <SortHeader label="Dials" sortKey="callsMade" current={sort} onToggle={toggle} />
             <SortHeader label="Talk Time" sortKey="talkTime" current={sort} onToggle={toggle} />
             <SortHeader label="Answered" sortKey="answered" current={sort} onToggle={toggle} />
-            <SortHeader label="Contact Rate" sortKey="contactRate" current={sort} onToggle={toggle} />
+            <SortHeader label="Contact %" sortKey="contactRate" current={sort} onToggle={toggle} />
             <SortHeader label="Long Calls" sortKey="longCalls" current={sort} onToggle={toggle} />
             <SortHeader label="Self Assigned" sortKey="selfAssigned" current={sort} onToggle={toggle} />
-            <SortHeader label="Assign Rate" sortKey="assignRate" current={sort} onToggle={toggle} />
+            <SortHeader label="Assign %" sortKey="assignRate" current={sort} onToggle={toggle} />
+            <SortHeader label="Pres %" sortKey="presRate" current={sort} onToggle={toggle} />
             <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
             <SortHeader label="Premium" sortKey="premium" current={sort} onToggle={toggle} />
           </tr>
         </thead>
         <tbody>
           {sorted.map((agent, i) => {
-            const belowTarget = agent.pool.assignRate < assignTarget && agent.pool.answeredCalls > 0;
+            const effectiveTarget = agent.tier === "T3" ? T3_POOL_KPI.MIN_ASSIGN_RATE : assignTarget;
+            const belowTarget = agent.pool.assignRate < effectiveTarget && agent.pool.answeredCalls > 0;
+            const belowDialTarget = agent.tier === "T3" && agent.pool.callsMade < T3_POOL_KPI.MIN_DIALS;
             return (
               <tr
                 key={agent.name}
@@ -211,16 +425,34 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
                     </span>
                   </div>
                 </td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{agent.pool.callsMade}</td>
+                <td className={cn(
+                  "px-3 py-2.5 font-mono text-right tabular-nums font-bold",
+                  belowDialTarget ? "text-red-400" : undefined
+                )}>
+                  {agent.pool.callsMade}
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.talkTimeMin} min</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.answeredCalls}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   <ContactRateBadge rate={agent.pool.contactRate} />
                 </td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.longCalls}</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.selfAssignedLeads}</td>
+                <td className={cn(
+                  "px-3 py-2.5 font-mono text-right tabular-nums",
+                  agent.tier === "T3" && agent.pool.longCalls < T3_POOL_KPI.MIN_LONG_CALLS ? "text-red-400" : undefined
+                )}>
+                  {agent.pool.longCalls}
+                </td>
+                <td className={cn(
+                  "px-3 py-2.5 font-mono text-right tabular-nums",
+                  agent.tier === "T3" && agent.pool.selfAssignedLeads < T3_POOL_KPI.MIN_SELF_ASSIGNED ? "text-red-400" : undefined
+                )}>
+                  {agent.pool.selfAssignedLeads}
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   <AssignmentRateBadge rate={agent.pool.assignRate} />
+                </td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  <PresentationRateBadge longCalls={agent.pool.longCalls} selfAssigned={agent.pool.selfAssignedLeads} />
                 </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.salesMade}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
@@ -244,6 +476,9 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
             <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{totals.selfAssigned}</td>
             <td className="px-3 py-2.5 font-mono text-right tabular-nums">
               <AssignmentRateBadge rate={totals.answered > 0 ? totalAssignRate : 0} />
+            </td>
+            <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+              <PresentationRateBadge longCalls={totals.longCalls} selfAssigned={totals.selfAssigned} />
             </td>
             <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totals.sales}</td>
             <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">
@@ -452,6 +687,8 @@ export default function LeadsPool() {
         <>
           <VelocityMetrics agents={poolAgents} inventory={poolInventory} />
 
+          <PoolScorecard agents={poolAgents} />
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <PoolInventoryPanel inventory={poolInventory} />
@@ -460,18 +697,29 @@ export default function LeadsPool() {
               <div className="bg-card border border-border rounded-md p-4">
                 <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
                   <Target className="h-3.5 w-3.5" />
-                  Assignment Target
+                  T3 Pool KPI Targets
                 </h3>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-mono font-bold text-emerald-400">{ASSIGN_RATE_TARGET}%</span>
-                  <span className="text-xs font-mono text-muted-foreground">of answered calls should result in self-assignment</span>
+                <div className="space-y-3">
+                  {[
+                    { label: "Min Dials", value: T3_POOL_KPI.MIN_DIALS, unit: "/day" },
+                    { label: "Assign Rate", value: `${T3_POOL_KPI.MIN_ASSIGN_RATE}%`, unit: " of answered" },
+                    { label: "Self-Assigned", value: T3_POOL_KPI.MIN_SELF_ASSIGNED, unit: "/day" },
+                    { label: "Long Calls", value: T3_POOL_KPI.MIN_LONG_CALLS, unit: "/day (15+ min)" },
+                  ].map((kpi) => (
+                    <div key={kpi.label} className="flex items-baseline justify-between">
+                      <span className="text-xs font-mono text-muted-foreground">{kpi.label}</span>
+                      <span className="text-sm font-mono font-bold text-blue-400 tabular-nums">
+                        {kpi.value}<span className="text-[10px] font-normal text-muted-foreground">{kpi.unit}</span>
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-[11px] font-mono text-muted-foreground mt-3 leading-relaxed">
-                  Every pool lead is unassigned. When an agent answers and reaches
-                  someone, they should self-assign regardless of outcome — including
-                  not interested or DNC — to remove the lead from pool rotation.
-                  Low assign rates mean leads keep getting recycled unnecessarily.
-                </p>
+                <div className="mt-3 pt-3 border-t border-border/50">
+                  <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
+                    Pass <span className="text-foreground font-bold">{T3_POOL_KPI.GATES_TO_PASS}/4</span> gates to be compliant.
+                    Self-assign every answered contact — DNC, not interested, callbacks — to remove leads from rotation.
+                  </p>
+                </div>
               </div>
 
               {poolAgents.length > 0 && (
@@ -495,23 +743,23 @@ export default function LeadsPool() {
                 </div>
               )}
 
-              {poolAgents.some((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < ASSIGN_RATE_TARGET) && (
+              {poolAgents.some((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE && a.tier === "T3") && (
                 <div className="bg-red-500/5 border border-red-500/20 rounded-md p-4">
                   <h3 className="text-xs font-mono uppercase tracking-widest text-red-400 mb-3 flex items-center gap-2">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    Below Assignment Target
+                    Below Assign Target (T3)
                   </h3>
                   <div className="space-y-2">
                     {poolAgents
-                      .filter((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < ASSIGN_RATE_TARGET)
+                      .filter((a) => a.tier === "T3" && a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE)
                       .sort((a, b) => a.pool.assignRate - b.pool.assignRate)
                       .map((a) => (
                         <div key={a.name} className="flex items-center gap-2">
                           <span className="text-sm font-medium flex-1 truncate">{a.name}</span>
-                          <span className="text-xs font-mono text-muted-foreground">{a.pool.selfAssignedLeads}/{a.pool.answeredCalls} answered</span>
+                          <span className="text-xs font-mono text-muted-foreground">{a.pool.selfAssignedLeads}/{a.pool.answeredCalls} ans</span>
                           <span className={cn(
                             "text-sm font-mono font-bold tabular-nums",
-                            a.pool.assignRate < 45 ? "text-red-400" : "text-amber-400"
+                            a.pool.assignRate < 20 ? "text-red-400" : "text-amber-400"
                           )}>
                             {a.pool.assignRate.toFixed(0)}%
                           </span>
@@ -530,7 +778,7 @@ export default function LeadsPool() {
                 Agent Pool Activity
               </h3>
             </div>
-            <PoolAgentTable agents={poolAgents} assignTarget={ASSIGN_RATE_TARGET} />
+            <PoolAgentTable agents={poolAgents} assignTarget={T3_POOL_KPI.MIN_ASSIGN_RATE} />
           </div>
 
         </>

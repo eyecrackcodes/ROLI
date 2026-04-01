@@ -23,6 +23,32 @@ alwaysApply: true
 | Pool Close Rate | `sales_made / self_assigned_leads × 100` | Conversion rate on pool leads the agent self-assigned |
 | Gaming Flag | Based on Pool Efficiency thresholds | See below |
 
+### T3 Pool KPI Targets
+
+Daily compliance scorecard for T3 outbound agents working the leads pool.
+Agent must pass 3 of 4 gates to be compliant.
+
+| Gate | KPI | Target |
+|---|---|---|
+| Volume | Pool Dials | ≥ 150/day |
+| Assignment | Assign Rate | ≥ 40% of answered |
+| Count Floor | Self-Assigned Leads | ≥ 30/day |
+| Quality | Long Calls (15+ min) | ≥ 4/day |
+
+Expected funnel at 150 dials: ~75 answered (50% contact rate) → 30 self-assigned (40%) → 4 long calls (13%) → 1.5-4.5 sales/day (5-15% close).
+
+### Presentation Rate (Pool)
+
+| Metric | Formula | Notes |
+|---|---|---|
+| Presentation Rate | `long_calls / self_assigned_leads × 100` | % of self-assigned leads that resulted in a 15+ min presentation |
+
+| Pres Rate | Interpretation |
+|---|---|
+| ≥ 20% | Strong — converting contacts into real pitch conversations |
+| 12–19% | Acceptable — room for improvement on qualifying |
+| < 12% | Weak — assigning but not engaging in meaningful conversations |
+
 ### Assign Rate Thresholds
 
 All pool leads are unassigned. Agents should self-assign every answered contact — including
@@ -30,9 +56,9 @@ not interested and DNC — to remove leads from rotation and prevent unnecessary
 
 | Assign Rate | Interpretation |
 |---|---|
-| >= 65% | Healthy — properly managing pool contacts and cleaning rotation |
-| 45–64% | Below target — leaving contacted leads in pool to get called again |
-| < 45% | Cherry-picking — only assigning interested leads, ignoring DNC/not interested |
+| ≥ 65% | Excellent — fully cleaning pool contacts |
+| 40–64% | Compliant — pool is moving, discipline in place |
+| < 40% | Non-compliant — contacts recycling back into pool |
 
 ### Pool Efficiency Thresholds
 
