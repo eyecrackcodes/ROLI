@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { FunnelMetrics } from "@/lib/types";
+import type { FunnelMetrics, Tier } from "@/lib/types";
 
 interface FunnelStage {
   label: string;
@@ -9,7 +9,15 @@ interface FunnelStage {
   rateLabel: string;
 }
 
-function buildStages(funnel: FunnelMetrics): FunnelStage[] {
+function fmtRate(raw: number): string {
+  if (raw > 100) return ">100%";
+  return raw.toFixed(0) + "%";
+}
+
+function buildStages(funnel: FunnelMetrics, tier?: Tier): FunnelStage[] {
+  const isInbound = tier === "T1";
+  const showDurationRates = tier === "T3";
+
   return [
     {
       label: "Dials",
@@ -32,25 +40,25 @@ function buildStages(funnel: FunnelMetrics): FunnelStage[] {
       ratePct: funnel.contactPct.toFixed(0) + "%",
       rateLabel: "contact %",
     },
-    {
+    ...(isInbound ? [] : [{
       label: "Convos 2-15m",
       value: funnel.conversations,
       color: "#22d3ee",
-      ratePct: funnel.conversationToClosePct.toFixed(0) + "%",
-      rateLabel: "convo→close",
-    },
-    {
+      ratePct: showDurationRates ? fmtRate(funnel.conversationToClosePct) : "",
+      rateLabel: showDurationRates ? "convo→close" : "",
+    }]),
+    ...(isInbound ? [] : [{
       label: "Pres 15m+",
       value: funnel.presentations,
       color: "#fbbf24",
-      ratePct: funnel.presentationToClosePct.toFixed(0) + "%",
-      rateLabel: "pres→close",
-    },
+      ratePct: showDurationRates ? fmtRate(funnel.presentationToClosePct) : "",
+      rateLabel: showDurationRates ? "pres→close" : "",
+    }]),
     {
       label: "Sales",
       value: funnel.sales,
       color: "#34d399",
-      ratePct: funnel.contactToClosePct.toFixed(0) + "%",
+      ratePct: fmtRate(funnel.contactToClosePct),
       rateLabel: "contact→close",
     },
   ];
@@ -133,13 +141,15 @@ function TrapezoidFunnel({ stages }: { stages: FunnelStage[] }) {
 
 interface SalesFunnelProps {
   funnel: FunnelMetrics;
+  tier?: Tier;
   className?: string;
 }
 
-export default function SalesFunnel({ funnel, className }: SalesFunnelProps) {
+export default function SalesFunnel({ funnel, tier, className }: SalesFunnelProps) {
   if (funnel.dials === 0) return null;
 
-  const stages = buildStages(funnel);
+  const isInbound = tier === "T1";
+  const stages = buildStages(funnel, tier);
   const convoPct = funnel.contactsMade > 0 ? ((funnel.conversations / funnel.contactsMade) * 100).toFixed(0) : "--";
   const presPct = funnel.contactsMade > 0 ? ((funnel.presentations / funnel.contactsMade) * 100).toFixed(0) : "--";
 
@@ -147,7 +157,7 @@ export default function SalesFunnel({ funnel, className }: SalesFunnelProps) {
     <div className={cn("space-y-3", className)}>
       <div className="flex items-baseline justify-between">
         <h3 className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-orange-400">
-          Sales Funnel
+          Sales Funnel{isInbound ? " (Inbound)" : tier === "T3" ? " (Outbound)" : tier === "T2" ? " (Hybrid)" : ""}
         </h3>
         {funnel.followUpsSet > 0 && (
           <span className="text-[9px] font-mono text-muted-foreground">
@@ -157,33 +167,41 @@ export default function SalesFunnel({ funnel, className }: SalesFunnelProps) {
       </div>
 
       <div className="bg-card rounded-lg border border-border overflow-hidden">
-        {/* Funnel viz */}
         <div className="px-2 py-4">
           <TrapezoidFunnel stages={stages} />
         </div>
 
-        {/* Duration buckets callout */}
-        <div className="border-t border-border/40 px-4 py-2.5 bg-card/80">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#22d3ee" }} />
-                <span className="text-[9px] font-mono text-muted-foreground">
-                  Convos <span className="text-foreground font-bold">{convoPct}%</span> of contacts
-                </span>
+        {!isInbound && (
+          <div className="border-t border-border/40 px-4 py-2.5 bg-card/80">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#22d3ee" }} />
+                  <span className="text-[9px] font-mono text-muted-foreground">
+                    Convos <span className="text-foreground font-bold">{convoPct}%</span> of contacts
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#fbbf24" }} />
+                  <span className="text-[9px] font-mono text-muted-foreground">
+                    Pres <span className="text-foreground font-bold">{presPct}%</span> of contacts
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#fbbf24" }} />
-                <span className="text-[9px] font-mono text-muted-foreground">
-                  Pres <span className="text-foreground font-bold">{presPct}%</span> of contacts
-                </span>
-              </div>
+              <span className="text-[8px] font-mono text-muted-foreground/40 uppercase tracking-wider">
+                Duration buckets (parallel)
+              </span>
             </div>
-            <span className="text-[8px] font-mono text-muted-foreground/40 uppercase tracking-wider">
-              Duration buckets (parallel)
+          </div>
+        )}
+
+        {isInbound && (
+          <div className="border-t border-border/40 px-4 py-2.5 bg-card/80">
+            <span className="text-[8px] font-mono text-muted-foreground/60">
+              Inbound workflow: Leads → Contact → Close. Duration buckets omitted — most IB sales bypass the conversation/presentation path.
             </span>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

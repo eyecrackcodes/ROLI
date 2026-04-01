@@ -436,7 +436,7 @@ export function AgentDrillDown({
               const currentAgent = allAgents.find(a => a.name === agentName);
               const funnel = currentAgent?.funnel;
               if (!funnel || funnel.dials === 0) return null;
-              return <SalesFunnel funnel={funnel} />;
+              return <SalesFunnel funnel={funnel} tier={currentAgent?.tier as Tier | undefined} />;
             })()}
 
             {/* MTD Summary */}

@@ -477,8 +477,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         else hourlyQ = hourlyQ.gte("scrape_date", perfDateFilter.start!).lte("scrape_date", perfDateFilter.end!);
         const { data: hourlyRows } = await hourlyQ;
         if (hourlyRows && hourlyRows.length > 0) {
-          const maxHour = Math.max(...(hourlyRows as AgentPerfRow[]).map(r => r.scrape_hour ?? 0));
-          perfRows = hourlyRows.filter((r: AgentPerfRow) => r.scrape_hour === maxHour);
+          const typed = hourlyRows as AgentPerfRow[];
+          const maxHourByDate = new Map<string, number>();
+          for (const r of typed) {
+            const h = r.scrape_hour ?? 0;
+            const prev = maxHourByDate.get(r.scrape_date) ?? -1;
+            if (h > prev) maxHourByDate.set(r.scrape_date, h);
+          }
+          perfRows = typed.filter(r => (r.scrape_hour ?? 0) === (maxHourByDate.get(r.scrape_date) ?? 0));
         }
       }
 
