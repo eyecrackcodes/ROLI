@@ -162,6 +162,21 @@ function PoolBadge({ pool }: { pool?: DailyPulseAgent["pool"] }) {
   );
 }
 
+function PoolOriginTag({ agent }: { agent: DailyPulseAgent }) {
+  const hasSale = agent.salesToday > 0;
+  const hasPoolActivity = agent.pool && agent.pool.callsMade > 0;
+  const poolMissingCredit = agent.pool ? agent.pool.salesMade === 0 : true;
+  if (!hasSale || !hasPoolActivity || !poolMissingCredit) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 ml-1 shrink-0 cursor-help"
+      title="Sale not credited in pool report — likely a follow-up close from a self-assigned pool lead. Reconciliation will attribute it to the original assignment date."
+    >
+      POOL
+    </span>
+  );
+}
+
 function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: DailyPulseAgent) => void; teamFilter?: string }) {
   const { dailyT3, workingDaysCompleted } = useData();
   const { sort, toggle } = useSort("talkTime");
@@ -244,7 +259,9 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.dials ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{agent.talkTimeMin ?? 0} min</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.salesToday}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  <span className="inline-flex items-center justify-end">{agent.salesToday}<PoolOriginTag agent={agent} /></span>
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.salesToday} leads={agent.obLeads ?? 0} /></td>
                 {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{agent.pool?.salesMade ? agent.pool.salesMade : <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.pool?.salesMade ?? 0} leads={agent.pool?.selfAssignedLeads ?? 0} /></td>}
@@ -369,7 +386,9 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibSales ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.ibSales ?? 0} leads={agent.ibCalls ?? 0} /></td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obSales ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  <span className="inline-flex items-center justify-end">{agent.obSales ?? 0}<PoolOriginTag agent={agent} /></span>
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.obSales ?? 0} leads={agent.obLeads ?? 0} /></td>
                 {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{agent.pool?.salesMade ? agent.pool.salesMade : <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.pool?.salesMade ?? 0} leads={agent.pool?.selfAssignedLeads ?? 0} /></td>}
