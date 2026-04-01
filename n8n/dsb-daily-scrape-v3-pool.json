@@ -24,7 +24,7 @@
         "url": "https://api.apify.com/v2/acts/MIlgC3KEFTXzIcnMt/runs?token=APIFY_TOKEN_PLACEHOLDER",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ crmUsername: 'anthonypattonll', crmPassword: 'password', scrapeDate: (() => { const central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }); const [y,m,dd] = central.split('-').map(Number); const d = new Date(y, m-1, dd); const day = d.getDay(); if (day === 0) d.setDate(d.getDate() - 2); else if (day === 6) d.setDate(d.getDate() - 1); const py = d.getFullYear(); const pm = String(d.getMonth()+1).padStart(2,'0'); const pd = String(d.getDate()).padStart(2,'0'); return py+'-'+pm+'-'+pd; })() }) }}",
+        "jsonBody": "={{ JSON.stringify({ crmUsername: 'anthonypattonll', crmPassword: 'password', poolReconcileDays: 5, scrapeDate: (() => { const central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }); const [y,m,dd] = central.split('-').map(Number); const d = new Date(y, m-1, dd); const day = d.getDay(); if (day === 0) d.setDate(d.getDate() - 2); else if (day === 6) d.setDate(d.getDate() - 1); const py = d.getFullYear(); const pm = String(d.getMonth()+1).padStart(2,'0'); const pd = String(d.getDate()).padStart(2,'0'); return py+'-'+pm+'-'+pd; })() }) }}",
         "options": {
           "timeout": 10000
         }
@@ -101,7 +101,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\n\nif (!datasetId) {\n  return [{\n    json: {\n      error: true,\n      message: 'No defaultDatasetId in run status. runId=' + runId + ' status=' + (runStatus?.data?.status || 'unknown')\n    }\n  }];\n}\n\nconst token = 'APIFY_TOKEN_PLACEHOLDER';\n\nasync function fetchDataset(dsId, attempt) {\n  const url = `https://api.apify.com/v2/datasets/${dsId}/items?token=${token}`;\n  const raw = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    encoding: 'utf-8',\n    returnFullResponse: false,\n    timeout: 60000,\n    headers: { 'Accept': 'application/json' },\n  });\n  let parsed = raw;\n  if (typeof raw === 'string') {\n    try { parsed = JSON.parse(raw); } catch (e) {\n      throw new Error(`JSON parse failed (attempt ${attempt}): ${raw.substring(0, 200)}`);\n    }\n  }\n  return parsed;\n}\n\nlet datasetItems;\nlet lastErr;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    datasetItems = await fetchDataset.call(this, datasetId, attempt);\n    if (Array.isArray(datasetItems) && datasetItems.length > 0) break;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  } catch (err) {\n    lastErr = err;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  }\n}\n\nif (lastErr && (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0)) {\n  return [{\n    json: {\n      error: true,\n      message: `Fetch dataset failed after 3 attempts: ${lastErr.message}`,\n      datasetId, runId\n    }\n  }];\n}\n\nif (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0) {\n  return [{\n    json: {\n      error: true,\n      message: `Dataset ${datasetId} empty after 3 attempts (runId=${runId}). Type=${typeof datasetItems}`,\n      datasetId, runId\n    }\n  }];\n}\n\nconst central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst [cy,cm,cd] = central.split('-').map(Number);\nconst today = new Date(cy, cm-1, cd);\nconst day = today.getDay();\nif (day === 0) today.setDate(today.getDate() - 2);\nelse if (day === 6) today.setDate(today.getDate() - 1);\nconst scrapeDate = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');\n\n// Separate flat agent records from typed items\nconst agents = datasetItems.filter(item => !item._type);\nconst poolItem = datasetItems.find(item => item._type === 'pool_data');\nconst poolAgents = poolItem ? (poolItem.pool_agents || []) : [];\nconst poolInventory = poolItem ? (poolItem.pool_inventory || []) : [];\nconst perfItem = datasetItems.find(item => item._type === 'agent_performance');\nconst perfAgents = perfItem ? (perfItem.agents || []) : [];\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents,\n    pool_agents: poolAgents,\n    pool_inventory: poolInventory,\n    perf_agents: perfAgents\n  }\n}];"
+        "jsCode": "const runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\n\nif (!datasetId) {\n  return [{\n    json: {\n      error: true,\n      message: 'No defaultDatasetId in run status. runId=' + runId + ' status=' + (runStatus?.data?.status || 'unknown')\n    }\n  }];\n}\n\nconst token = 'APIFY_TOKEN_PLACEHOLDER';\n\nasync function fetchDataset(dsId, attempt) {\n  const url = `https://api.apify.com/v2/datasets/${dsId}/items?token=${token}`;\n  const raw = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    encoding: 'utf-8',\n    returnFullResponse: false,\n    timeout: 60000,\n    headers: { 'Accept': 'application/json' },\n  });\n  let parsed = raw;\n  if (typeof raw === 'string') {\n    try { parsed = JSON.parse(raw); } catch (e) {\n      throw new Error(`JSON parse failed (attempt ${attempt}): ${raw.substring(0, 200)}`);\n    }\n  }\n  return parsed;\n}\n\nlet datasetItems;\nlet lastErr;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    datasetItems = await fetchDataset.call(this, datasetId, attempt);\n    if (Array.isArray(datasetItems) && datasetItems.length > 0) break;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  } catch (err) {\n    lastErr = err;\n    if (attempt < 3) {\n      await new Promise(r => setTimeout(r, 15000));\n    }\n  }\n}\n\nif (lastErr && (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0)) {\n  return [{\n    json: {\n      error: true,\n      message: `Fetch dataset failed after 3 attempts: ${lastErr.message}`,\n      datasetId, runId\n    }\n  }];\n}\n\nif (!datasetItems || !Array.isArray(datasetItems) || datasetItems.length === 0) {\n  return [{\n    json: {\n      error: true,\n      message: `Dataset ${datasetId} empty after 3 attempts (runId=${runId}). Type=${typeof datasetItems}`,\n      datasetId, runId\n    }\n  }];\n}\n\nconst central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst [cy,cm,cd] = central.split('-').map(Number);\nconst today = new Date(cy, cm-1, cd);\nconst day = today.getDay();\nif (day === 0) today.setDate(today.getDate() - 2);\nelse if (day === 6) today.setDate(today.getDate() - 1);\nconst scrapeDate = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');\n\n// Separate flat agent records from typed items\nconst agents = datasetItems.filter(item => !item._type);\nconst poolItem = datasetItems.find(item => item._type === 'pool_data');\nconst poolAgents = poolItem ? (poolItem.pool_agents || []) : [];\nconst poolInventory = poolItem ? (poolItem.pool_inventory || []) : [];\nconst perfItem = datasetItems.find(item => item._type === 'agent_performance');\nconst perfAgents = perfItem ? (perfItem.agents || []) : [];\nconst reconciliationItems = datasetItems.filter(item => item._type === 'pool_sales_reconciliation');\n\nreturn [{\n  json: {\n    scrape_date: scrapeDate,\n    agents: agents,\n    pool_agents: poolAgents,\n    pool_inventory: poolInventory,\n    perf_agents: perfAgents,\n    pool_reconciliation: reconciliationItems\n  }\n}];"
       },
       "id": "6e371585-1aba-40ae-88cc-8cd5b5b401f3",
       "name": "Fetch Dataset & Build Payload",
@@ -361,6 +361,71 @@
     },
     {
       "parameters": {
+        "jsCode": "const payload = $node['Fetch Dataset & Build Payload'].json;\nconst items = payload.pool_reconciliation || [];\n\nif (items.length === 0) {\n  return [{ json: { _empty: true, count: 0 } }];\n}\n\nreturn items.map(item => ({\n  json: {\n    scrape_date: item.scrape_date,\n    agents: item.pool_agents || [],\n    sales_only: true\n  }\n}));"
+      },
+      "id": "r1a2b3c4-d5e6-7890-abcd-reconcile0001",
+      "name": "Build Reconciliation Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1552, 450]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-reconciliation",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notTrue"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "r2b3c4d5-e6f7-8901-bcde-reconcile0002",
+      "name": "Has Reconciliation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1792, 450]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://bcibmmbxrjfiulofserv.supabase.co/functions/v1/ingest-leads-pool",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "r3c4d5e6-f7a8-9012-cdef-reconcile0003",
+      "name": "POST Reconciliation to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2032, 400]
+    },
+    {
+      "parameters": {
         "assignments": {
           "assignments": [
             {
@@ -537,6 +602,11 @@
             "node": "Build Perf Payload",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Build Reconciliation Payloads",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -546,6 +616,29 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Build Reconciliation Payloads": {
+      "main": [
+        [
+          {
+            "node": "Has Reconciliation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Reconciliation?": {
+      "main": [
+        [
+          {
+            "node": "POST Reconciliation to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     },
     "Build Slack Summary": {
