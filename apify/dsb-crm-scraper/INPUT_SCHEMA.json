@@ -30,6 +30,15 @@
       "description": "CRM login page URL",
       "editor": "textfield",
       "default": "https://crm.digitalseniorbenefits.com/login"
+    },
+    "poolReconcileDays": {
+      "title": "Pool Reconcile Days",
+      "type": "integer",
+      "description": "Number of past business days to re-scrape the Leads Pool Report for sales reconciliation. The CRM retroactively attributes pool sales to the assignment date — this picks up those updates. Set to 5 for production. Only sales_made and premium from these re-scrapes are used.",
+      "editor": "number",
+      "default": 0,
+      "minimum": 0,
+      "maximum": 10
     }
   }
 }

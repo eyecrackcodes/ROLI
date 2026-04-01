@@ -26,6 +26,7 @@ interface IngestPayload {
   scrape_date: string;
   agents: PoolAgentPayload[];
   inventory?: PoolInventoryPayload[];
+  sales_only?: boolean;
 }
 
 Deno.serve(async (req) => {
@@ -94,14 +95,48 @@ Deno.serve(async (req) => {
       };
     });
 
+    const errors: Array<{ source: string; error: string }> = [];
+
+    // ── Sales-only reconciliation mode ──
+    // Only updates sales_made and premium on existing rows.
+    // Does NOT touch activity metrics (dials, answered, assigned, long calls, talk time, contact rate).
+    // Does NOT write intraday_snapshots or inventory.
+    if (payload.sales_only) {
+      let salesReconciled = 0;
+      for (const rec of poolRecords) {
+        const { error: updateErr } = await supabase
+          .from("leads_pool_daily_data")
+          .update({ sales_made: rec.sales_made, premium: rec.premium })
+          .eq("scrape_date", rec.scrape_date)
+          .eq("agent_name", rec.agent_name);
+
+        if (updateErr) {
+          errors.push({ source: `sales_reconcile:${rec.agent_name}`, error: updateErr.message });
+        } else {
+          salesReconciled++;
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: errors.length === 0,
+          mode: "sales_reconciliation",
+          scrape_date: payload.scrape_date,
+          agents_reconciled: salesReconciled,
+          alias_resolved: aliasResolved,
+          errors,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ── Standard full upsert mode ──
     const { error: poolError } = await supabase
       .from("leads_pool_daily_data")
       .upsert(poolRecords, { onConflict: "scrape_date,agent_name" });
 
-    const errors: Array<{ source: string; error: string }> = [];
     if (poolError) errors.push({ source: "leads_pool_daily_data", error: poolError.message });
 
-    // Also write pool data to intraday_snapshots for hourly progression
     const { data: agentRoster } = await supabase
       .from("agents")
       .select("name, tier")

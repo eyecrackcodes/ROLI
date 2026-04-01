@@ -16,6 +16,7 @@ interface ActorInput {
   crmPassword: string;
   scrapeDate?: string;
   loginUrl?: string;
+  poolReconcileDays?: number;
 }
 
 interface AgentRecord {
@@ -75,6 +76,19 @@ const TIERS: Array<{ tier: "T1" | "T2" | "T3"; agencyId: string }> = [
 
 function todayISO(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+function getPastBusinessDays(fromDate: string, count: number): string[] {
+  const dates: string[] = [];
+  const d = new Date(fromDate + "T12:00:00");
+  while (dates.length < count) {
+    d.setDate(d.getDate() - 1);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+  }
+  return dates;
 }
 
 function toMMDDYYYY(isoDate: string): string {
@@ -722,6 +736,34 @@ try {
     log.error(`Leads Pool Inventory failed: ${err instanceof Error ? err.message : err}`);
   }
 
+  // ---- Pool Sales Reconciliation: re-scrape past N business days ----
+  // The CRM retroactively attributes pool sales to the assignment date,
+  // not the close date. Re-scraping past dates picks up those updates.
+  // Only sales_made and premium from these re-scrapes should be used
+  // (n8n sends them to ingest-leads-pool with sales_only: true).
+  const reconcileDays = input.poolReconcileDays ?? 0;
+  const reconcileResults: Array<{ scrape_date: string; pool_agents: PoolAgentRecord[] }> = [];
+
+  if (reconcileDays > 0) {
+    const pastDates = getPastBusinessDays(scrapeDate, reconcileDays);
+    log.info(`\n========== POOL SALES RECONCILIATION (${pastDates.length} days) ==========`);
+
+    for (const pastDate of pastDates) {
+      try {
+        const pastPoolAgents = await scrapeLeadsPoolReport(page, pastDate);
+        if (pastPoolAgents.length > 0) {
+          reconcileResults.push({ scrape_date: pastDate, pool_agents: pastPoolAgents });
+          const pastSales = pastPoolAgents.reduce((s, a) => s + a.sales_made, 0);
+          log.info(`  ${pastDate}: ${pastPoolAgents.length} agents, ${pastSales} sales`);
+        } else {
+          log.info(`  ${pastDate}: no pool data`);
+        }
+      } catch (err) {
+        log.error(`Pool reconciliation [${pastDate}] failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
   await browser.close();
 
   const agents = Array.from(agentMap.values());
@@ -773,8 +815,17 @@ try {
     });
   }
 
+  // Push pool sales reconciliation items (one per past date)
+  for (const rec of reconcileResults) {
+    await dataset.pushData({
+      _type: "pool_sales_reconciliation",
+      scrape_date: rec.scrape_date,
+      pool_agents: rec.pool_agents,
+    });
+  }
+
   const { count } = await dataset.getInfo() ?? { count: 0 };
-  log.info(`Dataset verified: ${count} items stored (${agents.length} agents + ${poolAgents.length > 0 ? 1 : 0} pool + ${perfAgents.length > 0 ? 1 : 0} perf). Actor complete.`);
+  log.info(`Dataset verified: ${count} items stored (${agents.length} agents + ${poolAgents.length > 0 ? 1 : 0} pool + ${perfAgents.length > 0 ? 1 : 0} perf + ${reconcileResults.length} reconciliation). Actor complete.`);
 } catch (err) {
   log.error(`Actor failed: ${err instanceof Error ? err.message : err}`);
   throw err;
