@@ -68,6 +68,7 @@ function sortAgents(agents: DailyPulseAgent[], sort: SortState): DailyPulseAgent
       case "obSales": return a.obSales ?? 0;
       case "obCR": return (a.obLeads ?? 0) > 0 ? ((a.obSales ?? 0) / (a.obLeads ?? 1)) * 100 : 0;
       case "dials": return a.dials ?? 0;
+      case "poolPct": return (a.dials ?? 0) > 0 && a.pool ? (a.pool.callsMade / (a.dials ?? 1)) * 100 : 0;
       case "talkTime": return a.talkTimeMin ?? 0;
       case "sales": return a.salesToday;
       case "premium": return a.premiumToday;
@@ -225,6 +226,7 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
               <SortHeader label="Leads" sortKey="obLeads" current={sort} onToggle={toggle} />
               <SortHeader label="Dials" sortKey="dials" current={sort} onToggle={toggle} />
+              {hasPool && <SortHeader label="Pool %" sortKey="poolPct" current={sort} onToggle={toggle} />}
               <SortHeader label="Talk Time" sortKey="talkTime" current={sort} onToggle={toggle} />
               <SortHeader label="Sales" sortKey="sales" current={sort} onToggle={toggle} />
               <SortHeader label="CR" sortKey="cr" current={sort} onToggle={toggle} />
@@ -258,6 +260,21 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.dials ?? 0}</td>
+                {hasPool && (() => {
+                  const poolPct = (agent.dials ?? 0) > 0 && agent.pool ? (agent.pool.callsMade / (agent.dials ?? 1)) * 100 : 0;
+                  return (
+                    <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                      {agent.pool && agent.pool.callsMade > 0 ? (
+                        <span className={cn(
+                          "font-bold",
+                          poolPct >= 80 ? "text-cyan-400" : poolPct >= 50 ? "text-blue-400" : "text-muted-foreground"
+                        )}>
+                          {poolPct.toFixed(0)}%
+                        </span>
+                      ) : <span className="text-muted-foreground/40">--</span>}
+                    </td>
+                  );
+                })()}
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{agent.talkTimeMin ?? 0} min</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   <span className="inline-flex items-center justify-end">{agent.salesToday}<PoolOriginTag agent={agent} /></span>
@@ -284,6 +301,12 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               <td className="px-3 py-2.5" />
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalLeads}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.dials ?? 0), 0)}</td>
+              {hasPool && (() => {
+                const totalDials = filtered.reduce((s, a) => s + (a.dials ?? 0), 0);
+                const totalPoolDials = filtered.reduce((s, a) => s + (a.pool?.callsMade ?? 0), 0);
+                const pct = totalDials > 0 ? (totalPoolDials / totalDials) * 100 : 0;
+                return <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{pct.toFixed(0)}%</td>;
+              })()}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.talkTimeMin ?? 0), 0)} min</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalSales}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalSales} leads={totalLeads} /></td>
