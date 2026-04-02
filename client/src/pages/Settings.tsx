@@ -502,8 +502,9 @@ function AgentForm({
 // ---- Evaluation Windows Tab ----
 
 function EvaluationWindowsTab() {
-  const { windows, loading, setActiveWindow, addWindow, computeSnapshot } = useEvaluationWindows();
+  const { windows, loading, setActiveWindow, addWindow, updateWindow, computeSnapshot } = useEvaluationWindows();
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [computing, setComputing] = useState<string | null>(null);
   const [windowForm, setWindowForm] = useState({
     name: "", start_date: "", end_date: "", working_days: 20,
@@ -522,6 +523,35 @@ function EvaluationWindowsTab() {
       setWindowForm({ name: "", start_date: "", end_date: "", working_days: 20, is_active: false, is_inaugural: false });
     } catch (err) {
       toast.error("Failed to add window");
+    }
+  };
+
+  const startEditWindow = (w: EvaluationWindow) => {
+    setEditingId(w.id);
+    setWindowForm({
+      name: w.name,
+      start_date: w.start_date,
+      end_date: w.end_date,
+      working_days: w.working_days,
+      is_active: w.is_active,
+      is_inaugural: w.is_inaugural,
+    });
+  };
+
+  const handleUpdateWindow = async () => {
+    if (!editingId) return;
+    try {
+      await updateWindow(editingId, {
+        name: windowForm.name,
+        start_date: windowForm.start_date,
+        end_date: windowForm.end_date,
+        working_days: windowForm.working_days,
+        is_inaugural: windowForm.is_inaugural,
+      });
+      toast.success("Window updated");
+      setEditingId(null);
+    } catch (err) {
+      toast.error("Failed to update window");
     }
   };
 
@@ -593,6 +623,14 @@ function EvaluationWindowsTab() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => startEditWindow(w)}
+                    className="font-mono text-[10px] h-7 px-2"
+                  >
+                    EDIT
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleCompute(w.id)}
                     disabled={computing === w.id}
                     className="font-mono text-[10px] h-7 px-2 gap-1"
@@ -646,6 +684,43 @@ function EvaluationWindowsTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdd(false)} className="font-mono text-sm">CANCEL</Button>
             <Button onClick={handleAddWindow} className="font-mono text-sm bg-blue-600 hover:bg-blue-700">ADD</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Window Dialog */}
+      <Dialog open={!!editingId} onOpenChange={(v) => !v && setEditingId(null)}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm uppercase tracking-widest">Edit Evaluation Window</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="font-mono text-xs uppercase tracking-widest">Name</Label>
+              <Input value={windowForm.name} onChange={(e) => setWindowForm({ ...windowForm, name: e.target.value })} className="font-mono bg-background" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="font-mono text-xs uppercase tracking-widest">Start Date</Label>
+                <Input type="date" value={windowForm.start_date} onChange={(e) => setWindowForm({ ...windowForm, start_date: e.target.value })} className="font-mono bg-background" />
+              </div>
+              <div className="space-y-2">
+                <Label className="font-mono text-xs uppercase tracking-widest">End Date</Label>
+                <Input type="date" value={windowForm.end_date} onChange={(e) => setWindowForm({ ...windowForm, end_date: e.target.value })} className="font-mono bg-background" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="font-mono text-xs uppercase tracking-widest">Working Days</Label>
+              <Input type="number" value={windowForm.working_days} onChange={(e) => setWindowForm({ ...windowForm, working_days: parseInt(e.target.value) || 0 })} className="font-mono bg-background" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch checked={windowForm.is_inaugural} onCheckedChange={(v) => setWindowForm({ ...windowForm, is_inaugural: v })} />
+              <Label className="font-mono text-xs">Inaugural (first cycle)</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingId(null)} className="font-mono text-sm">CANCEL</Button>
+            <Button onClick={handleUpdateWindow} className="font-mono text-sm bg-blue-600 hover:bg-blue-700">SAVE</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
