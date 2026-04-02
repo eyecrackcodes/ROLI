@@ -287,7 +287,13 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.premiumToday)}</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ? <span className="text-purple-400">{agent.bonusSales}</span> : <span className="text-muted-foreground">--</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  {agent.bonusSales ? (
+                    <span className="text-purple-400">
+                      {agent.bonusSales} <span className="text-[10px] text-purple-400/70">/ {formatCurrency(agent.bonusPremium ?? 0)}</span>
+                    </span>
+                  ) : <span className="text-muted-foreground">--</span>}
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.mtdSales ?? 0}</td>
                 <td className="px-3 py-2.5 text-right">
                   <PaceIndicator pace={agent.mtdPace ?? 0} />
@@ -317,7 +323,11 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
-              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT3.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
+              {(() => {
+                const totalBonusSales = filtered.reduce((s, a) => s + (a.bonusSales ?? 0), 0);
+                const totalBonusPrem = filtered.reduce((s, a) => s + (a.bonusPremium ?? 0), 0);
+                return <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{totalBonusSales > 0 ? `${totalBonusSales} / ${formatCurrency(totalBonusPrem)}` : "--"}</td>;
+              })()}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{dailyT3.reduce((s, a) => s + (a.mtdSales ?? 0), 0)}</td>
               <td className="px-3 py-2.5" />
             </tr>
@@ -420,7 +430,13 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ? <span className="text-purple-400">{agent.bonusSales}</span> : <span className="text-muted-foreground">--</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  {agent.bonusSales ? (
+                    <span className="text-purple-400">
+                      {agent.bonusSales} <span className="text-[10px] text-purple-400/70">/ {formatCurrency(agent.bonusPremium ?? 0)}</span>
+                    </span>
+                  ) : <span className="text-muted-foreground">--</span>}
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   <span className={cn(
                     (agent.mtdROLI ?? 0) >= 1.5 ? "text-emerald-400" :
@@ -449,7 +465,11 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
-              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT2.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
+              {(() => {
+                const totalBonusSales = filtered.reduce((s, a) => s + (a.bonusSales ?? 0), 0);
+                const totalBonusPrem = filtered.reduce((s, a) => s + (a.bonusPremium ?? 0), 0);
+                return <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{totalBonusSales > 0 ? `${totalBonusSales} / ${formatCurrency(totalBonusPrem)}` : "--"}</td>;
+              })()}
               <td className="px-3 py-2.5" />
             </tr>
           </tfoot>
@@ -541,7 +561,13 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.premiumToday)}</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusSales ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  {(agent.bonusSales ?? 0) > 0 ? (
+                    <span className="text-purple-400">
+                      {agent.bonusSales} <span className="text-[10px] text-purple-400/70">/ {formatCurrency(agent.bonusPremium ?? 0)}</span>
+                    </span>
+                  ) : <span className="text-muted-foreground">0</span>}
+                </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   <span className={cn(
@@ -568,7 +594,11 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(dailyT1.reduce((s, a) => s + a.premiumToday, 0))}</td>
-              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{dailyT1.reduce((s, a) => s + (a.bonusSales ?? 0), 0) || "--"}</td>
+              {(() => {
+                const totalBonusSales = filtered.reduce((s, a) => s + (a.bonusSales ?? 0), 0);
+                const totalBonusPrem = filtered.reduce((s, a) => s + (a.bonusPremium ?? 0), 0);
+                return <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{totalBonusSales > 0 ? `${totalBonusSales} / ${formatCurrency(totalBonusPrem)}` : "--"}</td>;
+              })()}
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
               <td className="px-3 py-2.5" />
             </tr>
