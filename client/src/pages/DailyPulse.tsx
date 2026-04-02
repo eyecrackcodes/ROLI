@@ -20,6 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Users } from "lucide-react";
 import { toast } from "sonner";
 import { exportDailyPulse, fetchAndExportPulse, SORT_LABELS, type SortKey, type ExportOptions } from "@/lib/exportExcel";
@@ -626,6 +627,7 @@ function ExportDialog({
   const [sortBy, setSortBy] = useState<SortKey>("totalPremium");
   const [startDate, setStartDate] = useState(currentDate);
   const [endDate, setEndDate] = useState(currentDate);
+  const [dailyBreakdown, setDailyBreakdown] = useState(false);
   const isRange = startDate !== endDate;
 
   const toggleTier = (tier: Tier) => {
@@ -706,6 +708,16 @@ function ExportDialog({
             </select>
           </div>
 
+          {isRange && (
+            <div className="flex items-center gap-3 py-1">
+              <Switch checked={dailyBreakdown} onCheckedChange={setDailyBreakdown} className="scale-75" />
+              <div>
+                <span className="text-xs font-mono text-foreground">Daily Breakdown</span>
+                <span className="text-[10px] font-mono text-muted-foreground block">One sheet per day instead of aggregated totals</span>
+              </div>
+            </div>
+          )}
+
           <div className="bg-card/50 border border-border rounded-md p-2.5 text-[10px] font-mono text-muted-foreground space-y-0.5">
             <p>Each tier exports to its own sheet with conversion metrics (Close Rate, IB CR%, OB CR%).</p>
             <p>Pool activity columns auto-included when pool data exists.</p>
@@ -716,7 +728,7 @@ function ExportDialog({
             CANCEL
           </Button>
           <Button
-            onClick={() => { onExport({ tiers, sortBy, startDate, endDate }); onOpenChange(false); }}
+            onClick={() => { onExport({ tiers, sortBy, startDate, endDate, dailyBreakdown: isRange && dailyBreakdown }); onOpenChange(false); }}
             disabled={tiers.length === 0 || !startDate || !endDate}
             className="font-mono text-sm bg-emerald-600 hover:bg-emerald-700 gap-1.5"
           >

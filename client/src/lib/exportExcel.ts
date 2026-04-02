@@ -195,6 +195,7 @@ export interface ExportOptions {
   sortBy?: SortKey;
   startDate: string;
   endDate: string;
+  dailyBreakdown?: boolean;
 }
 
 const PULSE_COLS = {
@@ -400,49 +401,20 @@ interface PoolRow {
   scrape_date: string;
 }
 
-export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
-  if (!isSupabaseConfigured) throw new Error("Supabase not configured");
-
-  const { startDate, endDate } = opts;
-  const isRange = startDate !== endDate;
-
-  const [{ data: dailyRows }, { data: poolRows }, { data: agents }] = await Promise.all([
-    supabase
-      .from("daily_scrape_data")
-      .select("*")
-      .gte("scrape_date", startDate)
-      .lte("scrape_date", endDate),
-    supabase
-      .from("leads_pool_daily_data")
-      .select("*")
-      .gte("scrape_date", startDate)
-      .lte("scrape_date", endDate),
-    supabase
-      .from("agents")
-      .select("name, site, tier, is_active, terminated_date"),
-  ]);
-
-  const typedDaily = (dailyRows ?? []) as ScrapeRow[];
-  const typedPool = (poolRows ?? []) as PoolRow[];
-  const agentMap = new Map<string, { name: string; site: string; tier: string }>();
-  for (const a of (agents ?? []) as Array<{ name: string; site: string; tier: string; is_active: boolean; terminated_date: string | null }>) {
-    if (a.is_active) { agentMap.set(a.name, a); continue; }
-    if (a.terminated_date && startDate < a.terminated_date) agentMap.set(a.name, a);
-  }
-
-  const poolMap = new Map<string, PoolMetrics>();
-  const poolGrouped = new Map<string, PoolRow[]>();
-  for (const r of typedPool) {
-    const arr = poolGrouped.get(r.agent_name) ?? [];
+function buildPoolMap(poolRows: PoolRow[]): Map<string, PoolMetrics> {
+  const grouped = new Map<string, PoolRow[]>();
+  for (const r of poolRows) {
+    const arr = grouped.get(r.agent_name) ?? [];
     arr.push(r);
-    poolGrouped.set(r.agent_name, arr);
+    grouped.set(r.agent_name, arr);
   }
-  for (const [name, rows] of Array.from(poolGrouped)) {
+  const result = new Map<string, PoolMetrics>();
+  for (const [name, rows] of Array.from(grouped)) {
     const callsMade = rows.reduce((s: number, r: PoolRow) => s + r.calls_made, 0);
     const longCalls = rows.reduce((s: number, r: PoolRow) => s + r.long_calls, 0);
     const selfAssigned = rows.reduce((s: number, r: PoolRow) => s + r.self_assigned_leads, 0);
     const answered = rows.reduce((s: number, r: PoolRow) => s + r.answered_calls, 0);
-    poolMap.set(name, {
+    result.set(name, {
       callsMade,
       talkTimeMin: rows.reduce((s: number, r: PoolRow) => s + r.talk_time_minutes, 0),
       salesMade: rows.reduce((s: number, r: PoolRow) => s + r.sales_made, 0),
@@ -455,28 +427,21 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
       closeRate: selfAssigned > 0 ? (rows.reduce((s: number, r: PoolRow) => s + r.sales_made, 0) / selfAssigned) * 100 : 0,
     });
   }
+  return result;
+}
 
+function buildPulseFromRows(
+  scrapeRows: ScrapeRow[],
+  poolRows: PoolRow[],
+  agentMap: Map<string, { name: string; site: string; tier: string }>,
+  daysActiveMap?: Map<string, number>,
+): { t1: DailyPulseAgent[]; t2: DailyPulseAgent[]; t3: DailyPulseAgent[] } {
+  const poolMap = buildPoolMap(poolRows);
   const scrapeGrouped = new Map<string, ScrapeRow[]>();
-  const daysActiveMap = new Map<string, number>();
-  for (const r of typedDaily) {
+  for (const r of scrapeRows) {
     const arr = scrapeGrouped.get(r.agent_name) ?? [];
     arr.push(r);
     scrapeGrouped.set(r.agent_name, arr);
-    if (isRange) {
-      const dates = daysActiveMap.get(r.agent_name) ?? 0;
-      daysActiveMap.set(r.agent_name, dates);
-    }
-  }
-  if (isRange) {
-    const byAgentDates = new Map<string, Set<string>>();
-    for (const r of typedDaily) {
-      const set = byAgentDates.get(r.agent_name) ?? new Set();
-      set.add(r.scrape_date);
-      byAgentDates.set(r.agent_name, set);
-    }
-    for (const [name, dates] of Array.from(byAgentDates)) {
-      daysActiveMap.set(name, dates.size);
-    }
   }
 
   const t1: DailyPulseAgent[] = [];
@@ -513,8 +478,9 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
       salesToday: ibSales + obSales + customSales,
       premiumToday: totalPremium - customPrem,
       bonusSales: customSales || undefined,
+      bonusPremium: customPrem || undefined,
       totalPremium,
-      daysActive: daysActiveMap.get(name),
+      daysActive: daysActiveMap?.get(name),
       pool: poolMap.get(name),
     };
 
@@ -531,7 +497,7 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
     const pulse: DailyPulseAgent = {
       name, site: agent.site, tier,
       salesToday: 0, premiumToday: 0, totalPremium: 0,
-      daysActive: daysActiveMap.get(name),
+      daysActive: daysActiveMap?.get(name),
       pool,
     };
     if (tier === "T1") t1.push(pulse);
@@ -539,6 +505,129 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
     else t3.push(pulse);
   }
 
+  return { t1, t2, t3 };
+}
+
+export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error("Supabase not configured");
+
+  const { startDate, endDate } = opts;
+  const isRange = startDate !== endDate;
+
+  const [{ data: dailyRows }, { data: poolRows }, { data: agents }] = await Promise.all([
+    supabase
+      .from("daily_scrape_data")
+      .select("*")
+      .gte("scrape_date", startDate)
+      .lte("scrape_date", endDate),
+    supabase
+      .from("leads_pool_daily_data")
+      .select("*")
+      .gte("scrape_date", startDate)
+      .lte("scrape_date", endDate),
+    supabase
+      .from("agents")
+      .select("name, site, tier, is_active, terminated_date"),
+  ]);
+
+  const typedDaily = (dailyRows ?? []) as ScrapeRow[];
+  const typedPool = (poolRows ?? []) as PoolRow[];
+  const agentMap = new Map<string, { name: string; site: string; tier: string }>();
+  for (const a of (agents ?? []) as Array<{ name: string; site: string; tier: string; is_active: boolean; terminated_date: string | null }>) {
+    if (a.is_active) { agentMap.set(a.name, a); continue; }
+    if (a.terminated_date && startDate < a.terminated_date) agentMap.set(a.name, a);
+  }
+
+  // Daily breakdown: one sheet per date
+  if (opts.dailyBreakdown && isRange) {
+    const dates = [...new Set(typedDaily.map(r => r.scrape_date))].sort();
+    const configs: ExportConfig[] = [];
+    const singleTier = opts.tiers.length === 1;
+
+    for (const date of dates) {
+      const dayDaily = typedDaily.filter(r => r.scrape_date === date);
+      const dayPool = typedPool.filter(r => r.scrape_date === date);
+      const { t1, t2, t3 } = buildPulseFromRows(dayDaily, dayPool, agentMap);
+      const mmdd = date.slice(5);
+      const sortLabel = SORT_LABELS[opts.sortBy ?? "totalPremium"];
+
+      const filterCols = (keys: string[]) =>
+        keys.map((k) => PULSE_COLS[k as keyof typeof PULSE_COLS]).filter(Boolean);
+
+      if (opts.tiers.includes("T3") && t3.length > 0) {
+        const sorted = sortAgents(t3, opts.sortBy ?? "totalTalk");
+        const hasPool = t3.some(a => a.pool && a.pool.callsMade > 0);
+        const cols = ["rank", "name", "site", "obLeads", "obSales", "obCR",
+          ...(hasPool
+            ? ["dials", "poolDials", "poolPct", "totalDials", "talkTimeMin", "poolTalk", "totalTalk",
+               "poolContactRate", "poolAssignRate", "poolCloseRate", "poolSales", "poolPremium", "poolSelfAssigned"]
+            : ["dials", "talkTimeMin"]),
+          "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium"];
+        configs.push({
+          title: `${singleTier ? "" : "T3 "}${mmdd}`,
+          subtitle: `Tier 3 — Outbound · ${date} · Sorted by ${sortLabel} DESC`,
+          date, tier: "T3",
+          columns: filterCols(cols),
+          rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
+        });
+      }
+
+      if (opts.tiers.includes("T2") && t2.length > 0) {
+        const sorted = sortAgents(t2, opts.sortBy ?? "totalPremium");
+        const hasPool = t2.some(a => a.pool && a.pool.callsMade > 0);
+        const cols = ["rank", "name", "site", "ibCalls", "ibSales", "ibCR", "obLeads", "obSales", "obCR",
+          ...(hasPool ? ["dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk"] : ["dials", "talkTimeMin"]),
+          "closeRate", "premiumToday", "bonusSales", "bonusPremium", "totalPremium"];
+        configs.push({
+          title: `${singleTier ? "" : "T2 "}${mmdd}`,
+          subtitle: `Tier 2 — Hybrid · ${date} · Sorted by ${sortLabel} DESC`,
+          date, tier: "T2",
+          columns: filterCols(cols),
+          rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
+        });
+      }
+
+      if (opts.tiers.includes("T1") && t1.length > 0) {
+        const sorted = sortAgents(t1, opts.sortBy ?? "totalPremium");
+        const cols = ["rank", "name", "site", "ibCalls", "ibSales", "ibCR",
+          "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium"];
+        configs.push({
+          title: `${singleTier ? "" : "T1 "}${mmdd}`,
+          subtitle: `Tier 1 — Inbound · ${date} · Sorted by ${sortLabel} DESC`,
+          date, tier: "T1",
+          columns: filterCols(cols),
+          rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
+        });
+      }
+    }
+
+    const workbook = await buildWorkbook(configs);
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `DSB-Daily-Snapshots-${startDate}-to-${endDate}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  // Standard aggregated export
+  const daysActiveMap = new Map<string, number>();
+  if (isRange) {
+    const byAgentDates = new Map<string, Set<string>>();
+    for (const r of typedDaily) {
+      const set = byAgentDates.get(r.agent_name) ?? new Set();
+      set.add(r.scrape_date);
+      byAgentDates.set(r.agent_name, set);
+    }
+    for (const [name, dates] of Array.from(byAgentDates)) {
+      daysActiveMap.set(name, dates.size);
+    }
+  }
+
+  const { t1, t2, t3 } = buildPulseFromRows(typedDaily, typedPool, agentMap, isRange ? daysActiveMap : undefined);
   await exportDailyPulse(t1, t2, t3, opts);
 }
 
