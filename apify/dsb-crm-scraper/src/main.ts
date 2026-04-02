@@ -309,18 +309,18 @@ interface SaleMadePass {
 
 function getSaleMadePasses(tier: "T1" | "T2" | "T3"): SaleMadePass[] {
   if (tier === "T1") {
-    // T1 is pure inbound — run once with all, then custom separately
     return [
       { typeFilter: "all", channel: "inbound", label: "All (IB)" },
+      { typeFilter: "custom", channel: "custom", label: "Custom" },
     ];
   }
   if (tier === "T3") {
-    // T3 is pure outbound — run once with all
     return [
       { typeFilter: "all", channel: "outbound", label: "All (OB)" },
+      { typeFilter: "custom", channel: "custom", label: "Custom" },
     ];
   }
-  // T2 hybrid — must split by type
+  // T2 hybrid — split by type
   return [
     { typeFilter: "9", channel: "inbound", label: "Call In (IB)" },
     { typeFilter: "18", channel: "inbound", label: "Web Call In (IB)" },
@@ -338,15 +338,23 @@ function applySaleMadeData(
   agentMap: Map<string, AgentRecord>
 ): void {
   const rec = getOrCreate(agentMap, agentName, tier);
-  if (channel === "inbound") {
-    rec.ib_sales += salesCount;
-    rec.ib_premium += premium;
-  } else if (channel === "outbound") {
-    rec.ob_sales += salesCount;
-    rec.ob_premium += premium;
-  } else {
+  if (channel === "custom") {
     rec.custom_sales += salesCount;
     rec.custom_premium += premium;
+    // For T1/T3 the "all" pass already counted these in the primary channel — subtract to avoid double-counting
+    if (tier === "T1") {
+      rec.ib_sales -= salesCount;
+      rec.ib_premium -= premium;
+    } else if (tier === "T3") {
+      rec.ob_sales -= salesCount;
+      rec.ob_premium -= premium;
+    }
+  } else if (channel === "inbound") {
+    rec.ib_sales += salesCount;
+    rec.ib_premium += premium;
+  } else {
+    rec.ob_sales += salesCount;
+    rec.ob_premium += premium;
   }
 }
 
