@@ -164,8 +164,8 @@ export default function GateCalculator() {
                       {result.demotions.map((agent) => (
                         <tr key={agent.name} className="border-b border-border/50 bg-red-500/5">
                           <td className="px-3 py-2.5 font-semibold text-foreground">{agent.name}</td>
-                          <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCR ?? 0}%</td>
-                          <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obCR ?? 0}%</td>
+                          <td className="px-3 py-2.5 font-mono text-right tabular-nums">{(agent.ibCR ?? 0).toFixed(1)}%</td>
+                          <td className="px-3 py-2.5 font-mono text-right tabular-nums">{(agent.obCR ?? 0).toFixed(1)}%</td>
                           <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.leadCost)}</td>
                           <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.profit)}</td>
                           <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{agent.roli.toFixed(2)}x</td>

@@ -168,8 +168,8 @@ function T2StackRank({ onAgentClick }: { onAgentClick?: (agent: MonthlyAgent) =>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
                   <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
                 </td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCR ?? 0}%</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obCR ?? 0}%</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{(agent.ibCR ?? 0).toFixed(1)}%</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{(agent.obCR ?? 0).toFixed(1)}%</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.leadCost)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.totalPremium)}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{formatCurrency(agent.profit)}</td>
