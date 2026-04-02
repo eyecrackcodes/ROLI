@@ -68,7 +68,7 @@ function sortAgents(agents: DailyPulseAgent[], sort: SortState): DailyPulseAgent
       case "obSales": return a.obSales ?? 0;
       case "obCR": return (a.obLeads ?? 0) > 0 ? ((a.obSales ?? 0) / (a.obLeads ?? 1)) * 100 : 0;
       case "dials": return a.dials ?? 0;
-      case "poolPct": return (a.dials ?? 0) > 0 && a.pool ? (a.pool.callsMade / (a.dials ?? 1)) * 100 : 0;
+      case "poolPct": return (a.dials ?? 0) > 0 && a.pool ? Math.min((a.pool.callsMade / (a.dials ?? 1)) * 100, 100) : 0;
       case "talkTime": return a.talkTimeMin ?? 0;
       case "sales": return a.salesToday;
       case "premium": return a.premiumToday;
@@ -261,7 +261,8 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.dials ?? 0}</td>
                 {hasPool && (() => {
-                  const poolPct = (agent.dials ?? 0) > 0 && agent.pool ? (agent.pool.callsMade / (agent.dials ?? 1)) * 100 : 0;
+                  const rawPct = (agent.dials ?? 0) > 0 && agent.pool ? (agent.pool.callsMade / (agent.dials ?? 1)) * 100 : 0;
+                  const poolPct = Math.min(rawPct, 100);
                   return (
                     <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                       {agent.pool && agent.pool.callsMade > 0 ? (
