@@ -221,7 +221,9 @@ const PULSE_COLS = {
   poolGhostAssigns: { key: "poolGhostAssigns", header: "No Long Call", format: "number" as const },
   salesToday: { key: "salesToday", header: "Sales", format: "number" as const, gradient: true },
   premiumToday: { key: "premiumToday", header: "Premium", format: "currency" as const, gradient: true },
-  bonusSales: { key: "bonusSales", header: "Bonus", format: "number" as const },
+  bonusSales: { key: "bonusSales", header: "Bonus Sales", format: "number" as const },
+  bonusPremium: { key: "bonusPremium", header: "Bonus Premium", format: "currency" as const },
+  poolPct: { key: "poolPct", header: "Pool %", format: "decimal" as const },
   totalPremium: { key: "totalPremium", header: "Total Premium", format: "currency" as const, gradient: true },
   closeRate: { key: "closeRate", header: "Close Rate %", format: "decimal" as const, gradient: true },
   ibCR: { key: "ibCR", header: "IB CR%", format: "decimal" as const, gradient: true },
@@ -256,6 +258,8 @@ function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
     salesToday: agent.salesToday,
     premiumToday: agent.premiumToday,
     bonusSales: agent.bonusSales,
+    bonusPremium: agent.bonusPremium,
+    poolPct: (agent.dials ?? 0) > 0 && poolDials > 0 ? Math.min((poolDials / (agent.dials ?? 1)) * 100, 100) : 0,
     totalPremium: agent.totalPremium,
     mtdSales: agent.mtdSales,
     mtdPace: agent.mtdPace,
@@ -305,7 +309,7 @@ export async function exportDailyPulse(
   if (tiers.includes("T1") && t1.length > 0) {
     const sorted = sortAgents(t1, sortBy ?? "totalPremium");
     const cols = ["rank", "name", "site", ...(isRange ? ["daysActive"] : []),
-      "ibCalls", "ibSales", "ibCR", "salesToday", "premiumToday", "bonusSales", "closeRate", "totalPremium", "mtdSales", "mtdROLI"];
+      "ibCalls", "ibSales", "ibCR", "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium", "mtdSales", "mtdROLI"];
     configs.push({
       title: "Tier 1 — Inbound",
       subtitle: `Sorted by ${sortLabel} DESC`,
@@ -324,7 +328,7 @@ export async function exportDailyPulse(
       ...(hasPool
         ? ["dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk"]
         : ["dials", "talkTimeMin"]),
-      "closeRate", "premiumToday", "totalPremium", "mtdSales", "mtdROLI"];
+      "closeRate", "premiumToday", "bonusSales", "bonusPremium", "totalPremium", "mtdSales", "mtdROLI"];
     configs.push({
       title: "Tier 2 — Hybrid",
       subtitle: `Sorted by ${sortLabel} DESC${hasPool ? " · Includes Leads Pool" : ""}`,
@@ -341,10 +345,10 @@ export async function exportDailyPulse(
     const cols = ["rank", "name", "site", ...(isRange ? ["daysActive"] : []),
       "obLeads", "obSales", "obCR",
       ...(hasPool
-        ? ["dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk",
+        ? ["dials", "poolDials", "poolPct", "totalDials", "talkTimeMin", "poolTalk", "totalTalk",
            "poolContactRate", "poolAssignRate", "poolCloseRate", "poolSales", "poolPremium", "poolSelfAssigned", "poolGhostAssigns"]
         : ["dials", "talkTimeMin"]),
-      "salesToday", "premiumToday", "closeRate", "totalPremium", "mtdSales", "mtdPace"];
+      "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium", "mtdSales", "mtdPace"];
     configs.push({
       title: "Tier 3 — Outbound",
       subtitle: `Sorted by ${sortLabel} DESC${hasPool ? " · Includes Leads Pool" : ""}`,
@@ -484,7 +488,7 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
     processed.add(name);
     const agent = agentMap.get(name);
     const site = agent?.site ?? "CHA";
-    const tier = (rows[0].tier as Tier) ?? (agent?.tier as Tier) ?? "T3";
+    const tier = (agent?.tier as Tier) ?? (rows[0].tier as Tier) ?? "T3";
 
     const ibLeads = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_leads_delivered, 0);
     const obLeads = rows.reduce((s: number, r: ScrapeRow) => s + r.ob_leads_delivered, 0);
