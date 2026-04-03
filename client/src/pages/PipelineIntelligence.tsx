@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { Link } from "wouter";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
@@ -467,9 +468,9 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
           <button onClick={() => setExpanded(!expanded)} className="mr-1 text-muted-foreground hover:text-foreground">
             {expanded ? <ChevronUp className="h-3 w-3 inline" /> : <ChevronDown className="h-3 w-3 inline" />}
           </button>
-          <button onClick={onDrillDown} className="text-sm font-mono font-medium text-foreground hover:text-blue-400 transition-colors">
+          <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="text-sm font-mono font-medium text-foreground hover:text-blue-400 transition-colors">
             {agent.name}
-          </button>
+          </Link>
         </td>
         <td className="px-3 py-2">
           <span className={cn(

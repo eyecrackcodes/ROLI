@@ -3,9 +3,12 @@ import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Link } from "wouter";
 import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX } from "lucide-react";
 import type { DailyPulseAgent, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
 import type { PipelineAgent } from "@/lib/pipelineIntelligence";
+import { T3_POOL_KPI } from "@/lib/t3Targets";
+import type { GateStatus, ScorecardGate } from "@/lib/t3Targets";
 
 type SortDir = "asc" | "desc";
 interface SortState { key: string; dir: SortDir }
@@ -79,29 +82,6 @@ function sortPoolAgents(agents: PoolAgent[], sort: SortState): PoolAgent[] {
 }
 
 const ASSIGN_RATE_TARGET = 65;
-
-// T3 Outbound KPI Targets (v2 — three-channel model)
-const T3_POOL_KPI = {
-  MIN_COMBINED_DIALS: 200,
-  MIN_POOL_PCT: 25,
-  MAX_POOL_PCT: 40,
-  MIN_LONG_CALLS: 4,
-  MIN_TALK_TIME: 180,
-  MIN_ASSIGN_RATE: 30,
-  MAX_PAST_DUE: 0,
-  MAX_QUEUE: 120,
-  GATES_TO_PASS: 5,
-  TOTAL_GATES: 7,
-} as const;
-
-type GateStatus = "pass" | "fail" | "na";
-
-interface ScorecardGate {
-  label: string;
-  target: string;
-  actual: number | string;
-  status: GateStatus;
-}
 
 interface AgentScorecard {
   name: string;
@@ -274,7 +254,7 @@ function PoolScorecard({ agents, pipelineAgents }: { agents: PoolAgent[]; pipeli
               >
                 <td className="px-4 py-2.5">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground">{sc.name}</span>
+                    <Link href={`/agent-profile/${encodeURIComponent(sc.name)}`} className="font-semibold text-foreground hover:text-blue-400 transition-colors">{sc.name}</Link>
                   </div>
                 </td>
                 {sc.gates.map((gate) => (
@@ -459,7 +439,9 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
                   <div className="flex items-center gap-2">
-                    {agent.name}
+                    <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 transition-colors">
+                      {agent.name}
+                    </Link>
                     <span className={cn(
                       "text-[10px] font-mono px-1.5 py-0.5 rounded border",
                       agent.tier === "T3" ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"

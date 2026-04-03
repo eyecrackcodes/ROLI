@@ -4,6 +4,7 @@
 // ============================================================
 
 import { useState, useMemo, useCallback } from "react";
+import { Link } from "wouter";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
@@ -254,7 +255,7 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
                   <span className="inline-flex items-center">
-                    <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                    <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
                     <PoolBadge pool={agent.pool} />
                   </span>
                 </td>
@@ -412,7 +413,7 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
                   <span className="inline-flex items-center">
-                    <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                    <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
                     <PoolBadge pool={agent.pool} />
                   </span>
                 </td>
@@ -548,7 +549,7 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
                   <span className="inline-flex items-center">
-                    <button onClick={() => onAgentClick?.(agent)} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</button>
+                    <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
                     <PoolBadge pool={agent.pool} />
                   </span>
                 </td>

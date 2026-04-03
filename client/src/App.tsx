@@ -16,6 +16,7 @@ import LeadsPool from "./pages/LeadsPool";
 import PipelineIntelligence from "./pages/PipelineIntelligence";
 import TeamLeaderboard from "./pages/TeamLeaderboard";
 import Settings from "./pages/Settings";
+import AgentProfile from "./pages/AgentProfile";
 
 function Router() {
   return (
@@ -30,6 +31,7 @@ function Router() {
         <Route path="/teams" component={TeamLeaderboard} />
         <Route path="/gates" component={GateCalculator} />
         <Route path="/data" component={DataManager} />
+        <Route path="/agent-profile/:name" component={AgentProfile} />
         <Route path="/settings" component={Settings} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

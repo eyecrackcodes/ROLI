@@ -177,3 +177,44 @@
     }
   }
 }
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 10px !important;
+  }
+
+  nav, aside, .print\:hidden,
+  [data-sidebar], [data-radix-popper-content-wrapper] {
+    display: none !important;
+  }
+
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .bg-card, .bg-background, .bg-accent {
+    background: white !important;
+    border-color: #ddd !important;
+  }
+
+  .text-foreground { color: #111 !important; }
+  .text-muted-foreground { color: #666 !important; }
+  .text-emerald-400 { color: #059669 !important; }
+  .text-red-400 { color: #dc2626 !important; }
+  .text-amber-400 { color: #d97706 !important; }
+  .text-blue-400 { color: #2563eb !important; }
+  .text-cyan-400 { color: #0891b2 !important; }
+
+  .print\:break-inside-avoid {
+    break-inside: avoid;
+  }
+
+  .print\:space-y-3 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.75rem;
+  }
+}
