@@ -651,12 +651,51 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
 
       const typedComp = (compRows ?? []) as PipelineComplianceRow[];
-      const typedProd = (prodRows ?? []) as ProductionRow[];
-      const typedPool = (plRows ?? []) as PipelinePoolRow[];
+      let typedProd = (prodRows ?? []) as ProductionRow[];
+      let typedPool = (plRows ?? []) as PipelinePoolRow[];
 
       if (typedComp.length === 0) {
         setPipelineAgents([]);
         return;
+      }
+
+      // Fallback: if pipeline data exists but no production/pool data for
+      // this date (holiday, scrape timing), use the most recent available day
+      if (typedProd.length === 0) {
+        const { data: fbDateRow } = await supabase
+          .from("daily_scrape_data")
+          .select("scrape_date")
+          .lt("scrape_date", targetDate)
+          .order("scrape_date", { ascending: false })
+          .limit(1);
+        const fbDate = fbDateRow?.[0]?.scrape_date as string | undefined;
+        if (fbDate) {
+          const { data: fallbackProd } = await supabase
+            .from("daily_scrape_data")
+            .select("agent_name, tier, ib_leads_delivered, ob_leads_delivered, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, total_dials, talk_time_minutes")
+            .eq("scrape_date", fbDate);
+          if (fallbackProd && fallbackProd.length > 0) {
+            typedProd = fallbackProd as ProductionRow[];
+          }
+        }
+      }
+      if (typedPool.length === 0) {
+        const { data: fbDateRow } = await supabase
+          .from("leads_pool_daily_data")
+          .select("scrape_date")
+          .lt("scrape_date", targetDate)
+          .order("scrape_date", { ascending: false })
+          .limit(1);
+        const fbDate = fbDateRow?.[0]?.scrape_date as string | undefined;
+        if (fbDate) {
+          const { data: fallbackPool } = await supabase
+            .from("leads_pool_daily_data")
+            .select("agent_name, calls_made, talk_time_minutes, sales_made, premium, self_assigned_leads, answered_calls")
+            .eq("scrape_date", fbDate);
+          if (fallbackPool && fallbackPool.length > 0) {
+            typedPool = fallbackPool as PipelinePoolRow[];
+          }
+        }
       }
 
       // Build rolling historical stats per agent
