@@ -189,24 +189,55 @@
     print-color-adjust: exact !important;
   }
 
-  body {
+  html, body {
     background: white !important;
     color: black !important;
     font-size: 9px !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
-  nav, aside, header, .print\:hidden,
-  [data-sidebar], [data-panel-group],
+  /* Kill the flex h-screen overflow-hidden root layout */
+  body > #root > div,
+  .flex.h-screen,
+  .h-screen {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  /* Hide sidebar, header, nav, overlays */
+  aside,
+  nav,
+  header,
+  .print\:hidden,
+  [data-sidebar],
+  [data-panel-group],
   [data-radix-popper-content-wrapper] {
     display: none !important;
   }
 
-  main, .main-content {
-    margin: 0 !important;
+  /* Main content area — full width, no scroll container */
+  main,
+  .main-content,
+  .flex-1.overflow-y-auto,
+  .overflow-y-auto,
+  .overflow-hidden {
+    overflow: visible !important;
+    height: auto !important;
     padding: 0 !important;
+    margin: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
+    max-height: none !important;
+    flex: none !important;
+  }
+
+  /* Wrapper that holds the page content */
+  .flex-1.flex.flex-col.overflow-hidden {
+    display: block !important;
     overflow: visible !important;
+    height: auto !important;
   }
 
   .max-w-\[1200px\] {
@@ -214,7 +245,8 @@
     padding: 0 !important;
   }
 
-  .bg-card, .bg-background, .bg-accent {
+  /* Backgrounds */
+  .bg-card, .bg-background, .bg-accent, .bg-sidebar {
     background: white !important;
     border-color: #ccc !important;
   }
@@ -229,6 +261,7 @@
   .border-amber-500\/30, .border-amber-500\/20 { border-color: #fcd34d !important; }
   .border-blue-500\/30, .border-blue-500\/20 { border-color: #93c5fd !important; }
 
+  /* Text colors */
   .text-foreground { color: #111 !important; }
   .text-muted-foreground { color: #555 !important; }
   .text-emerald-400 { color: #059669 !important; }
@@ -238,6 +271,7 @@
   .text-cyan-400 { color: #0891b2 !important; }
   .text-purple-400 { color: #7c3aed !important; }
 
+  /* Page flow */
   .print\:break-inside-avoid {
     break-inside: avoid;
   }
@@ -246,7 +280,15 @@
     margin-top: 0.5rem;
   }
 
+  .print\:space-y-2 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.4rem;
+  }
+
   .print\:block { display: block !important; }
+
+  .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.6rem;
+  }
 
   table { font-size: 8px !important; }
 
