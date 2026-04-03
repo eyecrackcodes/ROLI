@@ -10,7 +10,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Calendar, ChevronLeft, ChevronRight,
   Zap, AlertTriangle, Shield, TrendingUp, TrendingDown, Minus,
   DollarSign, UserCheck, UserX,
-  ChevronDown, ChevronUp, Download, Activity, BookOpen,
+  ChevronDown, ChevronUp, Download, Activity, BookOpen, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -471,6 +471,7 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
           <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="text-sm font-mono font-medium text-foreground hover:text-blue-400 transition-colors">
             {agent.name}
           </Link>
+          <button onClick={onDrillDown} className="ml-1 text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3 inline" /></button>
         </td>
         <td className="px-3 py-2">
           <span className={cn(

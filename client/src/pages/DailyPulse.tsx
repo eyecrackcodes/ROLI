@@ -22,7 +22,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Users } from "lucide-react";
+import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Users, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { exportDailyPulse, fetchAndExportPulse, SORT_LABELS, type SortKey, type ExportOptions } from "@/lib/exportExcel";
 import type { Tier, DailyPulseAgent } from "@/lib/types";
@@ -254,8 +254,9 @@ function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
-                  <span className="inline-flex items-center">
+                  <span className="inline-flex items-center gap-1">
                     <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
+                    <button onClick={(e) => { e.stopPropagation(); onAgentClick?.(agent); }} className="text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3" /></button>
                     <PoolBadge pool={agent.pool} />
                   </span>
                 </td>
@@ -412,8 +413,9 @@ function T2Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
-                  <span className="inline-flex items-center">
+                  <span className="inline-flex items-center gap-1">
                     <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
+                    <button onClick={(e) => { e.stopPropagation(); onAgentClick?.(agent); }} className="text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3" /></button>
                     <PoolBadge pool={agent.pool} />
                   </span>
                 </td>
@@ -548,8 +550,9 @@ function T1Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: 
               >
                 <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
-                  <span className="inline-flex items-center">
+                  <span className="inline-flex items-center gap-1">
                     <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
+                    <button onClick={(e) => { e.stopPropagation(); onAgentClick?.(agent); }} className="text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3" /></button>
                     <PoolBadge pool={agent.pool} />
                   </span>
                 </td>
