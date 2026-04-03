@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX } from "lucide-react";
 import type { DailyPulseAgent, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
+import type { PipelineAgent } from "@/lib/pipelineIntelligence";
 
 type SortDir = "asc" | "desc";
 interface SortState { key: string; dir: SortDir }
@@ -79,13 +80,18 @@ function sortPoolAgents(agents: PoolAgent[], sort: SortState): PoolAgent[] {
 
 const ASSIGN_RATE_TARGET = 65;
 
-// T3 Pool KPI Targets
+// T3 Outbound KPI Targets (v2 — three-channel model)
 const T3_POOL_KPI = {
-  MIN_DIALS: 150,
-  MIN_ASSIGN_RATE: 40,
-  MIN_SELF_ASSIGNED: 30,
+  MIN_COMBINED_DIALS: 200,
+  MIN_POOL_PCT: 25,
+  MAX_POOL_PCT: 40,
   MIN_LONG_CALLS: 4,
-  GATES_TO_PASS: 3,
+  MIN_TALK_TIME: 180,
+  MIN_ASSIGN_RATE: 30,
+  MAX_PAST_DUE: 0,
+  MAX_QUEUE: 120,
+  GATES_TO_PASS: 5,
+  TOTAL_GATES: 7,
 } as const;
 
 type GateStatus = "pass" | "fail" | "na";
@@ -106,31 +112,35 @@ interface AgentScorecard {
   pool: PoolMetrics;
 }
 
-function buildT3Scorecards(agents: PoolAgent[]): AgentScorecard[] {
+function buildT3Scorecards(agents: PoolAgent[], pipelineAgents: PipelineAgent[]): AgentScorecard[] {
+  const pipeMap = new Map(pipelineAgents.map(a => [a.name, a]));
+
   return agents
     .filter((a) => a.tier === "T3")
     .map((a) => {
       const p = a.pool;
+      const pipe = pipeMap.get(a.name);
+      const regDials = pipe?.totalDials ?? 0;
+      const regTalk = pipe?.talkTimeMin ?? 0;
+      const combinedDials = regDials + p.callsMade;
+      const combinedTalk = regTalk + p.talkTimeMin;
+      const poolPct = combinedDials > 0 ? (p.callsMade / combinedDials) * 100 : 0;
+      const pastDue = pipe?.pastDue ?? 0;
+      const callQueue = pipe?.callQueue ?? 0;
 
-      const dialGate: ScorecardGate = {
-        label: "Dials",
-        target: `≥ ${T3_POOL_KPI.MIN_DIALS}`,
-        actual: p.callsMade,
-        status: p.callsMade >= T3_POOL_KPI.MIN_DIALS ? "pass" : "fail",
+      const combinedDialGate: ScorecardGate = {
+        label: "Volume",
+        target: `≥ ${T3_POOL_KPI.MIN_COMBINED_DIALS}`,
+        actual: combinedDials,
+        status: combinedDials >= T3_POOL_KPI.MIN_COMBINED_DIALS ? "pass" : "fail",
       };
 
-      const assignRateGate: ScorecardGate = {
-        label: "Assign %",
-        target: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}%`,
-        actual: p.answeredCalls > 0 ? `${p.assignRate.toFixed(0)}%` : "--",
-        status: p.answeredCalls === 0 ? "na" : p.assignRate >= T3_POOL_KPI.MIN_ASSIGN_RATE ? "pass" : "fail",
-      };
-
-      const assignCountGate: ScorecardGate = {
-        label: "Assigned",
-        target: `≥ ${T3_POOL_KPI.MIN_SELF_ASSIGNED}`,
-        actual: p.selfAssignedLeads,
-        status: p.selfAssignedLeads >= T3_POOL_KPI.MIN_SELF_ASSIGNED ? "pass" : "fail",
+      const poolPctGate: ScorecardGate = {
+        label: "Pool %",
+        target: `${T3_POOL_KPI.MIN_POOL_PCT}-${T3_POOL_KPI.MAX_POOL_PCT}%`,
+        actual: combinedDials > 0 ? `${poolPct.toFixed(0)}%` : "--",
+        status: combinedDials === 0 ? "na"
+          : poolPct >= T3_POOL_KPI.MIN_POOL_PCT && poolPct <= T3_POOL_KPI.MAX_POOL_PCT ? "pass" : "fail",
       };
 
       const longCallGate: ScorecardGate = {
@@ -140,7 +150,35 @@ function buildT3Scorecards(agents: PoolAgent[]): AgentScorecard[] {
         status: p.longCalls >= T3_POOL_KPI.MIN_LONG_CALLS ? "pass" : "fail",
       };
 
-      const gates = [dialGate, assignRateGate, assignCountGate, longCallGate];
+      const talkTimeGate: ScorecardGate = {
+        label: "Talk Time",
+        target: `≥ ${T3_POOL_KPI.MIN_TALK_TIME}m`,
+        actual: `${Math.round(combinedTalk)}m`,
+        status: combinedTalk >= T3_POOL_KPI.MIN_TALK_TIME ? "pass" : "fail",
+      };
+
+      const assignRateGate: ScorecardGate = {
+        label: "Assign %",
+        target: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}%`,
+        actual: p.answeredCalls > 0 ? `${p.assignRate.toFixed(0)}%` : "--",
+        status: p.answeredCalls === 0 ? "na" : p.assignRate >= T3_POOL_KPI.MIN_ASSIGN_RATE ? "pass" : "fail",
+      };
+
+      const pastDueGate: ScorecardGate = {
+        label: "Past Due",
+        target: "0",
+        actual: pastDue,
+        status: pipe == null ? "na" : pastDue <= T3_POOL_KPI.MAX_PAST_DUE ? "pass" : "fail",
+      };
+
+      const queueGate: ScorecardGate = {
+        label: "Queue",
+        target: `≤ ${T3_POOL_KPI.MAX_QUEUE}`,
+        actual: callQueue,
+        status: pipe == null ? "na" : callQueue <= T3_POOL_KPI.MAX_QUEUE ? "pass" : "fail",
+      };
+
+      const gates = [combinedDialGate, poolPctGate, longCallGate, talkTimeGate, assignRateGate, pastDueGate, queueGate];
       const gatesPassed = gates.filter((g) => g.status === "pass").length;
 
       return {
@@ -161,8 +199,8 @@ function GateBadge({ status }: { status: GateStatus }) {
   return <span className="text-muted-foreground text-xs">--</span>;
 }
 
-function PoolScorecard({ agents }: { agents: PoolAgent[] }) {
-  const scorecards = useMemo(() => buildT3Scorecards(agents), [agents]);
+function PoolScorecard({ agents, pipelineAgents }: { agents: PoolAgent[]; pipelineAgents: PipelineAgent[] }) {
+  const scorecards = useMemo(() => buildT3Scorecards(agents, pipelineAgents), [agents, pipelineAgents]);
   const t3Count = agents.filter((a) => a.tier === "T3").length;
 
   if (t3Count === 0) return null;
@@ -192,12 +230,15 @@ function PoolScorecard({ agents }: { agents: PoolAgent[] }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border/50 border-b border-border">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-px bg-border/50 border-b border-border">
         {[
-          { label: "Volume", desc: `≥ ${T3_POOL_KPI.MIN_DIALS} dials` },
-          { label: "Assign Rate", desc: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}% of answered` },
-          { label: "Assigned Count", desc: `≥ ${T3_POOL_KPI.MIN_SELF_ASSIGNED} leads` },
-          { label: "Quality", desc: `≥ ${T3_POOL_KPI.MIN_LONG_CALLS} long calls (15+ min)` },
+          { label: "Volume", desc: `≥ ${T3_POOL_KPI.MIN_COMBINED_DIALS} combined` },
+          { label: "Pool %", desc: `${T3_POOL_KPI.MIN_POOL_PCT}-${T3_POOL_KPI.MAX_POOL_PCT}% of total` },
+          { label: "Long Calls", desc: `≥ ${T3_POOL_KPI.MIN_LONG_CALLS} (15+ min)` },
+          { label: "Talk Time", desc: `≥ ${T3_POOL_KPI.MIN_TALK_TIME} min total` },
+          { label: "Assign %", desc: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}% of answered` },
+          { label: "Past Due", desc: "0 — appointments first" },
+          { label: "Queue", desc: `≤ ${T3_POOL_KPI.MAX_QUEUE} leads` },
         ].map((gate) => (
           <div key={gate.label} className="bg-card px-3 py-2">
             <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground block">{gate.label}</span>
@@ -211,10 +252,13 @@ function PoolScorecard({ agents }: { agents: PoolAgent[] }) {
           <thead>
             <tr className="border-b border-border/50">
               <th className="px-4 py-2 text-left font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Agent</th>
-              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Dials</th>
-              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Assign %</th>
-              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Assigned</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Volume</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Pool %</th>
               <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Long Calls</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Talk Time</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Assign %</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Past Due</th>
+              <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Queue</th>
               <th className="px-3 py-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Status</th>
             </tr>
           </thead>
@@ -251,12 +295,12 @@ function PoolScorecard({ agents }: { agents: PoolAgent[] }) {
                     {sc.compliant ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded px-2 py-0.5">
                         <ShieldCheck className="h-3 w-3" />
-                        {sc.gatesPassed}/4
+                        {sc.gatesPassed}/{T3_POOL_KPI.TOTAL_GATES}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-widest text-red-400 bg-red-500/10 border border-red-500/30 rounded px-2 py-0.5">
                         <ShieldX className="h-3 w-3" />
-                        {sc.gatesPassed}/4
+                        {sc.gatesPassed}/{T3_POOL_KPI.TOTAL_GATES}
                       </span>
                     )}
                   </div>
@@ -403,7 +447,6 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
           {sorted.map((agent, i) => {
             const effectiveTarget = agent.tier === "T3" ? T3_POOL_KPI.MIN_ASSIGN_RATE : assignTarget;
             const belowTarget = agent.pool.assignRate < effectiveTarget && agent.pool.answeredCalls > 0;
-            const belowDialTarget = agent.tier === "T3" && agent.pool.callsMade < T3_POOL_KPI.MIN_DIALS;
             return (
               <tr
                 key={agent.name}
@@ -425,10 +468,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
                     </span>
                   </div>
                 </td>
-                <td className={cn(
-                  "px-3 py-2.5 font-mono text-right tabular-nums font-bold",
-                  belowDialTarget ? "text-red-400" : undefined
-                )}>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">
                   {agent.pool.callsMade}
                 </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.pool.talkTimeMin} min</td>
@@ -442,10 +482,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
                 )}>
                   {agent.pool.longCalls}
                 </td>
-                <td className={cn(
-                  "px-3 py-2.5 font-mono text-right tabular-nums",
-                  agent.tier === "T3" && agent.pool.selfAssignedLeads < T3_POOL_KPI.MIN_SELF_ASSIGNED ? "text-red-400" : undefined
-                )}>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
                   {agent.pool.selfAssignedLeads}
                 </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">
@@ -555,7 +592,7 @@ function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory
 
 export default function LeadsPool() {
   const data = useData();
-  const { dailyT1, dailyT2, dailyT3, poolInventory, selectedDate, loading, isRangeMode, dateRange, availableDates } = data;
+  const { dailyT1, dailyT2, dailyT3, poolInventory, pipelineAgents, selectedDate, loading, isRangeMode, dateRange, availableDates } = data;
 
   const allAgents = useMemo(() => [...dailyT1, ...dailyT2, ...dailyT3], [dailyT1, dailyT2, dailyT3]);
   const poolAgents = useMemo(() => getPoolAgents(allAgents), [allAgents]);
@@ -687,7 +724,7 @@ export default function LeadsPool() {
         <>
           <VelocityMetrics agents={poolAgents} inventory={poolInventory} />
 
-          <PoolScorecard agents={poolAgents} />
+          <PoolScorecard agents={poolAgents} pipelineAgents={pipelineAgents} />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
@@ -699,12 +736,14 @@ export default function LeadsPool() {
                   <Target className="h-3.5 w-3.5" />
                   T3 Pool KPI Targets
                 </h3>
-                <div className="space-y-3">
+                <div className="space-y-2.5">
+                  <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60 block">Pool + Pipeline</span>
                   {[
-                    { label: "Min Dials", value: T3_POOL_KPI.MIN_DIALS, unit: "/day" },
-                    { label: "Assign Rate", value: `${T3_POOL_KPI.MIN_ASSIGN_RATE}%`, unit: " of answered" },
-                    { label: "Self-Assigned", value: T3_POOL_KPI.MIN_SELF_ASSIGNED, unit: "/day" },
-                    { label: "Long Calls", value: T3_POOL_KPI.MIN_LONG_CALLS, unit: "/day (15+ min)" },
+                    { label: "Combined Dials", value: `≥ ${T3_POOL_KPI.MIN_COMBINED_DIALS}`, unit: "/day" },
+                    { label: "Pool Ratio", value: `${T3_POOL_KPI.MIN_POOL_PCT}-${T3_POOL_KPI.MAX_POOL_PCT}%`, unit: " of total" },
+                    { label: "Long Calls", value: `≥ ${T3_POOL_KPI.MIN_LONG_CALLS}`, unit: " (15+ min)" },
+                    { label: "Talk Time", value: `≥ ${T3_POOL_KPI.MIN_TALK_TIME}`, unit: " min total" },
+                    { label: "Assign Rate", value: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}%`, unit: " of answered" },
                   ].map((kpi) => (
                     <div key={kpi.label} className="flex items-baseline justify-between">
                       <span className="text-xs font-mono text-muted-foreground">{kpi.label}</span>
@@ -713,11 +752,24 @@ export default function LeadsPool() {
                       </span>
                     </div>
                   ))}
+                  <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60 block pt-2">Pipeline Discipline</span>
+                  {[
+                    { label: "Past Due", value: "0", unit: " — appointments first" },
+                    { label: "Queue Size", value: `≤ ${T3_POOL_KPI.MAX_QUEUE}`, unit: " leads" },
+                    { label: "Queue Cadence", value: "6 attempts", unit: " then withdraw" },
+                  ].map((kpi) => (
+                    <div key={kpi.label} className="flex items-baseline justify-between">
+                      <span className="text-xs font-mono text-muted-foreground">{kpi.label}</span>
+                      <span className="text-sm font-mono font-bold text-amber-400 tabular-nums">
+                        {kpi.value}<span className="text-[10px] font-normal text-muted-foreground">{kpi.unit}</span>
+                      </span>
+                    </div>
+                  ))}
                 </div>
                 <div className="mt-3 pt-3 border-t border-border/50">
                   <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
-                    Pass <span className="text-foreground font-bold">{T3_POOL_KPI.GATES_TO_PASS}/4</span> gates to be compliant.
-                    Self-assign every answered contact — DNC, not interested, callbacks — to remove leads from rotation.
+                    Pass <span className="text-foreground font-bold">{T3_POOL_KPI.GATES_TO_PASS}/{T3_POOL_KPI.TOTAL_GATES}</span> gates to be compliant.
+                    Follow-ups are appointments (task-date driven). Queue leads get 6 attempts max via the dialer, then withdraw.
                   </p>
                 </div>
               </div>

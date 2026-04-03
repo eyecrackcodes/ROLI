@@ -9,7 +9,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Calendar, ChevronLeft, ChevronRight,
   Zap, AlertTriangle, Shield, TrendingUp, TrendingDown, Minus,
   DollarSign, UserCheck, UserX,
-  ChevronDown, ChevronUp, Download, Activity,
+  ChevronDown, ChevronUp, Download, Activity, BookOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -576,6 +576,166 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
   );
 }
 
+function TermsDefinitions() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="bg-card border border-border rounded-md">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-accent/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-blue-400" />
+          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            Terms & Definitions
+          </span>
+        </div>
+        {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-6 text-[11px] font-mono">
+          {/* Health Score */}
+          <div>
+            <h4 className="text-xs font-bold text-foreground mb-2">Pipeline Health Score (0–100)</h4>
+            <p className="text-muted-foreground mb-2">
+              Composite of four equally-weighted sub-scores (0–25 each). Measures overall pipeline discipline, not just production volume.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
+                <span className="text-emerald-400 font-bold">Follow-Up Discipline (0–25)</span>
+                <p className="text-muted-foreground">
+                  Ratio of on-time follow-ups vs past-due. Formula: (1 - pastDue / (pastDue + todaysFollowUps)) × 25.
+                  Score of 25 means zero past-due items.
+                </p>
+              </div>
+              <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
+                <span className="text-blue-400 font-bold">Pipeline Freshness (0–25)</span>
+                <p className="text-muted-foreground">
+                  How much of the pipeline surface is NOT stale. Total Stale = past due + new leads + (call queue × tier stale rate).
+                  Lower stale ratio = higher score.
+                </p>
+              </div>
+              <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
+                <span className="text-amber-400 font-bold">Work Rate (0–25)</span>
+                <p className="text-muted-foreground">
+                  Dial activity (regular + pool) relative to pipeline size (new leads + call queue + past due + today's follow-ups).
+                  Capped at 1:1 ratio for full credit.
+                </p>
+              </div>
+              <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
+                <span className="text-purple-400 font-bold">Conversion Efficiency (0–25)</span>
+                <p className="text-muted-foreground">
+                  Agent close rate vs tier average, with bonuses/penalties from presentation-to-close and contact-to-close rates
+                  when funnel data is available. Neutral 12.5 when no leads worked.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Grades */}
+          <div>
+            <h4 className="text-xs font-bold text-foreground mb-2">Health Grades</h4>
+            <p className="text-muted-foreground mb-2">
+              Grades combine the numeric score with behavioral flags. A high score can be downgraded by concerning behaviors.
+            </p>
+            <div className="grid grid-cols-5 gap-2">
+              {([
+                { grade: "A", color: "text-emerald-400 border-emerald-500/30", req: "≥ 85 · zero non-positive flags" },
+                { grade: "B", color: "text-blue-400 border-blue-500/30", req: "≥ 70 · ≤ 1 warning · no critical" },
+                { grade: "C", color: "text-amber-400 border-amber-500/30", req: "≥ 55 · no critical flags" },
+                { grade: "D", color: "text-orange-400 border-orange-500/30", req: "≥ 40 · ≤ 1 critical flag" },
+                { grade: "F", color: "text-red-400 border-red-500/30", req: "< 40 or multiple critical flags" },
+              ] as const).map(g => (
+                <div key={g.grade} className={cn("bg-background/50 border rounded p-2 text-center", g.color)}>
+                  <span className="text-lg font-bold block">{g.grade}</span>
+                  <span className="text-[9px] text-muted-foreground block mt-1">{g.req}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Behavioral Flags */}
+          <div>
+            <h4 className="text-xs font-bold text-foreground mb-2">Behavioral Flags</h4>
+            <p className="text-muted-foreground mb-2">
+              Flags are detected from pipeline patterns and affect grade assignment. Severity determines impact.
+            </p>
+            <div className="space-y-1.5">
+              {([
+                { flag: "CHERRY_PICKER" as const, trigger: "New leads > 5 AND past due < 3 AND call queue < 5", sev: "warning" },
+                { flag: "PIPELINE_HOARDER" as const, trigger: "Call queue > 2× total dials", sev: "critical" },
+                { flag: "FOLLOWUP_AVOIDER" as const, trigger: "Past due > 3× today's follow-ups", sev: "critical" },
+                { flag: "POOL_FARMER" as const, trigger: "Pool dials > regular dials AND call queue > 10", sev: "warning" },
+                { flag: "DEAD_WEIGHT_CARRIER" as const, trigger: "Revenue at risk > 2× total premium sold", sev: "critical" },
+                { flag: "QUEUE_BLOAT" as const, trigger: "Call queue > 150 — leads not withdrawn after 6 attempts", sev: "warning" },
+                { flag: "HIGH_PERFORMER" as const, trigger: "Health ≥ 80 AND close rate above tier avg", sev: "positive" },
+              ]).map(f => (
+                <div key={f.flag} className="flex items-start gap-3">
+                  <FlagPill flag={f.flag} />
+                  <span className="text-muted-foreground flex-1">{FLAG_META[f.flag].description}</span>
+                  <span className="text-[9px] text-muted-foreground/60 shrink-0">Trigger: {f.trigger}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Key Metrics */}
+          <div>
+            <h4 className="text-xs font-bold text-foreground mb-2">Key Metrics</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
+              {[
+                ["Past Due", "Follow-up appointments that are overdue"],
+                ["Δ d/d", "Day-over-day change in past due count (negative = improving)"],
+                ["New Leads", "Freshly assigned leads not yet worked"],
+                ["Call Queue", "Leads in queue awaiting outbound contact"],
+                ["Today's F/U", "Follow-up appointments scheduled for today"],
+                ["Post-Sale Leads", "Leads in post-sale servicing status"],
+                ["Total Stale", "Past due + new leads + (call queue × tier stale rate)"],
+                ["Stale Rate", "T1: 15% · T2: 10% · T3: 8% of call queue counted as stale"],
+                ["Revenue at Risk", "Total stale × agent avg premium (or tier avg)"],
+                ["Projected Recovery", "Total stale × close rate × avg premium"],
+                ["Waste Ratio", "Revenue at risk / (premium sold + revenue at risk) × 100"],
+                ["F/U Compliance", "(1 − past due / (past due + today's follow-ups)) × 100"],
+                ["Avg Premium", "Agent's 30-day rolling avg (needs ≥ 3 days, ≥ 2 sales), else tier avg"],
+                ["Close Rate", "Agent's 30-day rolling rate (needs ≥ 3 days, ≥ 5 leads), else tier avg"],
+              ].map(([term, def]) => (
+                <div key={term} className="flex gap-2">
+                  <span className="text-foreground font-medium shrink-0 w-32">{term}</span>
+                  <span className="text-muted-foreground">{def}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tier Fallback Defaults */}
+          <div>
+            <h4 className="text-xs font-bold text-foreground mb-2">Tier Fallback Defaults</h4>
+            <p className="text-muted-foreground mb-2">
+              When an agent has insufficient history ({"<"} 3 days or too few sales/leads), these tier-level averages are used for revenue modeling. If no tier data exists, hardcoded constants apply.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { tier: "T1", prem: "$400", cr: "8%", stale: "15%" },
+                { tier: "T2", prem: "$300", cr: "6%", stale: "10%" },
+                { tier: "T3", prem: "$250", cr: "4%", stale: "8%" },
+              ].map(t => (
+                <div key={t.tier} className="bg-background/50 border border-border/50 rounded p-2 text-center">
+                  <span className={cn(
+                    "font-bold block",
+                    t.tier === "T1" ? "text-blue-400" : t.tier === "T2" ? "text-emerald-400" : "text-amber-400"
+                  )}>{t.tier}</span>
+                  <span className="text-muted-foreground text-[10px] block">Prem: {t.prem} · CR: {t.cr} · Stale: {t.stale}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PipelineIntelligence() {
   const data = useData();
   const { pipelineAgents, pipelineLoading, selectedDate, availableDates } = data;
@@ -704,6 +864,8 @@ export default function PipelineIntelligence() {
           )}
         </div>
       </div>
+
+      <TermsDefinitions />
 
       {pipelineLoading ? (
         <div className="flex items-center justify-center py-20">

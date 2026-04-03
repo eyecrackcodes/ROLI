@@ -23,19 +23,31 @@ alwaysApply: true
 | Pool Close Rate | `sales_made / self_assigned_leads × 100` | Conversion rate on pool leads the agent self-assigned |
 | Gaming Flag | Based on Pool Efficiency thresholds | See below |
 
-### T3 Pool KPI Targets
+### T3 Outbound KPI Targets (v2 — Three-Channel Model)
 
-Daily compliance scorecard for T3 outbound agents working the leads pool.
-Agent must pass 3 of 4 gates to be compliant.
+Daily compliance scorecard for T3 outbound agents across all three activity channels
+(follow-up appointments, queue dialer, leads pool). Agent must pass 5 of 7 gates to be compliant.
 
-| Gate | KPI | Target |
-|---|---|---|
-| Volume | Pool Dials | ≥ 150/day |
-| Assignment | Assign Rate | ≥ 40% of answered |
-| Count Floor | Self-Assigned Leads | ≥ 30/day |
-| Quality | Long Calls (15+ min) | ≥ 4/day |
+| # | Gate | KPI | Target |
+|---|---|---|---|
+| 1 | Combined Volume | Total dials (reg + pool) | ≥ 200/day |
+| 2 | Pool Presence | Pool % of total dials | 25-40% |
+| 3 | Engagement | Long Calls (15+ min) | ≥ 4/day |
+| 4 | Talk Time | Total talk minutes (reg + pool) | ≥ 180 min |
+| 5 | Assignment | Self-assign rate | ≥ 30% of pool answered |
+| 6 | Appointment Discipline | Past due follow-ups | 0 |
+| 7 | Queue Health | Call queue size | ≤ 120 leads |
 
-Expected funnel at 150 dials: ~75 answered (50% contact rate) → 30 self-assigned (40%) → 4 long calls (13%) → 1.5-4.5 sales/day (5-15% close).
+### Activity Channel Definitions
+
+- **Follow-up appointments** — Task-date driven callbacks the agent scheduled. NOT in the dialer.
+  These are the highest-value leads (prior contact, appointment set). Past due = missed appointments.
+- **Queue dialer** — System cycles through assigned leads automatically. Each lead gets max 6 contact
+  attempts, then must be withdrawn. Healthy queue: 50-120 leads. Queue > 150 = bloat (leads not withdrawn).
+- **Leads pool** — Shared unassigned leads. Agent enters pool session, dials, self-assigns every
+  answered contact to remove from rotation. Feeds tomorrow's follow-up pipeline.
+
+Expected funnel at 200 combined dials (130 reg + 70 pool): ~35 pool answered (50% contact rate) → 10 self-assigned (30%) → 4+ long calls → 0.86 sales/day (at balanced 25-39% pool ratio).
 
 ### Presentation Rate (Pool)
 
@@ -57,8 +69,26 @@ not interested and DNC — to remove leads from rotation and prevent unnecessary
 | Assign Rate | Interpretation |
 |---|---|
 | ≥ 65% | Excellent — fully cleaning pool contacts |
-| 40–64% | Compliant — pool is moving, discipline in place |
-| < 40% | Non-compliant — contacts recycling back into pool |
+| 30–64% | Compliant — pool is moving, discipline in place |
+| < 30% | Non-compliant — contacts recycling back into pool |
+
+### Queue Health Thresholds
+
+Queue leads get a max of 6 contact attempts via the dialer, then must be withdrawn.
+Follow-up appointments are task-date driven (NOT in the dialer queue).
+
+| Queue Size | Interpretation |
+|---|---|
+| < 50 | Light — increase pool time for more self-assigns |
+| 50–120 | Healthy — balanced inflow/outflow at 6-attempt cadence |
+| 120–200 | Accumulating — audit queue, enforce withdrawals |
+| > 200 | Bloated — leads rotting, stop pool until queue is cleared |
+
+| Past Due | Interpretation |
+|---|---|
+| 0 | Clean — all appointments worked on schedule |
+| 1–5 | Attention — catch up immediately |
+| > 5 | Non-compliant — missing scheduled appointments, stop pool |
 
 ### Pool Efficiency Thresholds
 

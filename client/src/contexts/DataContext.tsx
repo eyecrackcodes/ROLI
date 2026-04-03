@@ -239,6 +239,7 @@ function buildPulseAgents(
   const processedNames = new Set<string>();
 
   for (const [name, agentRows] of grouped) {
+    if (agentMap.size > 0 && !agentMap.has(name)) continue;
     processedNames.add(name);
     const agent = agentMap.get(name);
     const site = agent?.site ?? "CHA";

@@ -13,6 +13,7 @@ export type BehavioralFlag =
   | "FOLLOWUP_AVOIDER"
   | "POOL_FARMER"
   | "DEAD_WEIGHT_CARRIER"
+  | "QUEUE_BLOAT"
   | "HIGH_PERFORMER";
 
 export const FLAG_META: Record<BehavioralFlag, { label: string; description: string; severity: "critical" | "warning" | "positive" }> = {
@@ -21,6 +22,7 @@ export const FLAG_META: Record<BehavioralFlag, { label: string; description: str
   FOLLOWUP_AVOIDER:   { label: "Follow-up Avoider",   description: "Letting follow-ups rot",                          severity: "critical" },
   POOL_FARMER:        { label: "Pool Farmer",          description: "Avoiding assigned pipeline for pool",             severity: "warning" },
   DEAD_WEIGHT_CARRIER:{ label: "Dead Weight Carrier",  description: "Carrying massive unrealized revenue",             severity: "critical" },
+  QUEUE_BLOAT:        { label: "Queue Bloat",          description: "Queue exceeds 150 — leads not being withdrawn after 6 attempts", severity: "warning" },
   HIGH_PERFORMER:     { label: "High Performer",       description: "Clean pipeline AND converting well",              severity: "positive" },
 };
 
@@ -186,6 +188,10 @@ function detectFlags(agent: PipelineAgent, tierAvgCR: number): BehavioralFlag[] 
     flags.push("DEAD_WEIGHT_CARRIER");
   }
 
+  if (agent.callQueue > 150) {
+    flags.push("QUEUE_BLOAT");
+  }
+
   if (agent.healthScore >= 80 && agentCR > tierAvgCR && totalLeads > 0) {
     flags.push("HIGH_PERFORMER");
   }
@@ -298,6 +304,8 @@ export function buildPipelineAgents(
   for (const name of Array.from(allNames)) {
     const comp = complianceMap.get(name);
     if (!comp) continue;
+
+    if (agentRoster.size > 0 && !agentRoster.has(name)) continue;
 
     const prod = prodMap.get(name);
     const pool = poolMap.get(name);
@@ -431,7 +439,8 @@ export function buildPipelineSummary(agents: PipelineAgent[]): PipelineSummary {
       gradeDistribution: { A: 0, B: 0, C: 0, D: 0, F: 0 },
       flagCounts: {
         CHERRY_PICKER: [], PIPELINE_HOARDER: [], FOLLOWUP_AVOIDER: [],
-        POOL_FARMER: [], DEAD_WEIGHT_CARRIER: [], HIGH_PERFORMER: [],
+        POOL_FARMER: [], DEAD_WEIGHT_CARRIER: [], QUEUE_BLOAT: [],
+        HIGH_PERFORMER: [],
       },
       topRiskAgents: [],
       topRecoveryAgents: [],
@@ -447,7 +456,8 @@ export function buildPipelineSummary(agents: PipelineAgent[]): PipelineSummary {
 
   const flagCounts: Record<BehavioralFlag, string[]> = {
     CHERRY_PICKER: [], PIPELINE_HOARDER: [], FOLLOWUP_AVOIDER: [],
-    POOL_FARMER: [], DEAD_WEIGHT_CARRIER: [], HIGH_PERFORMER: [],
+    POOL_FARMER: [], DEAD_WEIGHT_CARRIER: [], QUEUE_BLOAT: [],
+    HIGH_PERFORMER: [],
   };
   for (const a of agents) {
     for (const f of a.flags) flagCounts[f].push(a.name);
