@@ -186,7 +186,7 @@ export function useIntradayPace(overrideDate?: string) {
     if (!isLive) return;
     const now = new Date();
     const msUntilNextHour = (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000;
-    const delay = msUntilNextHour + 60_000; // 1 min after the hour to let the scrape finish
+    const delay = msUntilNextHour + 5 * 60_000; // 5 min after the hour to let the scrape finish
     const timeout = setTimeout(() => {
       fetchPace();
       const interval = setInterval(fetchPace, 60 * 60 * 1000);
