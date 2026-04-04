@@ -674,7 +674,7 @@ function PaceTracker() {
       )}
 
       <div className="px-4 py-1.5 border-t border-border/50 text-[9px] font-mono text-muted-foreground/40 text-right">
-        Last refresh: {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · auto-refreshes every 5 min
+        Last refresh: {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · updates each hour after scrape
       </div>
     </div>
   );

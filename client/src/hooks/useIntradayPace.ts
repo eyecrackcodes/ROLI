@@ -181,11 +181,18 @@ export function useIntradayPace(overrideDate?: string) {
 
   useEffect(() => { fetchPace(); }, [fetchPace]);
 
-  // Auto-refresh every 5 minutes (only for live/today view)
+  // Auto-refresh at the top of each hour (aligned to scrape schedule)
   useEffect(() => {
     if (!isLive) return;
-    const interval = setInterval(fetchPace, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    const now = new Date();
+    const msUntilNextHour = (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000;
+    const delay = msUntilNextHour + 60_000; // 1 min after the hour to let the scrape finish
+    const timeout = setTimeout(() => {
+      fetchPace();
+      const interval = setInterval(fetchPace, 60 * 60 * 1000);
+      return () => clearInterval(interval);
+    }, delay);
+    return () => clearTimeout(timeout);
   }, [fetchPace, isLive]);
 
   const summary = useMemo<PaceSummary>(() => ({
