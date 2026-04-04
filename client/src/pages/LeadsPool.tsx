@@ -514,18 +514,37 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
 }
 
 function PaceBar({ metric, label }: { metric: PaceMetric; label: string }) {
-  const pct = Math.min(metric.pct, 120);
-  const color = metric.behind ? "bg-red-500" : pct >= 100 ? "bg-emerald-500" : "bg-blue-500";
+  const pct = Math.min(metric.pct, 100);
+  const fillColor = metric.behind
+    ? "bg-gradient-to-r from-red-600 to-red-400"
+    : pct >= 100
+    ? "bg-gradient-to-r from-emerald-600 to-emerald-400"
+    : "bg-gradient-to-r from-blue-600 to-blue-400";
+
   return (
-    <div className="space-y-0.5">
-      <div className="flex items-center justify-between text-[9px] font-mono">
-        <span className="text-muted-foreground">{label}</span>
-        <span className={cn("tabular-nums font-bold", metric.behind ? "text-red-400" : "text-foreground")}>
-          {metric.actual}/{metric.expected}
-        </span>
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{label}</span>
+        <div className="flex items-baseline gap-1">
+          <span className={cn("text-base font-mono font-bold tabular-nums leading-none",
+            metric.behind ? "text-red-400" : pct >= 100 ? "text-emerald-400" : "text-foreground"
+          )}>{metric.actual}</span>
+          <span className="text-[9px] font-mono text-muted-foreground/50">/ {metric.expected}</span>
+        </div>
       </div>
-      <div className="h-1.5 bg-border/40 rounded-full overflow-hidden">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${Math.min(pct, 100)}%` }} />
+      <div className="relative h-2 bg-border/20 rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all duration-500 ease-out", fillColor)}
+          style={{ width: `${pct}%` }} />
+        {/* 80% threshold marker */}
+        <div className="absolute top-0 h-full w-px bg-muted-foreground/20" style={{ left: "80%" }} />
+      </div>
+      <div className="flex items-center justify-between">
+        <span className={cn("text-[9px] font-mono tabular-nums",
+          metric.behind ? "text-red-400/80" : "text-muted-foreground/40"
+        )}>{Math.round(pct)}% of pace</span>
+        {metric.behind && (
+          <span className="text-[9px] font-mono text-red-400/80">−{metric.expected - metric.actual} deficit</span>
+        )}
       </div>
     </div>
   );
@@ -539,86 +558,118 @@ function PaceTracker() {
   const hourLabel = (h: number) => {
     const suffix = h >= 12 ? "PM" : "AM";
     const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
-    return `${display}${suffix}`;
+    return `${display} ${suffix}`;
   };
 
+  const displayAgents = isHistorical ? agents : behindAgents;
+
   return (
-    <div className="bg-card border border-border rounded-md overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-cyan-400" />
-          <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-            T3 Intraday Pace
-          </h3>
-          {isHistorical
-            ? <span className="text-[10px] font-mono text-amber-400">Replay: {paceDate}</span>
-            : <span className="text-[10px] font-mono text-muted-foreground/60">{hourLabel(summary.currentHour)} CST</span>}
-        </div>
+    <div className="bg-card border border-border rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-3.5 border-b border-border/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-[10px] font-mono">
-            <span className="text-emerald-400">{summary.onPace} on pace</span>
-            <span className="text-muted-foreground">·</span>
-            {summary.behind > 0 && <span className="text-amber-400">{summary.behind} behind</span>}
-            {summary.critical > 0 && <><span className="text-muted-foreground">·</span><span className="text-red-400">{summary.critical} critical</span></>}
-            {summary.behind === 0 && summary.critical === 0 && <span className="text-emerald-400">all clear</span>}
+          <div className="h-8 w-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+            <Activity className="h-4 w-4 text-cyan-400" />
           </div>
-          <Input type="date" value={paceDate ?? ""} onChange={e => setPaceDate(e.target.value || undefined)}
-            className="h-6 w-auto text-[10px] font-mono border bg-card px-1.5" title="Replay a past day" />
-          {isHistorical && (
-            <button onClick={() => setPaceDate(undefined)} className="text-[10px] font-mono text-blue-400 hover:text-blue-300">Live</button>
-          )}
-          <button onClick={refresh} className="text-muted-foreground/40 hover:text-foreground transition-colors" title="Refresh pace data">
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          </button>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground tracking-tight">T3 Intraday Pace</h3>
+            <p className="text-[10px] font-mono text-muted-foreground">
+              {isHistorical
+                ? <span className="text-amber-400">Replay — {paceDate}</span>
+                : <>Live · {hourLabel(summary.currentHour)} CST</>}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Status pills */}
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 tabular-nums">
+              {summary.onPace} on pace
+            </span>
+            {summary.behind > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 tabular-nums">
+                {summary.behind} behind
+              </span>
+            )}
+            {summary.critical > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono font-bold bg-red-500/10 text-red-400 border border-red-500/20 tabular-nums">
+                {summary.critical} critical
+              </span>
+            )}
+          </div>
+          {/* Controls */}
+          <div className="flex items-center gap-1.5">
+            <Input type="date" value={paceDate ?? ""} onChange={e => setPaceDate(e.target.value || undefined)}
+              className="h-7 w-auto text-[10px] font-mono border bg-background px-2" title="Replay a past day" />
+            {isHistorical && (
+              <button onClick={() => setPaceDate(undefined)}
+                className="px-2 py-1 rounded-md text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors">
+                Live
+              </button>
+            )}
+            <button onClick={refresh}
+              className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+              title="Refresh">
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            </button>
+          </div>
         </div>
       </div>
 
-      {(isHistorical ? agents : behindAgents).length > 0 && (
-        <div className="p-4 space-y-3">
-          {(isHistorical ? agents : behindAgents).map(agent => (
-            <div key={agent.name} className={cn(
-              "border rounded-md p-3",
-              agent.status === "critical" ? "border-red-500/30 bg-red-500/5"
-                : agent.status === "behind" ? "border-amber-500/30 bg-amber-500/5"
-                : "border-emerald-500/20 bg-emerald-500/5"
-            )}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="text-sm font-mono font-medium text-foreground hover:text-blue-400 transition-colors">
-                    {agent.name}
-                  </Link>
-                  <span className="text-[9px] font-mono text-muted-foreground">{agent.site}</span>
-                  {agent.status === "critical" ? (
-                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-red-500/10 text-red-400 border border-red-500/30">CRITICAL</span>
-                  ) : agent.status === "behind" ? (
-                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">BEHIND</span>
-                  ) : (
-                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">ON PACE</span>
-                  )}
+      {/* Agent cards */}
+      {displayAgents.length > 0 && (
+        <div className="divide-y divide-border/40">
+          {displayAgents.map(agent => {
+            const statusConfig = agent.status === "critical"
+              ? { border: "border-l-red-500", bg: "bg-red-500/[0.02]", badge: "bg-red-500/15 text-red-400 border-red-500/25", label: "CRITICAL" }
+              : agent.status === "behind"
+              ? { border: "border-l-amber-500", bg: "bg-amber-500/[0.02]", badge: "bg-amber-500/15 text-amber-400 border-amber-500/25", label: "BEHIND" }
+              : { border: "border-l-emerald-500", bg: "bg-emerald-500/[0.02]", badge: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25", label: "ON PACE" };
+
+            return (
+              <div key={agent.name} className={cn("px-5 py-4 border-l-[3px]", statusConfig.border, statusConfig.bg)}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`}
+                      className="text-sm font-semibold text-foreground hover:text-blue-400 transition-colors tracking-tight">
+                      {agent.name}
+                    </Link>
+                    <span className="text-[10px] font-mono text-muted-foreground/60">{agent.site}</span>
+                    <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border", statusConfig.badge)}>
+                      {statusConfig.label}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-muted-foreground/50 text-right">
+                    <span>as of {hourLabel(agent.hour)}</span>
+                    {agent.behindMetrics.length > 0 && (
+                      <span className="hidden sm:inline"> · <span className="text-amber-400/70">{agent.behindMetrics.join(", ")}</span></span>
+                    )}
+                  </div>
                 </div>
-                <span className="text-[9px] font-mono text-muted-foreground/60">
-                  as of {hourLabel(agent.hour)}{agent.behindMetrics.length > 0 ? ` · behind on ${agent.behindMetrics.join(", ")}` : ""}
-                </span>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <PaceBar metric={agent.metrics.combinedDials} label="Dials" />
+                  <PaceBar metric={agent.metrics.talkTime} label="Talk Time" />
+                  <PaceBar metric={agent.metrics.longCalls} label="Long Calls" />
+                  <PaceBar metric={agent.metrics.poolDials} label="Pool Dials" />
+                </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <PaceBar metric={agent.metrics.combinedDials} label="Combined Dials" />
-                <PaceBar metric={agent.metrics.talkTime} label="Talk Time (min)" />
-                <PaceBar metric={agent.metrics.longCalls} label="Long Calls" />
-                <PaceBar metric={agent.metrics.poolDials} label="Pool Dials" />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
+      {/* Empty states */}
       {agents.length === 0 && !loading && (
-        <div className="px-4 py-3 text-center">
-          <p className="text-[11px] font-mono text-muted-foreground">{isHistorical ? `No intraday data for ${paceDate}` : "No intraday data for today"}</p>
+        <div className="px-5 py-8 text-center">
+          <Activity className="h-6 w-6 text-muted-foreground/20 mx-auto mb-2" />
+          <p className="text-xs font-mono text-muted-foreground">{isHistorical ? `No intraday data for ${paceDate}` : "No intraday data for today"}</p>
+          {!isHistorical && <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">Data appears once the hourly scrape runs (9 AM – 5 PM CST)</p>}
         </div>
       )}
       {!isHistorical && behindAgents.length === 0 && agents.length > 0 && !loading && (
-        <div className="px-4 py-3 text-center">
-          <p className="text-[11px] font-mono text-emerald-400">All T3 agents on pace — no alerts</p>
+        <div className="px-5 py-6 text-center">
+          <p className="text-xs font-mono text-emerald-400 font-medium">All {summary.totalAgents} T3 agents on pace</p>
+          <p className="text-[10px] font-mono text-muted-foreground/50 mt-0.5">No alerts at {hourLabel(summary.currentHour)} CST</p>
         </div>
       )}
 
