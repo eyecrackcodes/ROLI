@@ -4,9 +4,11 @@ import { MetricCard } from "@/components/MetricCard";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
-import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX, Activity, RefreshCw } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX, Activity, RefreshCw, Droplets, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useIntradayPace } from "@/hooks/useIntradayPace";
+import { usePoolFlow } from "@/hooks/usePoolFlow";
 import type { AgentPaceStatus, PaceMetric } from "@/hooks/useIntradayPace";
+import type { PoolFlowPoint } from "@/hooks/usePoolFlow";
 import { T3_INTRADAY_TARGETS, BUSINESS_HOURS } from "@/lib/t3Targets";
 import type { DailyPulseAgent, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
 import type { PipelineAgent } from "@/lib/pipelineIntelligence";
@@ -550,8 +552,151 @@ function PaceBar({ metric, label }: { metric: PaceMetric; label: string }) {
   );
 }
 
-function PaceTracker() {
-  const [paceDate, setPaceDate] = useState<string | undefined>(undefined);
+function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
+  const { status, loading } = usePoolFlow(paceDate);
+
+  if (loading && !status) return null;
+  if (!status || status.points.length === 0) return null;
+
+  const hourLabel = (h: number) => {
+    const suffix = h >= 12 ? "PM" : "AM";
+    const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    return `${display}${suffix}`;
+  };
+
+  const latest = status.points[status.points.length - 1];
+  const maxPool = Math.max(...status.points.map(p => p.totalLeads));
+
+  const DirectionIcon = status.direction === "growing" ? TrendingUp
+    : status.direction === "shrinking" ? TrendingDown : Minus;
+  const dirColor = status.direction === "growing" ? "text-red-400"
+    : status.direction === "shrinking" ? "text-emerald-400" : "text-muted-foreground";
+
+  return (
+    <div className="bg-card border border-border rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-3.5 border-b border-border/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+            <Droplets className="h-4 w-4 text-blue-400" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground tracking-tight">Pool Flow</h3>
+            <p className="text-[10px] font-mono text-muted-foreground">
+              Contactable leads inventory — hourly
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-[11px] font-mono">
+            <span className="text-muted-foreground">{status.startSize.toLocaleString()}</span>
+            <span className="text-muted-foreground/40">→</span>
+            <span className="text-foreground font-bold">{status.endSize.toLocaleString()}</span>
+            <span className={cn("inline-flex items-center gap-0.5 font-bold", dirColor)}>
+              <DirectionIcon className="h-3 w-3" />
+              {status.totalDelta > 0 ? "+" : ""}{status.totalDelta.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Alert banner */}
+      {status.alert && (
+        <div className="px-5 py-2.5 bg-amber-500/5 border-b border-amber-500/20 flex items-center gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <p className="text-[11px] font-mono text-amber-400">{status.alert}</p>
+        </div>
+      )}
+
+      {/* Hourly flow chart + status breakdown */}
+      <div className="px-5 py-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Hourly bar chart */}
+          <div className="lg:col-span-2 space-y-1.5">
+            <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Hourly Pool Size</div>
+            {status.points.map((p, i) => {
+              const barPct = maxPool > 0 ? (p.totalLeads / maxPool) * 100 : 0;
+              const isGrowing = p.delta > 0;
+              const isShrinking = p.delta < 0;
+              return (
+                <div key={p.hour} className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-muted-foreground w-10 text-right shrink-0">{hourLabel(p.hour)}</span>
+                  <div className="flex-1 h-5 bg-border/15 rounded overflow-hidden relative">
+                    <div className={cn(
+                      "h-full rounded transition-all duration-300",
+                      isGrowing ? "bg-gradient-to-r from-blue-600/60 to-red-500/40"
+                        : isShrinking ? "bg-gradient-to-r from-blue-600/60 to-emerald-500/40"
+                        : "bg-blue-600/40"
+                    )} style={{ width: `${barPct}%` }} />
+                    <span className="absolute inset-y-0 right-2 flex items-center text-[9px] font-mono text-foreground/70 tabular-nums">
+                      {p.totalLeads.toLocaleString()}
+                    </span>
+                  </div>
+                  <span className={cn(
+                    "text-[9px] font-mono font-bold w-12 text-right tabular-nums shrink-0",
+                    isGrowing ? "text-red-400" : isShrinking ? "text-emerald-400" : "text-muted-foreground/30"
+                  )}>
+                    {i === 0 ? "—" : `${p.delta > 0 ? "+" : ""}${p.delta}`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Status breakdown */}
+          <div className="space-y-4">
+            <div>
+              <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Latest Breakdown</div>
+              <div className="space-y-2">
+                {[
+                  { label: "New Leads", value: latest.newLeads, color: "text-blue-400", bg: "bg-blue-500" },
+                  { label: "Attempt 2", value: latest.attempt2, color: "text-amber-400", bg: "bg-amber-500" },
+                  { label: "Attempt 3", value: latest.attempt3, color: "text-red-400", bg: "bg-red-500" },
+                ].map(s => {
+                  const pct = latest.totalLeads > 0 ? (s.value / latest.totalLeads) * 100 : 0;
+                  return (
+                    <div key={s.label} className="space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className={cn("text-[10px] font-mono", s.color)}>{s.label}</span>
+                        <span className="text-[11px] font-mono font-bold tabular-nums">{s.value.toLocaleString()}</span>
+                      </div>
+                      <div className="h-1.5 bg-border/20 rounded-full overflow-hidden">
+                        <div className={cn("h-full rounded-full", s.bg, "opacity-50")} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="border-t border-border/40 pt-3">
+              <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Team Activity</div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-mono">
+                  <span className="text-muted-foreground">Pool Dials</span>
+                  <span className="font-bold tabular-nums text-cyan-400">{latest.teamPoolDials.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] font-mono">
+                  <span className="text-muted-foreground">Self-Assigned</span>
+                  <span className="font-bold tabular-nums">{latest.teamAssigns.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] font-mono">
+                  <span className="text-muted-foreground">Flow Direction</span>
+                  <span className={cn("font-bold inline-flex items-center gap-1", dirColor)}>
+                    <DirectionIcon className="h-3 w-3" />
+                    {status.direction} ({status.rate > 0 ? "+" : ""}{status.rate.toFixed(1)}%/hr)
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaceTracker({ paceDate, onPaceDateChange }: { paceDate?: string; onPaceDateChange: (d?: string) => void }) {
   const { behindAgents, summary, loading, lastRefresh, refresh, agents } = useIntradayPace(paceDate);
   const isHistorical = !!paceDate;
 
@@ -599,10 +744,10 @@ function PaceTracker() {
           </div>
           {/* Controls */}
           <div className="flex items-center gap-1.5">
-            <Input type="date" value={paceDate ?? ""} onChange={e => setPaceDate(e.target.value || undefined)}
+            <Input type="date" value={paceDate ?? ""} onChange={e => onPaceDateChange(e.target.value || undefined)}
               className="h-7 w-auto text-[10px] font-mono border bg-background px-2" title="Replay a past day" />
             {isHistorical && (
-              <button onClick={() => setPaceDate(undefined)}
+              <button onClick={() => onPaceDateChange(undefined)}
                 className="px-2 py-1 rounded-md text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors">
                 Live
               </button>
@@ -746,6 +891,8 @@ export default function LeadsPool() {
   const data = useData();
   const { dailyT1, dailyT2, dailyT3, poolInventory, pipelineAgents, selectedDate, loading, isRangeMode, dateRange, availableDates } = data;
 
+  const [paceDate, setPaceDate] = useState<string | undefined>(undefined);
+
   const allAgents = useMemo(() => [...dailyT1, ...dailyT2, ...dailyT3], [dailyT1, dailyT2, dailyT3]);
   const poolAgents = useMemo(() => getPoolAgents(allAgents), [allAgents]);
   const hasPoolData = poolAgents.length > 0;
@@ -868,7 +1015,9 @@ export default function LeadsPool() {
         </div>
       </div>
 
-      <PaceTracker />
+      <PaceTracker paceDate={paceDate} onPaceDateChange={setPaceDate} />
+
+      <PoolFlowPanel paceDate={paceDate} />
 
       {loading ? (
         <div className="border border-dashed border-border rounded-md p-12 flex items-center justify-center bg-card/30">
