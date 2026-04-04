@@ -409,7 +409,7 @@ function PipelineHealth({ days, summary }: { days: ProfileDay[]; summary: NonNul
 
 // ---- Section 6: Coaching Summary (restructured) ----
 
-function CoachingSummary({ signals }: { signals: CoachingSignal[] }) {
+function CoachingSummary({ signals, tier }: { signals: CoachingSignal[]; tier: string }) {
   const benchmarks = signals.filter(s => s.type === "benchmark");
   const revenue = signals.filter(s => s.type === "revenue");
   const callouts = signals.filter(s => s.type === "callout");
@@ -428,7 +428,7 @@ function CoachingSummary({ signals }: { signals: CoachingSignal[] }) {
       {benchmarks.length > 0 && (
         <div className="space-y-1.5">
           <h3 className="text-[10px] font-mono uppercase tracking-widest text-purple-400 flex items-center gap-1.5">
-            <Users className="h-3 w-3" /> Performance vs T3 Peers
+            <Users className="h-3 w-3" /> Performance vs {tier} Peers
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {benchmarks.map((s, i) => <SignalCard key={i} signal={s} />)}
@@ -566,7 +566,7 @@ export default function AgentProfile() {
           <ActivityBalance summary={summary} />
           <ProductionSummary days={days} summary={summary} />
           <PipelineHealth days={days} summary={summary} />
-          <CoachingSummary signals={coaching} />
+          <CoachingSummary signals={coaching} tier={agent?.tier ?? "T3"} />
         </>
       ) : null}
     </div>

@@ -205,6 +205,7 @@ function buildCoaching(
   flags: BehavioralFlag[],
   tierBench: TierBenchmark | null,
   mtd: MtdProjection | null,
+  tier: string,
 ): CoachingSignal[] {
   const signals: CoachingSignal[] = [];
   const avgPrem = summary.totalSales > 0 ? summary.totalPremium / summary.totalSales : FALLBACK_PREMIUM;
@@ -217,22 +218,22 @@ function buildCoaching(
       const combined = summary.avgCombinedDials;
       const tierCombined = tb.avgDials + tb.avgPoolDials;
       signals.push({ type: "benchmark", severity: combined >= tierCombined ? "positive" : "warning",
-        label: `Combined dials: ${Math.round(combined)}/day vs T3 avg ${Math.round(tierCombined)}`,
+        label: `Combined dials: ${Math.round(combined)}/day vs ${tier} avg ${Math.round(tierCombined)}`,
         detail: `${pctDiff(combined, tierCombined)} relative to tier. ${combined >= tierCombined ? "Outpacing peers on volume." : "Below peer average — more dialer time needed."}` });
     }
     if (summary.avgLongCalls > 0 || tb.avgPoolLongCalls > 0) {
       signals.push({ type: "benchmark", severity: summary.avgLongCalls >= tb.avgPoolLongCalls ? "positive" : "warning",
-        label: `Long calls: ${summary.avgLongCalls.toFixed(1)}/day vs T3 avg ${tb.avgPoolLongCalls.toFixed(1)}`,
+        label: `Long calls: ${summary.avgLongCalls.toFixed(1)}/day vs ${tier} avg ${tb.avgPoolLongCalls.toFixed(1)}`,
         detail: `${pctDiff(summary.avgLongCalls, tb.avgPoolLongCalls)} relative to tier. Long calls are the #1 predictor of sales.` });
     }
     if (summary.avgAssignRate > 0 || tb.avgPoolAssignRate > 0) {
       signals.push({ type: "benchmark", severity: summary.avgAssignRate >= tb.avgPoolAssignRate ? "positive" : "warning",
-        label: `Assign rate: ${summary.avgAssignRate.toFixed(0)}% vs T3 avg ${tb.avgPoolAssignRate.toFixed(0)}%`,
+        label: `Assign rate: ${summary.avgAssignRate.toFixed(0)}% vs ${tier} avg ${tb.avgPoolAssignRate.toFixed(0)}%`,
         detail: `${pctDiff(summary.avgAssignRate, tb.avgPoolAssignRate)} relative to tier. Self-assigning every contact keeps the pool clean.` });
     }
     if (summary.avgSalesPerDay > 0 || tb.avgSales > 0) {
       signals.push({ type: "benchmark", severity: summary.avgSalesPerDay >= tb.avgSales ? "positive" : "warning",
-        label: `Sales: ${summary.avgSalesPerDay.toFixed(1)}/day vs T3 avg ${tb.avgSales.toFixed(1)}`,
+        label: `Sales: ${summary.avgSalesPerDay.toFixed(1)}/day vs ${tier} avg ${tb.avgSales.toFixed(1)}`,
         detail: `${pctDiff(summary.avgSalesPerDay, tb.avgSales)} relative to tier. Premium: ${fmt(summary.avgPremiumPerDay)}/day vs ${fmt(tb.avgPremium)}.` });
     }
   }
@@ -458,11 +459,13 @@ export function useAgentProfile(agentName: string | null, startDate: string, end
 
       setAgent(agentData as AgentRow | null);
 
-      // Tier benchmarks — T3 averages across same date range
+      const agentTier = (agentData as AgentRow | null)?.tier ?? "T3";
+
+      // Tier benchmarks — same-tier averages across same date range
       const [{ data: tierProdData }, { data: tierPoolData }] = await Promise.all([
         supabase.from("daily_scrape_data")
           .select("agent_name, total_dials, talk_time_minutes, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium")
-          .eq("tier", "T3").gte("scrape_date", startDate).lte("scrape_date", endDate),
+          .eq("tier", agentTier).gte("scrape_date", startDate).lte("scrape_date", endDate),
         supabase.from("leads_pool_daily_data")
           .select("agent_name, calls_made, long_calls, self_assigned_leads, answered_calls, sales_made")
           .gte("scrape_date", startDate).lte("scrape_date", endDate),
@@ -667,8 +670,8 @@ export function useAgentProfile(agentName: string | null, startDate: string, end
 
   const coaching = useMemo(() => {
     if (!summary) return [];
-    return buildCoaching(summary, days, flags, tierBenchmark, mtdProjection);
-  }, [summary, days, flags, tierBenchmark, mtdProjection]);
+    return buildCoaching(summary, days, flags, tierBenchmark, mtdProjection, agent?.tier ?? "T3");
+  }, [summary, days, flags, tierBenchmark, mtdProjection, agent]);
 
   return { agent, days, summary, tierBenchmark, mtdProjection, coaching, flags, loading };
 }

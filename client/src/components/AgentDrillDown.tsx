@@ -461,17 +461,27 @@ export function AgentDrillDown({
                     value={mtd.pace.toFixed(2)}
                     sub="sales/day"
                   />
-                  <StatCard
-                    label="ROLI"
-                    value={mtd.roli.toFixed(2) + "x"}
-                    color={
-                      mtd.roli >= 1.5
-                        ? "text-emerald-400"
-                        : mtd.roli >= 0.75
-                          ? "text-amber-400"
-                          : "text-red-400"
-                    }
-                  />
+                  {tier !== "T3" && (
+                    <StatCard
+                      label="ROLI"
+                      value={mtd.roli.toFixed(2) + "x"}
+                      color={
+                        mtd.roli >= 1.5
+                          ? "text-emerald-400"
+                          : mtd.roli >= 0.75
+                            ? "text-amber-400"
+                            : "text-red-400"
+                      }
+                    />
+                  )}
+                  {tier === "T3" && (
+                    <StatCard
+                      label="Pool Dials"
+                      value={mtd.totalPoolDials}
+                      sub="total pool"
+                      color="text-cyan-400"
+                    />
+                  )}
                 </div>
               </div>
             )}
