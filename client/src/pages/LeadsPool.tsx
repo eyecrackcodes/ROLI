@@ -536,9 +536,6 @@ function PaceTracker() {
   const { behindAgents, summary, loading, lastRefresh, refresh, agents } = useIntradayPace(paceDate);
   const isHistorical = !!paceDate;
 
-  if (!isHistorical && !summary.isBusinessHours && behindAgents.length === 0) return null;
-  if (summary.totalAgents === 0 && !loading) return null;
-
   const hourLabel = (h: number) => {
     const suffix = h >= 12 ? "PM" : "AM";
     const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
@@ -820,6 +817,8 @@ export default function LeadsPool() {
         </div>
       </div>
 
+      <PaceTracker />
+
       {loading ? (
         <div className="border border-dashed border-border rounded-md p-12 flex items-center justify-center bg-card/30">
           <p className="text-sm font-mono text-muted-foreground animate-pulse">Loading pool data...</p>
@@ -827,8 +826,6 @@ export default function LeadsPool() {
       ) : hasPoolData ? (
         <>
           <VelocityMetrics agents={poolAgents} inventory={poolInventory} />
-
-          <PaceTracker />
 
           <PoolScorecard agents={poolAgents} pipelineAgents={pipelineAgents} />
 
