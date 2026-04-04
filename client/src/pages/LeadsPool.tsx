@@ -4,7 +4,8 @@ import { MetricCard } from "@/components/MetricCard";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
-import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX, Activity, RefreshCw, Droplets, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX, Activity, RefreshCw, Droplets, TrendingUp, TrendingDown, Minus, Megaphone } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useIntradayPace } from "@/hooks/useIntradayPace";
 import { usePoolFlow } from "@/hooks/usePoolFlow";
 import type { AgentPaceStatus, PaceMetric } from "@/hooks/useIntradayPace";
@@ -558,7 +559,7 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
   if (loading && !status) return null;
   if (!status || status.points.length === 0) return null;
 
-  const hourLabel = (h: number) => {
+  const hLabel = (h: number) => {
     const suffix = h >= 12 ? "PM" : "AM";
     const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
     return `${display}${suffix}`;
@@ -572,9 +573,14 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
   const dirColor = status.direction === "growing" ? "text-red-400"
     : status.direction === "shrinking" ? "text-emerald-400" : "text-muted-foreground";
 
+  const actionColorMap = {
+    info: { border: "border-blue-500/20", bg: "bg-blue-500/5", text: "text-blue-400" },
+    warning: { border: "border-amber-500/20", bg: "bg-amber-500/5", text: "text-amber-400" },
+    critical: { border: "border-red-500/20", bg: "bg-red-500/5", text: "text-red-400" },
+  };
+
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden">
-      {/* Header */}
       <div className="px-5 py-3.5 border-b border-border/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
@@ -583,35 +589,23 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
           <div>
             <h3 className="text-sm font-semibold text-foreground tracking-tight">Pool Flow</h3>
             <p className="text-[10px] font-mono text-muted-foreground">
-              Contactable leads inventory — hourly
+              Contactable leads inventory · {status.activeAgents} agents active
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-[11px] font-mono">
-            <span className="text-muted-foreground">{status.startSize.toLocaleString()}</span>
-            <span className="text-muted-foreground/40">→</span>
-            <span className="text-foreground font-bold">{status.endSize.toLocaleString()}</span>
-            <span className={cn("inline-flex items-center gap-0.5 font-bold", dirColor)}>
-              <DirectionIcon className="h-3 w-3" />
-              {status.totalDelta > 0 ? "+" : ""}{status.totalDelta.toLocaleString()}
-            </span>
-          </div>
+        <div className="flex items-center gap-1.5 text-[11px] font-mono">
+          <span className="text-muted-foreground">{status.startSize.toLocaleString()}</span>
+          <span className="text-muted-foreground/40">→</span>
+          <span className="text-foreground font-bold">{status.endSize.toLocaleString()}</span>
+          <span className={cn("inline-flex items-center gap-0.5 font-bold", dirColor)}>
+            <DirectionIcon className="h-3 w-3" />
+            {status.totalDelta > 0 ? "+" : ""}{status.totalDelta.toLocaleString()}
+          </span>
         </div>
       </div>
 
-      {/* Alert banner */}
-      {status.alert && (
-        <div className="px-5 py-2.5 bg-amber-500/5 border-b border-amber-500/20 flex items-center gap-2">
-          <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-          <p className="text-[11px] font-mono text-amber-400">{status.alert}</p>
-        </div>
-      )}
-
-      {/* Hourly flow chart + status breakdown */}
       <div className="px-5 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Hourly bar chart */}
           <div className="lg:col-span-2 space-y-1.5">
             <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Hourly Pool Size</div>
             {status.points.map((p, i) => {
@@ -620,10 +614,9 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
               const isShrinking = p.delta < 0;
               return (
                 <div key={p.hour} className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-muted-foreground w-10 text-right shrink-0">{hourLabel(p.hour)}</span>
+                  <span className="text-[10px] font-mono text-muted-foreground w-10 text-right shrink-0">{hLabel(p.hour)}</span>
                   <div className="flex-1 h-5 bg-border/15 rounded overflow-hidden relative">
-                    <div className={cn(
-                      "h-full rounded transition-all duration-300",
+                    <div className={cn("h-full rounded transition-all duration-300",
                       isGrowing ? "bg-gradient-to-r from-blue-600/60 to-red-500/40"
                         : isShrinking ? "bg-gradient-to-r from-blue-600/60 to-emerald-500/40"
                         : "bg-blue-600/40"
@@ -632,8 +625,7 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
                       {p.totalLeads.toLocaleString()}
                     </span>
                   </div>
-                  <span className={cn(
-                    "text-[9px] font-mono font-bold w-12 text-right tabular-nums shrink-0",
+                  <span className={cn("text-[9px] font-mono font-bold w-12 text-right tabular-nums shrink-0",
                     isGrowing ? "text-red-400" : isShrinking ? "text-emerald-400" : "text-muted-foreground/30"
                   )}>
                     {i === 0 ? "—" : `${p.delta > 0 ? "+" : ""}${p.delta}`}
@@ -643,7 +635,6 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
             })}
           </div>
 
-          {/* Status breakdown */}
           <div className="space-y-4">
             <div>
               <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Latest Breakdown</div>
@@ -681,7 +672,7 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
                   <span className="font-bold tabular-nums">{latest.teamAssigns.toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-muted-foreground">Flow Direction</span>
+                  <span className="text-muted-foreground">Flow</span>
                   <span className={cn("font-bold inline-flex items-center gap-1", dirColor)}>
                     <DirectionIcon className="h-3 w-3" />
                     {status.direction} ({status.rate > 0 ? "+" : ""}{status.rate.toFixed(1)}%/hr)
@@ -692,6 +683,24 @@ function PoolFlowPanel({ paceDate }: { paceDate?: string }) {
           </div>
         </div>
       </div>
+
+      {/* Action Items */}
+      {status.actions.length > 0 && (
+        <div className="px-5 py-3 border-t border-border/40 space-y-2">
+          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+            <Megaphone className="h-3 w-3" /> Action Required
+          </div>
+          {status.actions.map((action, i) => {
+            const colors = actionColorMap[action.severity];
+            return (
+              <div key={i} className={cn("border rounded-md p-3 border-l-[3px]", colors.border, colors.bg)}>
+                <div className={cn("text-[11px] font-mono font-bold", colors.text)}>{action.label}</div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-0.5">{action.detail}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1015,139 +1024,151 @@ export default function LeadsPool() {
         </div>
       </div>
 
-      <PaceTracker paceDate={paceDate} onPaceDateChange={setPaceDate} />
+      <Tabs defaultValue="live" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="live" className="text-xs font-mono uppercase tracking-widest gap-1.5">
+            <Activity className="h-3.5 w-3.5" /> Live Ops
+          </TabsTrigger>
+          <TabsTrigger value="report" className="text-xs font-mono uppercase tracking-widest gap-1.5">
+            <Shield className="h-3.5 w-3.5" /> Daily Report
+          </TabsTrigger>
+        </TabsList>
 
-      <PoolFlowPanel paceDate={paceDate} />
+        <TabsContent value="live" className="space-y-4 mt-0">
+          <PaceTracker paceDate={paceDate} onPaceDateChange={setPaceDate} />
+          <PoolFlowPanel paceDate={paceDate} />
+        </TabsContent>
 
-      {loading ? (
-        <div className="border border-dashed border-border rounded-md p-12 flex items-center justify-center bg-card/30">
-          <p className="text-sm font-mono text-muted-foreground animate-pulse">Loading pool data...</p>
-        </div>
-      ) : hasPoolData ? (
-        <>
-          <VelocityMetrics agents={poolAgents} inventory={poolInventory} />
-
-          <PoolScorecard agents={poolAgents} pipelineAgents={pipelineAgents} />
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <PoolInventoryPanel inventory={poolInventory} />
+        <TabsContent value="report" className="space-y-6 mt-0">
+          {loading ? (
+            <div className="border border-dashed border-border rounded-md p-12 flex items-center justify-center bg-card/30">
+              <p className="text-sm font-mono text-muted-foreground animate-pulse">Loading pool data...</p>
             </div>
-            <div className="space-y-3">
-              <div className="bg-card border border-border rounded-md p-4">
-                <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
-                  <Target className="h-3.5 w-3.5" />
-                  T3 Pool KPI Targets
-                </h3>
-                <div className="space-y-2.5">
-                  <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60 block">Pool + Pipeline</span>
-                  {[
-                    { label: "Combined Dials", value: `≥ ${T3_POOL_KPI.MIN_COMBINED_DIALS}`, unit: "/day" },
-                    { label: "Pool Ratio", value: `${T3_POOL_KPI.MIN_POOL_PCT}-${T3_POOL_KPI.MAX_POOL_PCT}%`, unit: " of total" },
-                    { label: "Long Calls", value: `≥ ${T3_POOL_KPI.MIN_LONG_CALLS}`, unit: " (15+ min)" },
-                    { label: "Talk Time", value: `≥ ${T3_POOL_KPI.MIN_TALK_TIME}`, unit: " min total" },
-                    { label: "Assign Rate", value: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}%`, unit: " of answered" },
-                  ].map((kpi) => (
-                    <div key={kpi.label} className="flex items-baseline justify-between">
-                      <span className="text-xs font-mono text-muted-foreground">{kpi.label}</span>
-                      <span className="text-sm font-mono font-bold text-blue-400 tabular-nums">
-                        {kpi.value}<span className="text-[10px] font-normal text-muted-foreground">{kpi.unit}</span>
-                      </span>
-                    </div>
-                  ))}
-                  <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60 block pt-2">Pipeline Discipline</span>
-                  {[
-                    { label: "Past Due", value: "0", unit: " — appointments first" },
-                    { label: "Queue Size", value: `≤ ${T3_POOL_KPI.MAX_QUEUE}`, unit: " leads" },
-                    { label: "Queue Cadence", value: "6 attempts", unit: " then withdraw" },
-                  ].map((kpi) => (
-                    <div key={kpi.label} className="flex items-baseline justify-between">
-                      <span className="text-xs font-mono text-muted-foreground">{kpi.label}</span>
-                      <span className="text-sm font-mono font-bold text-amber-400 tabular-nums">
-                        {kpi.value}<span className="text-[10px] font-normal text-muted-foreground">{kpi.unit}</span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 pt-3 border-t border-border/50">
-                  <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
-                    Pass <span className="text-foreground font-bold">{T3_POOL_KPI.GATES_TO_PASS}/{T3_POOL_KPI.TOTAL_GATES}</span> gates to be compliant.
-                    Follow-ups are appointments (task-date driven). Queue leads get 6 attempts max via the dialer, then withdraw.
-                  </p>
-                </div>
-              </div>
+          ) : hasPoolData ? (
+            <>
+              <VelocityMetrics agents={poolAgents} inventory={poolInventory} />
 
-              {poolAgents.length > 0 && (
-                <div className="bg-card border border-border rounded-md p-4">
-                  <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
-                    <Phone className="h-3.5 w-3.5" />
-                    Top Dialers
-                  </h3>
-                  <div className="space-y-2">
-                    {[...poolAgents]
-                      .sort((a, b) => b.pool.callsMade - a.pool.callsMade)
-                      .slice(0, 5)
-                      .map((a, i) => (
-                        <div key={a.name} className="flex items-center gap-2">
-                          <span className="text-xs font-mono text-muted-foreground w-4">{i + 1}.</span>
-                          <span className="text-sm font-medium flex-1 truncate">{a.name}</span>
-                          <span className="text-sm font-mono font-bold tabular-nums">{a.pool.callsMade}</span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
+              <PoolScorecard agents={poolAgents} pipelineAgents={pipelineAgents} />
 
-              {poolAgents.some((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE && a.tier === "T3") && (
-                <div className="bg-red-500/5 border border-red-500/20 rounded-md p-4">
-                  <h3 className="text-xs font-mono uppercase tracking-widest text-red-400 mb-3 flex items-center gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Below Assign Target (T3)
-                  </h3>
-                  <div className="space-y-2">
-                    {poolAgents
-                      .filter((a) => a.tier === "T3" && a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE)
-                      .sort((a, b) => a.pool.assignRate - b.pool.assignRate)
-                      .map((a) => (
-                        <div key={a.name} className="flex items-center gap-2">
-                          <span className="text-sm font-medium flex-1 truncate">{a.name}</span>
-                          <span className="text-xs font-mono text-muted-foreground">{a.pool.selfAssignedLeads}/{a.pool.answeredCalls} ans</span>
-                          <span className={cn(
-                            "text-sm font-mono font-bold tabular-nums",
-                            a.pool.assignRate < 20 ? "text-red-400" : "text-amber-400"
-                          )}>
-                            {a.pool.assignRate.toFixed(0)}%
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  <PoolInventoryPanel inventory={poolInventory} />
+                </div>
+                <div className="space-y-3">
+                  <div className="bg-card border border-border rounded-md p-4">
+                    <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
+                      <Target className="h-3.5 w-3.5" />
+                      T3 KPI Targets
+                    </h3>
+                    <div className="space-y-2.5">
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60 block">Pool + Pipeline</span>
+                      {[
+                        { label: "Combined Dials", value: `≥ ${T3_POOL_KPI.MIN_COMBINED_DIALS}`, unit: "/day" },
+                        { label: "Pool Ratio", value: `${T3_POOL_KPI.MIN_POOL_PCT}-${T3_POOL_KPI.MAX_POOL_PCT}%`, unit: " of total" },
+                        { label: "Long Calls", value: `≥ ${T3_POOL_KPI.MIN_LONG_CALLS}`, unit: " (15+ min)" },
+                        { label: "Talk Time", value: `≥ ${T3_POOL_KPI.MIN_TALK_TIME}`, unit: " min total" },
+                        { label: "Assign Rate", value: `≥ ${T3_POOL_KPI.MIN_ASSIGN_RATE}%`, unit: " of answered" },
+                      ].map((kpi) => (
+                        <div key={kpi.label} className="flex items-baseline justify-between">
+                          <span className="text-xs font-mono text-muted-foreground">{kpi.label}</span>
+                          <span className="text-sm font-mono font-bold text-blue-400 tabular-nums">
+                            {kpi.value}<span className="text-[10px] font-normal text-muted-foreground">{kpi.unit}</span>
                           </span>
                         </div>
                       ))}
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60 block pt-2">Pipeline Discipline</span>
+                      {[
+                        { label: "Past Due", value: "0", unit: " — appointments first" },
+                        { label: "Queue Size", value: `≤ ${T3_POOL_KPI.MAX_QUEUE}`, unit: " leads" },
+                        { label: "Queue Cadence", value: "6 attempts", unit: " then withdraw" },
+                      ].map((kpi) => (
+                        <div key={kpi.label} className="flex items-baseline justify-between">
+                          <span className="text-xs font-mono text-muted-foreground">{kpi.label}</span>
+                          <span className="text-sm font-mono font-bold text-amber-400 tabular-nums">
+                            {kpi.value}<span className="text-[10px] font-normal text-muted-foreground">{kpi.unit}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-border/50">
+                      <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
+                        Pass <span className="text-foreground font-bold">{T3_POOL_KPI.GATES_TO_PASS}/{T3_POOL_KPI.TOTAL_GATES}</span> gates to be compliant.
+                      </p>
+                    </div>
                   </div>
+
+                  {poolAgents.length > 0 && (
+                    <div className="bg-card border border-border rounded-md p-4">
+                      <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
+                        <Phone className="h-3.5 w-3.5" />
+                        Top Dialers
+                      </h3>
+                      <div className="space-y-2">
+                        {[...poolAgents]
+                          .sort((a, b) => b.pool.callsMade - a.pool.callsMade)
+                          .slice(0, 5)
+                          .map((a, i) => (
+                            <div key={a.name} className="flex items-center gap-2">
+                              <span className="text-xs font-mono text-muted-foreground w-4">{i + 1}.</span>
+                              <span className="text-sm font-medium flex-1 truncate">{a.name}</span>
+                              <span className="text-sm font-mono font-bold tabular-nums">{a.pool.callsMade}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {poolAgents.some((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE && a.tier === "T3") && (
+                    <div className="bg-red-500/5 border border-red-500/20 rounded-md p-4">
+                      <h3 className="text-xs font-mono uppercase tracking-widest text-red-400 mb-3 flex items-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Below Assign Target (T3)
+                      </h3>
+                      <div className="space-y-2">
+                        {poolAgents
+                          .filter((a) => a.tier === "T3" && a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE)
+                          .sort((a, b) => a.pool.assignRate - b.pool.assignRate)
+                          .map((a) => (
+                            <div key={a.name} className="flex items-center gap-2">
+                              <span className="text-sm font-medium flex-1 truncate">{a.name}</span>
+                              <span className="text-xs font-mono text-muted-foreground">{a.pool.selfAssignedLeads}/{a.pool.answeredCalls} ans</span>
+                              <span className={cn(
+                                "text-sm font-mono font-bold tabular-nums",
+                                a.pool.assignRate < 20 ? "text-red-400" : "text-amber-400"
+                              )}>
+                                {a.pool.assignRate.toFixed(0)}%
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          <div className="bg-card border border-border rounded-md p-1">
-            <div className="px-3 py-3 border-b border-border">
-              <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                <Clock className="h-3.5 w-3.5" />
-                Agent Pool Activity
-              </h3>
+              <div className="bg-card border border-border rounded-md p-1">
+                <div className="px-3 py-3 border-b border-border">
+                  <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5" />
+                    Agent Pool Activity
+                  </h3>
+                </div>
+                <PoolAgentTable agents={poolAgents} assignTarget={T3_POOL_KPI.MIN_ASSIGN_RATE} />
+              </div>
+            </>
+          ) : (
+            <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
+              <Users className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm font-mono text-muted-foreground text-center">
+                No leads pool activity for <strong className="text-foreground">{dateLabel}</strong>.
+              </p>
+              <p className="text-xs font-mono text-muted-foreground text-center max-w-md">
+                Pool data is captured from the CRM Leads Pool Report. Activity will appear here once agents begin working the shared lead pool.
+              </p>
             </div>
-            <PoolAgentTable agents={poolAgents} assignTarget={T3_POOL_KPI.MIN_ASSIGN_RATE} />
-          </div>
-
-        </>
-      ) : (
-        <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
-          <Users className="h-8 w-8 text-muted-foreground/30" />
-          <p className="text-sm font-mono text-muted-foreground text-center">
-            No leads pool activity for <strong className="text-foreground">{dateLabel}</strong>.
-          </p>
-          <p className="text-xs font-mono text-muted-foreground text-center max-w-md">
-            Pool data is captured from the CRM Leads Pool Report. Activity will appear here once agents begin working the shared lead pool.
-          </p>
-        </div>
-      )}
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
