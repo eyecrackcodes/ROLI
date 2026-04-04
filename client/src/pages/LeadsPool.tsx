@@ -4,7 +4,10 @@ import { MetricCard } from "@/components/MetricCard";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
-import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, XCircle, Users, Phone, Clock, Target, Calendar, CalendarRange, ChevronLeft, ChevronRight, Zap, Shield, ShieldCheck, ShieldX, Activity, RefreshCw } from "lucide-react";
+import { useIntradayPace } from "@/hooks/useIntradayPace";
+import type { AgentPaceStatus, PaceMetric } from "@/hooks/useIntradayPace";
+import { T3_INTRADAY_TARGETS, BUSINESS_HOURS } from "@/lib/t3Targets";
 import type { DailyPulseAgent, PoolMetrics, PoolInventorySnapshot } from "@/lib/types";
 import type { PipelineAgent } from "@/lib/pipelineIntelligence";
 import { T3_POOL_KPI } from "@/lib/t3Targets";
@@ -510,6 +513,109 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
   );
 }
 
+function PaceBar({ metric, label }: { metric: PaceMetric; label: string }) {
+  const pct = Math.min(metric.pct, 120);
+  const color = metric.behind ? "bg-red-500" : pct >= 100 ? "bg-emerald-500" : "bg-blue-500";
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between text-[9px] font-mono">
+        <span className="text-muted-foreground">{label}</span>
+        <span className={cn("tabular-nums font-bold", metric.behind ? "text-red-400" : "text-foreground")}>
+          {metric.actual}/{metric.expected}
+        </span>
+      </div>
+      <div className="h-1.5 bg-border/40 rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${Math.min(pct, 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PaceTracker() {
+  const { behindAgents, summary, loading, lastRefresh, refresh } = useIntradayPace();
+
+  if (!summary.isBusinessHours && behindAgents.length === 0) return null;
+  if (summary.totalAgents === 0 && !loading) return null;
+
+  const hourLabel = (h: number) => {
+    const suffix = h >= 12 ? "PM" : "AM";
+    const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    return `${display}${suffix}`;
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-md overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-cyan-400" />
+          <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            T3 Intraday Pace
+          </h3>
+          <span className="text-[10px] font-mono text-muted-foreground/60">
+            {hourLabel(summary.currentHour)} CST
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-[10px] font-mono">
+            <span className="text-emerald-400">{summary.onPace} on pace</span>
+            <span className="text-muted-foreground">·</span>
+            {summary.behind > 0 && <span className="text-amber-400">{summary.behind} behind</span>}
+            {summary.critical > 0 && <><span className="text-muted-foreground">·</span><span className="text-red-400">{summary.critical} critical</span></>}
+            {summary.behind === 0 && summary.critical === 0 && <span className="text-emerald-400">all clear</span>}
+          </div>
+          <button onClick={refresh} className="text-muted-foreground/40 hover:text-foreground transition-colors" title="Refresh pace data">
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          </button>
+        </div>
+      </div>
+
+      {behindAgents.length > 0 && (
+        <div className="p-4 space-y-3">
+          {behindAgents.map(agent => (
+            <div key={agent.name} className={cn(
+              "border rounded-md p-3",
+              agent.status === "critical" ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5"
+            )}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="text-sm font-mono font-medium text-foreground hover:text-blue-400 transition-colors">
+                    {agent.name}
+                  </Link>
+                  <span className="text-[9px] font-mono text-muted-foreground">{agent.site}</span>
+                  {agent.status === "critical" ? (
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-red-500/10 text-red-400 border border-red-500/30">CRITICAL</span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">BEHIND</span>
+                  )}
+                </div>
+                <span className="text-[9px] font-mono text-muted-foreground/60">
+                  as of {hourLabel(agent.hour)} · behind on {agent.behindMetrics.join(", ")}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <PaceBar metric={agent.metrics.combinedDials} label="Combined Dials" />
+                <PaceBar metric={agent.metrics.talkTime} label="Talk Time (min)" />
+                <PaceBar metric={agent.metrics.longCalls} label="Long Calls" />
+                <PaceBar metric={agent.metrics.poolDials} label="Pool Dials" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {behindAgents.length === 0 && !loading && (
+        <div className="px-4 py-3 text-center">
+          <p className="text-[11px] font-mono text-emerald-400">All T3 agents on pace — no alerts</p>
+        </div>
+      )}
+
+      <div className="px-4 py-1.5 border-t border-border/50 text-[9px] font-mono text-muted-foreground/40 text-right">
+        Last refresh: {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · auto-refreshes every 5 min
+      </div>
+    </div>
+  );
+}
+
 function VelocityMetrics({ agents, inventory }: { agents: PoolAgent[]; inventory: PoolInventorySnapshot[] }) {
   const totalPoolLeads = inventory.reduce((s, inv) => s + inv.totalLeads, 0);
   const totalCallsMade = agents.reduce((s, a) => s + a.pool.callsMade, 0);
@@ -705,6 +811,8 @@ export default function LeadsPool() {
       ) : hasPoolData ? (
         <>
           <VelocityMetrics agents={poolAgents} inventory={poolInventory} />
+
+          <PaceTracker />
 
           <PoolScorecard agents={poolAgents} pipelineAgents={pipelineAgents} />
 

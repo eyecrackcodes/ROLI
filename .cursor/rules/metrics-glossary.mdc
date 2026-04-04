@@ -151,6 +151,49 @@ The delta is the more actionable signal — a rising past-due count regardless o
 A call is either a Conversation (2-15 min) OR a Presentation (15+ min), never both.
 All close % rates are calculated as `sales / [stage]`, not stage-to-stage.
 
+## Velocity & Intraday Pace (from intraday_snapshots)
+
+Velocity = whether an agent is on track to hit daily SOP targets by end of day.
+Computed from cumulative `intraday_snapshots` data (written hourly by the n8n scrape).
+
+### Pace Curve (CST)
+
+Production day is 9 AM – 5 PM Central (8 hours). Agents typically ramp up in the
+first hour and dip at lunch. The curve is NOT linear — it uses observed production
+patterns to set realistic hourly expectations.
+
+| Hour | Cumulative % | Expected Dials (of 200) | Expected Talk (of 180m) |
+|---|---|---|---|
+| 9 AM | 5% | 10 | 9m |
+| 10 AM | 15% | 30 | 27m |
+| 11 AM | 28% | 56 | 50m |
+| 12 PM | 42% | 84 | 76m |
+| 1 PM | 50% | 100 | 90m |
+| 2 PM | 65% | 130 | 117m |
+| 3 PM | 78% | 156 | 140m |
+| 4 PM | 92% | 184 | 166m |
+| 5 PM | 100% | 200 | 180m |
+
+### Intraday Metrics Tracked
+
+| Metric | Daily Target | Source |
+|---|---|---|
+| Combined Dials | 200 | total_dials + pool_dials |
+| Talk Time | 180 min | talk_time_minutes + pool_talk_minutes |
+| Long Calls | 4 | pool_long_calls |
+| Pool Dials | 50 | pool_dials |
+
+### Behind Pace Definition
+
+An agent is **behind pace** when actual < 80% of expected for that hour.
+An agent is **critical** when behind on 3 or more of the 4 tracked metrics.
+
+Example: At 2 PM, expected combined dials = 200 × 0.65 = 130.
+Behind threshold = 130 × 0.80 = 104. Agent with 103 dials → behind. Agent with 105 → on pace.
+
+The 80% buffer prevents false alerts from minor timing variations (bathroom break,
+long presentation call, etc.).
+
 ## Contact Rate vs Connect Rate vs Contact %
 
 - **Contact Rate** = production dials answered (daily_scrape_data)
