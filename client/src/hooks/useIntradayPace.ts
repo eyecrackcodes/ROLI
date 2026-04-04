@@ -70,21 +70,22 @@ function buildPaceMetric(actual: number, dailyTarget: number, curveValue: number
   return { actual, expected, pct, behind };
 }
 
-export function useIntradayPace() {
+export function useIntradayPace(overrideDate?: string) {
   const [agents, setAgents] = useState<AgentPaceStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
+  const isLive = !overrideDate || overrideDate === getCentralDate();
   const currentHour = getCentralHour();
-  const isBusinessHrs = currentHour >= BUSINESS_HOURS.START && currentHour <= BUSINESS_HOURS.END && isWeekday();
+  const isBusinessHrs = isLive && currentHour >= BUSINESS_HOURS.START && currentHour <= BUSINESS_HOURS.END && isWeekday();
 
   const fetchPace = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     setLoading(true);
 
     try {
-      const todayStr = getCentralDate();
-      const hour = getCentralHour();
+      const todayStr = overrideDate ?? getCentralDate();
+      const hour = isLive ? getCentralHour() : BUSINESS_HOURS.END;
 
       const [{ data: snapRows }, { data: agentRows }] = await Promise.all([
         supabase.from("intraday_snapshots")
@@ -176,15 +177,16 @@ export function useIntradayPace() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [overrideDate, isLive]);
 
   useEffect(() => { fetchPace(); }, [fetchPace]);
 
-  // Auto-refresh every 5 minutes
+  // Auto-refresh every 5 minutes (only for live/today view)
   useEffect(() => {
+    if (!isLive) return;
     const interval = setInterval(fetchPace, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [fetchPace]);
+  }, [fetchPace, isLive]);
 
   const summary = useMemo<PaceSummary>(() => ({
     totalAgents: agents.length,

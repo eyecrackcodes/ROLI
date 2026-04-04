@@ -532,9 +532,11 @@ function PaceBar({ metric, label }: { metric: PaceMetric; label: string }) {
 }
 
 function PaceTracker() {
-  const { behindAgents, summary, loading, lastRefresh, refresh } = useIntradayPace();
+  const [paceDate, setPaceDate] = useState<string | undefined>(undefined);
+  const { behindAgents, summary, loading, lastRefresh, refresh, agents } = useIntradayPace(paceDate);
+  const isHistorical = !!paceDate;
 
-  if (!summary.isBusinessHours && behindAgents.length === 0) return null;
+  if (!isHistorical && !summary.isBusinessHours && behindAgents.length === 0) return null;
   if (summary.totalAgents === 0 && !loading) return null;
 
   const hourLabel = (h: number) => {
@@ -551,9 +553,9 @@ function PaceTracker() {
           <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
             T3 Intraday Pace
           </h3>
-          <span className="text-[10px] font-mono text-muted-foreground/60">
-            {hourLabel(summary.currentHour)} CST
-          </span>
+          {isHistorical
+            ? <span className="text-[10px] font-mono text-amber-400">Replay: {paceDate}</span>
+            : <span className="text-[10px] font-mono text-muted-foreground/60">{hourLabel(summary.currentHour)} CST</span>}
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-[10px] font-mono">
@@ -563,18 +565,25 @@ function PaceTracker() {
             {summary.critical > 0 && <><span className="text-muted-foreground">·</span><span className="text-red-400">{summary.critical} critical</span></>}
             {summary.behind === 0 && summary.critical === 0 && <span className="text-emerald-400">all clear</span>}
           </div>
+          <Input type="date" value={paceDate ?? ""} onChange={e => setPaceDate(e.target.value || undefined)}
+            className="h-6 w-auto text-[10px] font-mono border bg-card px-1.5" title="Replay a past day" />
+          {isHistorical && (
+            <button onClick={() => setPaceDate(undefined)} className="text-[10px] font-mono text-blue-400 hover:text-blue-300">Live</button>
+          )}
           <button onClick={refresh} className="text-muted-foreground/40 hover:text-foreground transition-colors" title="Refresh pace data">
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           </button>
         </div>
       </div>
 
-      {behindAgents.length > 0 && (
+      {(isHistorical ? agents : behindAgents).length > 0 && (
         <div className="p-4 space-y-3">
-          {behindAgents.map(agent => (
+          {(isHistorical ? agents : behindAgents).map(agent => (
             <div key={agent.name} className={cn(
               "border rounded-md p-3",
-              agent.status === "critical" ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5"
+              agent.status === "critical" ? "border-red-500/30 bg-red-500/5"
+                : agent.status === "behind" ? "border-amber-500/30 bg-amber-500/5"
+                : "border-emerald-500/20 bg-emerald-500/5"
             )}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -584,12 +593,14 @@ function PaceTracker() {
                   <span className="text-[9px] font-mono text-muted-foreground">{agent.site}</span>
                   {agent.status === "critical" ? (
                     <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-red-500/10 text-red-400 border border-red-500/30">CRITICAL</span>
-                  ) : (
+                  ) : agent.status === "behind" ? (
                     <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">BEHIND</span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">ON PACE</span>
                   )}
                 </div>
                 <span className="text-[9px] font-mono text-muted-foreground/60">
-                  as of {hourLabel(agent.hour)} · behind on {agent.behindMetrics.join(", ")}
+                  as of {hourLabel(agent.hour)}{agent.behindMetrics.length > 0 ? ` · behind on ${agent.behindMetrics.join(", ")}` : ""}
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -603,7 +614,12 @@ function PaceTracker() {
         </div>
       )}
 
-      {behindAgents.length === 0 && !loading && (
+      {agents.length === 0 && !loading && (
+        <div className="px-4 py-3 text-center">
+          <p className="text-[11px] font-mono text-muted-foreground">{isHistorical ? `No intraday data for ${paceDate}` : "No intraday data for today"}</p>
+        </div>
+      )}
+      {!isHistorical && behindAgents.length === 0 && agents.length > 0 && !loading && (
         <div className="px-4 py-3 text-center">
           <p className="text-[11px] font-mono text-emerald-400">All T3 agents on pace — no alerts</p>
         </div>
