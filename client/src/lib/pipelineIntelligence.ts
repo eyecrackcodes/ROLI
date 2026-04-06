@@ -238,7 +238,7 @@ export interface PriorDayCompliance {
 }
 
 const STALE_QUEUE_RATE: Record<string, number> = { T1: 0.15, T2: 0.10, T3: 0.08 };
-const FALLBACK_PREMIUM: Record<string, number> = { T1: 400, T2: 300, T3: 250 };
+const FALLBACK_PREMIUM: Record<string, number> = { T1: 400, T2: 300, T3: 1150 };
 const FALLBACK_CR: Record<string, number> = { T1: 0.08, T2: 0.06, T3: 0.04 };
 const MIN_DAYS_FOR_AGENT_STATS = 3;
 
