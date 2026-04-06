@@ -500,13 +500,13 @@ export function AgentDrillDown({
                   />
                   <StatCard
                     label="Dials"
-                    value={(latestDay.dials + latestDay.poolDials)}
-                    sub={latestDay.poolDials > 0 ? `CRM:${latestDay.dials} Pool:${latestDay.poolDials}` : undefined}
+                    value={latestDay.dials}
+                    sub={latestDay.poolDials > 0 ? `Queue:${Math.max(0, latestDay.dials - latestDay.poolDials)} Pool:${latestDay.poolDials}` : undefined}
                   />
                   <StatCard
                     label="Talk Time"
-                    value={`${Math.round(latestDay.talkTime + latestDay.poolTalk)} min`}
-                    sub={latestDay.poolTalk > 0 ? `CRM:${Math.round(latestDay.talkTime)}m Pool:${Math.round(latestDay.poolTalk)}m` : undefined}
+                    value={`${Math.round(latestDay.talkTime)} min`}
+                    sub={latestDay.poolTalk > 0 ? `Queue:${Math.max(0, Math.round(latestDay.talkTime - latestDay.poolTalk))}m Pool:${Math.round(latestDay.poolTalk)}m` : undefined}
                   />
                 </div>
               </div>
@@ -878,7 +878,7 @@ export function AgentDrillDown({
                   { label: "Sales", data: daily.map(d => d.sales), color: "#34d399" },
                   { label: "Premium", data: daily.map(d => d.premium), color: "#60a5fa" },
                   { label: "CR%", data: daily.map(d => d.closeRate), color: "#fbbf24" },
-                  { label: "Total Dials", data: daily.map(d => d.dials + d.poolDials), color: "#a78bfa" },
+                  { label: "Total Dials", data: daily.map(d => d.dials), color: "#a78bfa" },
                   ...(daily.some(d => d.poolDials > 0)
                     ? [
                         { label: "Contact %", data: daily.map(d => d.poolContactRate), color: "#22d3ee" },

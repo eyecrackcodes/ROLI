@@ -106,10 +106,9 @@ function buildT3Scorecards(agents: PoolAgent[], pipelineAgents: PipelineAgent[])
     .map((a) => {
       const p = a.pool;
       const pipe = pipeMap.get(a.name);
-      const regDials = pipe?.totalDials ?? 0;
-      const regTalk = pipe?.talkTimeMin ?? 0;
-      const combinedDials = regDials + p.callsMade;
-      const combinedTalk = regTalk + p.talkTimeMin;
+      // Calls Report totalDials already includes pool dials (deduplicated)
+      const combinedDials = pipe?.totalDials ?? 0;
+      const combinedTalk = pipe?.talkTimeMin ?? 0;
       const poolPct = combinedDials > 0 ? (p.callsMade / combinedDials) * 100 : 0;
       const pastDue = pipe?.pastDue ?? 0;
       const callQueue = pipe?.callQueue ?? 0;

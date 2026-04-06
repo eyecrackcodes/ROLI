@@ -555,8 +555,9 @@ export function useAgentProfile(agentName: string | null, startDate: string, end
         const pl = poolMap.get(date);
         const c = compMap.get(date);
 
-        const regDials = p?.total_dials ?? 0;
-        const regTalk = p?.talk_time_minutes ?? 0;
+        // Calls Report total_dials already includes pool dials (deduplicated per lead)
+        const combinedDials = p?.total_dials ?? 0;
+        const combinedTalk = p?.talk_time_minutes ?? 0;
         const ibSales = p?.ib_sales ?? 0;
         const obSales = p?.ob_sales ?? 0;
         const bonusSales = p?.custom_sales ?? 0;
@@ -581,14 +582,14 @@ export function useAgentProfile(agentName: string | null, startDate: string, end
         const newLeads = c?.new_leads ?? null;
         const postSaleLeads = c?.post_sale_leads ?? null;
 
-        const combinedDials = regDials + poolDials;
-        const combinedTalk = regTalk + poolTalk;
+        const regDials = Math.max(0, combinedDials - poolDials);
+        const regTalk = Math.max(0, combinedTalk - poolTalk);
         const combinedSales = regSales + poolSales;
         const combinedPremium = regPremium + poolPremium;
         const poolPct = combinedDials > 0 ? (poolDials / combinedDials) * 100 : 0;
         const assignRate = poolAnswered > 0 ? (poolAssigned / poolAnswered) * 100 : 0;
 
-        const gates = buildT3Gates(poolDials, poolAnswered, assignRate, poolLongCalls, poolTalk, regDials, regTalk, pastDue, callQueue);
+        const gates = buildT3Gates(poolDials, poolAnswered, assignRate, poolLongCalls, combinedDials, combinedTalk, pastDue, callQueue);
         const gatesPassed = gates.filter(g => g.status === "pass").length;
 
         return {

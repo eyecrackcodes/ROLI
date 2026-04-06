@@ -492,7 +492,7 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
         <td className="px-3 py-2 text-right">{agent.pastDueDelta != null ? <DeltaChip value={agent.pastDueDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.callQueue}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalStale}</td>
-        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalDials + agent.poolDials}</td>
+        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalDials}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalSales}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{fmt(agent.totalPremium)}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums text-red-400">{fmt(agent.revenueAtRisk)}</td>
@@ -525,8 +525,9 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
               <div className="space-y-1">
                 <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block">Production</span>
                 <div className="text-[11px] font-mono space-y-0.5">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Reg Dials</span><span>{agent.totalDials}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Total Dials</span><span>{agent.totalDials}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Pool Dials</span><span className="text-cyan-400">{agent.poolDials}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Queue Dials</span><span>{Math.max(0, agent.totalDials - agent.poolDials)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Talk Time</span><span>{Math.round(agent.talkTimeMin)}m</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">IB Sales</span><span>{agent.ibSales}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">OB Sales</span><span>{agent.obSales}</span></div>
@@ -1118,7 +1119,7 @@ export default function PipelineIntelligence() {
                   <td className="px-3 py-2 text-right"><DeltaChip value={sorted.reduce((s, a) => s + (a.pastDueDelta ?? 0), 0)} /></td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.callQueue, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalStale, 0)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalDials + a.poolDials, 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalDials, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalSales, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(sorted.reduce((s, a) => s + a.totalPremium, 0))}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-red-400">{fmt(sorted.reduce((s, a) => s + a.revenueAtRisk, 0))}</td>

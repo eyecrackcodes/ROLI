@@ -127,11 +127,12 @@ export function useIntradayPace(overrideDate?: string) {
         const agentCurveHour = Math.min(Math.max(row.scrape_hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END);
         const agentCurve = T3_PACE_CURVE[agentCurveHour] ?? curveValue;
 
+        // Calls Report total_dials already includes pool dials (deduplicated)
         const combinedDials = buildPaceMetric(
-          (row.total_dials ?? 0) + (row.pool_dials ?? 0),
+          row.total_dials ?? 0,
           T3_INTRADAY_TARGETS.COMBINED_DIALS, agentCurve);
         const talkTime = buildPaceMetric(
-          (row.talk_time_minutes ?? 0) + (row.pool_talk_minutes ?? 0),
+          row.talk_time_minutes ?? 0,
           T3_INTRADAY_TARGETS.TALK_TIME, agentCurve);
         const longCalls = buildPaceMetric(
           row.pool_long_calls ?? 0,

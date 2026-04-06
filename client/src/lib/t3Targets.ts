@@ -47,14 +47,16 @@ export function buildT3Gates(
   poolAnswered: number,
   poolAssignRate: number,
   poolLongCalls: number,
-  poolTalkMin: number,
-  regDials: number,
-  regTalkMin: number,
+  totalDials: number,
+  totalTalkMin: number,
   pastDue: number | null,
   callQueue: number | null,
 ): ScorecardGate[] {
-  const combinedDials = regDials + poolDials;
-  const combinedTalk = regTalkMin + poolTalkMin;
+  // Calls Report total_dials already includes pool dials (deduplicated per lead).
+  // Pool Report calls_made captures all pool dials including repeats.
+  // Pool % = pool dials / calls report total. Do NOT add pool on top.
+  const combinedDials = totalDials;
+  const combinedTalk = totalTalkMin;
   const poolPct = combinedDials > 0 ? (poolDials / combinedDials) * 100 : 0;
 
   return [

@@ -115,12 +115,13 @@ function calcPipelineFreshness(totalStale: number, newLeads: number, callQueue: 
 }
 
 function calcWorkRate(
-  totalDials: number, poolDials: number,
+  totalDials: number,
   newLeads: number, callQueue: number, pastDue: number, todaysFollowUps: number,
 ): number {
   const pipeline = newLeads + callQueue + pastDue + todaysFollowUps;
   if (pipeline === 0) return 25;
-  const ratio = Math.min((totalDials + poolDials) / pipeline, 1);
+  // totalDials from Calls Report already includes pool dials
+  const ratio = Math.min(totalDials / pipeline, 1);
   return ratio * 25;
 }
 
@@ -180,7 +181,8 @@ function detectFlags(agent: PipelineAgent, tierAvgCR: number): BehavioralFlag[] 
     flags.push("FOLLOWUP_AVOIDER");
   }
 
-  if (agent.poolDials > agent.totalDials && agent.totalDials > 0 && agent.callQueue > 10) {
+  const poolPct = agent.totalDials > 0 ? (agent.poolDials / agent.totalDials) * 100 : 0;
+  if (poolPct > 40 && agent.callQueue > 10) {
     flags.push("POOL_FARMER");
   }
 
@@ -372,7 +374,7 @@ export function buildPipelineAgents(
 
     const followUpDiscipline = calcFollowUpDiscipline(pastDue, todaysFollowUps);
     const pipelineFreshness = calcPipelineFreshness(totalStale, newLeads, callQueue, pastDue);
-    const workRateScore = calcWorkRate(totalDials, poolDials, newLeads, callQueue, pastDue, todaysFollowUps);
+    const workRateScore = calcWorkRate(totalDials, newLeads, callQueue, pastDue, todaysFollowUps);
     const totalLeads = ibLeads + obLeads;
     const agentFunnel = funnelMap?.get(name);
     const conversionEfficiency = calcConversionEfficiency(totalSales, totalLeads, tierAvgCR, agentFunnel);
