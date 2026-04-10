@@ -1,9 +1,12 @@
-// T3 Outbound KPI Targets (v2 — three-channel model)
+// T3 Outbound KPI Targets (v3 — pool-first model)
 // Shared between LeadsPool scorecard, AgentProfile, and coaching logic
 //
+// Pool-first rationale: repeated queue dialing from the same numbers
+// triggers carrier spam filters. Pool dials are one-time calls to
+// different numbers each session, avoiding spam flagging.
+//
 // Intraday pace curve: cumulative % of daily target expected by each hour (CST).
-// Production day is 9 AM – 5 PM Central (8 hours). Curve accounts for
-// morning ramp-up, lunch dip, and afternoon pool session patterns.
+// Production day is 9 AM – 5 PM Central (8 hours).
 
 export const T3_PACE_CURVE: Record<number, number> = {
   9: 0.05, 10: 0.15, 11: 0.28, 12: 0.42,
@@ -13,8 +16,8 @@ export const T3_PACE_CURVE: Record<number, number> = {
 export const T3_INTRADAY_TARGETS = {
   COMBINED_DIALS: 200,
   TALK_TIME: 180,
-  LONG_CALLS: 4,
-  POOL_DIALS: 50,
+  LONG_CALLS: 6,
+  POOL_DIALS: 150,
   BEHIND_THRESHOLD: 0.80,
 } as const;
 
@@ -22,13 +25,13 @@ export const BUSINESS_HOURS = { START: 9, END: 17 } as const;
 
 export const T3_POOL_KPI = {
   MIN_COMBINED_DIALS: 200,
-  MIN_POOL_PCT: 25,
-  MAX_POOL_PCT: 45,
-  MIN_LONG_CALLS: 4,
+  MIN_POOL_PCT: 55,
+  MAX_POOL_PCT: 80,
+  MIN_LONG_CALLS: 6,
   MIN_TALK_TIME: 180,
-  MIN_ASSIGN_RATE: 30,
+  MIN_ASSIGN_RATE: 40,
   MAX_PAST_DUE: 0,
-  MAX_QUEUE: 120,
+  MAX_QUEUE: 80,
   GATES_TO_PASS: 5,
   TOTAL_GATES: 7,
 } as const;

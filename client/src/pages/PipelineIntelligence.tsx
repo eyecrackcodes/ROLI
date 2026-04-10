@@ -167,17 +167,17 @@ function usePipelineHistory(selectedDate: string) {
 }
 
 function PipelineMomentum({
-  agents, tierFilter, teamFilter, selectedDate,
+  agents, siteFilter, teamFilter, selectedDate,
 }: {
   agents: PipelineAgent[];
-  tierFilter: string;
+  siteFilter: string;
   teamFilter: string;
   selectedDate: string;
 }) {
   const { history, dates, loading } = usePipelineHistory(selectedDate);
 
   const { daySummaries, agentDeltas, priorDate } = useMemo(() => {
-    if (dates.length === 0) return { daySummaries: [] as DaySummary[], agentDeltas: [] as Array<{ name: string; tier: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }>, priorDate: "" };
+    if (dates.length === 0) return { daySummaries: [] as DaySummary[], agentDeltas: [] as Array<{ name: string; tier: string; site: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }>, priorDate: "" };
 
     const agentSet = new Set(agents.map(a => a.name));
 
@@ -196,7 +196,7 @@ function PipelineMomentum({
     const today = dates[dates.length - 1];
     const prior = dates.length >= 2 ? dates[dates.length - 2] : null;
 
-    const deltas: Array<{ name: string; tier: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }> = [];
+    const deltas: Array<{ name: string; tier: string; site: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }> = [];
 
     if (prior) {
       const todayByAgent = new Map<string, PipelineSnapshotRow>();
@@ -216,7 +216,7 @@ function PipelineMomentum({
         const pnl = p ? (p.new_leads ?? 0) : nl;
         const pcq = p ? (p.call_queue_count ?? 0) : cq;
         deltas.push({
-          name, tier: t.tier, manager: agent?.manager ?? null,
+          name, tier: t.tier, site: agent?.site ?? "—", manager: agent?.manager ?? null,
           pastDue: pd, pastDueDelta: pd - ppd,
           newLeads: nl, newLeadsDelta: nl - pnl,
           callQueue: cq, callQueueDelta: cq - pcq,
@@ -228,19 +228,22 @@ function PipelineMomentum({
     return { daySummaries: summaries, agentDeltas: deltas, priorDate: prior ?? "" };
   }, [history, dates, agents]);
 
-  const tierSummary = useMemo(() => {
-    const tiers = ["T1", "T2", "T3"];
-    return tiers.map(tier => {
-      const tAgents = agentDeltas.filter(d => d.tier === tier);
-      return {
-        tier,
-        count: tAgents.length,
-        pastDue: tAgents.reduce((s, d) => s + d.pastDue, 0),
-        pastDueDelta: tAgents.reduce((s, d) => s + d.pastDueDelta, 0),
-        stale: tAgents.reduce((s, d) => s + d.stale, 0),
-        staleDelta: tAgents.reduce((s, d) => s + d.staleDelta, 0),
-      };
-    }).filter(t => t.count > 0);
+  const siteSummary = useMemo(() => {
+    const sites = new Map<string, typeof agentDeltas>();
+    for (const d of agentDeltas) {
+      const key = d.site ?? "Other";
+      const arr = sites.get(key) ?? [];
+      arr.push(d);
+      sites.set(key, arr);
+    }
+    return Array.from(sites).map(([site, members]) => ({
+      site,
+      count: members.length,
+      pastDue: members.reduce((s, d) => s + d.pastDue, 0),
+      pastDueDelta: members.reduce((s, d) => s + d.pastDueDelta, 0),
+      stale: members.reduce((s, d) => s + d.stale, 0),
+      staleDelta: members.reduce((s, d) => s + d.staleDelta, 0),
+    })).filter(s => s.count > 0).sort((a, b) => a.site.localeCompare(b.site));
   }, [agentDeltas]);
 
   const teamSummary = useMemo(() => {
@@ -316,22 +319,22 @@ function PipelineMomentum({
 
       {/* Tier and Team breakdowns */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* By Tier */}
+        {/* By Site */}
         <div className="bg-card border border-border rounded-md p-4">
-          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">By Tier</h4>
+          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">By Site</h4>
           <div className="space-y-2">
-            {tierSummary.map(t => (
-              <div key={t.tier} className="flex items-center gap-3">
+            {siteSummary.map(s => (
+              <div key={s.site} className="flex items-center gap-3">
                 <span className={cn(
-                  "px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border w-8 text-center",
-                  t.tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                    : t.tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                    : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                )}>{t.tier}</span>
-                <span className="text-[10px] font-mono text-muted-foreground w-16">{t.count} agents</span>
+                  "px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border w-10 text-center",
+                  s.site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30"
+                    : s.site === "CLT" || s.site === "CHA" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                    : "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                )}>{s.site}</span>
+                <span className="text-[10px] font-mono text-muted-foreground w-16">{s.count} agents</span>
                 <div className="flex-1 flex items-center gap-4">
-                  <span className="text-[10px] font-mono">Past Due: {t.pastDue} <DeltaChip value={t.pastDueDelta} /></span>
-                  <span className="text-[10px] font-mono">Stale: {t.stale} <DeltaChip value={t.staleDelta} /></span>
+                  <span className="text-[10px] font-mono">Past Due: {s.pastDue} <DeltaChip value={s.pastDueDelta} /></span>
+                  <span className="text-[10px] font-mono">Stale: {s.stale} <DeltaChip value={s.staleDelta} /></span>
                 </div>
               </div>
             ))}
@@ -748,7 +751,7 @@ export default function PipelineIntelligence() {
   const { pipelineAgents, pipelineLoading, selectedDate, availableDates } = data;
   const { sort, toggle } = useSort("healthScore");
   const [drillAgent, setDrillAgent] = useState<{ name: string; tier: string; site: string } | null>(null);
-  const [tierFilter, _setTierFilter] = useState<string>("ALL");
+  const [siteFilter, _setSiteFilter] = useState<string>("ALL");
   const [flagFilter, _setFlagFilter] = useState<string>("ALL");
   const [teamFilter, _setTeamFilter] = useState<string>("ALL");
   const [insightsOpen, setInsightsOpen] = useState(true);
@@ -756,7 +759,7 @@ export default function PipelineIntelligence() {
   const PAGE_SIZE = 25;
   const [activeTab, setActiveTab] = useState<PipelineTab>("health");
 
-  const setTierFilter = useCallback((v: string) => { _setTierFilter(v); setPage(0); }, []);
+  const setSiteFilter = useCallback((v: string) => { _setSiteFilter(v); setPage(0); }, []);
   const setFlagFilter = useCallback((v: string) => { _setFlagFilter(v); setPage(0); }, []);
   const setTeamFilter = useCallback((v: string) => { _setTeamFilter(v); setPage(0); }, []);
 
@@ -768,9 +771,15 @@ export default function PipelineIntelligence() {
 
   const summary = useMemo(() => buildPipelineSummary(pipelineAgents), [pipelineAgents]);
 
+  const allSites = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of pipelineAgents) s.add(a.site);
+    return Array.from(s).sort();
+  }, [pipelineAgents]);
+
   const filtered = useMemo(() => {
     let agents = [...pipelineAgents];
-    if (tierFilter !== "ALL") agents = agents.filter(a => a.tier === tierFilter);
+    if (siteFilter !== "ALL") agents = agents.filter(a => a.site === siteFilter);
     if (teamFilter !== "ALL") {
       if (teamFilter === "UNASSIGNED") agents = agents.filter(a => !a.manager);
       else agents = agents.filter(a => a.manager === teamFilter);
@@ -780,7 +789,7 @@ export default function PipelineIntelligence() {
       else agents = agents.filter(a => a.flags.includes(flagFilter as BehavioralFlag));
     }
     return agents;
-  }, [pipelineAgents, tierFilter, teamFilter, flagFilter]);
+  }, [pipelineAgents, siteFilter, teamFilter, flagFilter]);
 
   const sorted = useMemo(() => {
     const key = sort.key as keyof PipelineAgent;
@@ -1059,7 +1068,7 @@ export default function PipelineIntelligence() {
           {/* Pipeline Momentum */}
           <PipelineMomentum
             agents={filtered}
-            tierFilter={tierFilter}
+            siteFilter={siteFilter}
             teamFilter={teamFilter}
             selectedDate={selectedDate}
           />
@@ -1067,19 +1076,19 @@ export default function PipelineIntelligence() {
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5">
-              <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Tier:</span>
-              {["ALL", "T1", "T2", "T3"].map(t => (
+              <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Site:</span>
+              {["ALL", ...allSites].map(s => (
                 <button
-                  key={t}
-                  onClick={() => setTierFilter(t)}
+                  key={s}
+                  onClick={() => setSiteFilter(s)}
                   className={cn(
                     "px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors",
-                    tierFilter === t
+                    siteFilter === s
                       ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
                       : "bg-card text-muted-foreground border-border hover:text-foreground"
                   )}
                 >
-                  {t}
+                  {s}
                 </button>
               ))}
             </div>

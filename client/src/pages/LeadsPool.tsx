@@ -98,11 +98,11 @@ interface AgentScorecard {
   pool: PoolMetrics;
 }
 
-function buildT3Scorecards(agents: PoolAgent[], pipelineAgents: PipelineAgent[]): AgentScorecard[] {
+function buildPoolScorecards(agents: PoolAgent[], pipelineAgents: PipelineAgent[]): AgentScorecard[] {
   const pipeMap = new Map(pipelineAgents.map(a => [a.name, a]));
 
   return agents
-    .filter((a) => a.tier === "T3")
+    .filter((a) => a.pool.callsMade > 0)
     .map((a) => {
       const p = a.pool;
       const pipe = pipeMap.get(a.name);
@@ -185,13 +185,13 @@ function GateBadge({ status }: { status: GateStatus }) {
 }
 
 function PoolScorecard({ agents, pipelineAgents }: { agents: PoolAgent[]; pipelineAgents: PipelineAgent[] }) {
-  const scorecards = useMemo(() => buildT3Scorecards(agents, pipelineAgents), [agents, pipelineAgents]);
-  const t3Count = agents.filter((a) => a.tier === "T3").length;
+  const scorecards = useMemo(() => buildPoolScorecards(agents, pipelineAgents), [agents, pipelineAgents]);
+  const poolCount = agents.filter((a) => a.pool.callsMade > 0).length;
 
-  if (t3Count === 0) return null;
+  if (poolCount === 0) return null;
 
   const compliantCount = scorecards.filter((s) => s.compliant).length;
-  const compliancePct = t3Count > 0 ? ((compliantCount / t3Count) * 100).toFixed(0) : "0";
+  const compliancePct = poolCount > 0 ? ((compliantCount / poolCount) * 100).toFixed(0) : "0";
 
   return (
     <div className="bg-card border border-border rounded-md overflow-hidden">
@@ -199,12 +199,12 @@ function PoolScorecard({ agents, pipelineAgents }: { agents: PoolAgent[]; pipeli
         <div className="flex items-center gap-2">
           <Shield className="h-4 w-4 text-blue-400" />
           <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-            T3 Pool Compliance
+            Pool Compliance
           </h3>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
-            {compliantCount}/{t3Count} compliant
+            {compliantCount}/{poolCount} compliant
           </span>
           <span className={cn(
             "text-sm font-mono font-bold tabular-nums",
@@ -430,7 +430,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
         </thead>
         <tbody>
           {sorted.map((agent, i) => {
-            const effectiveTarget = agent.tier === "T3" ? T3_POOL_KPI.MIN_ASSIGN_RATE : assignTarget;
+            const effectiveTarget = T3_POOL_KPI.MIN_ASSIGN_RATE;
             const belowTarget = agent.pool.assignRate < effectiveTarget && agent.pool.answeredCalls > 0;
             return (
               <tr
@@ -447,11 +447,8 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
                     <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 transition-colors">
                       {agent.name}
                     </Link>
-                    <span className={cn(
-                      "text-[10px] font-mono px-1.5 py-0.5 rounded border",
-                      agent.tier === "T3" ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
-                    )}>
-                      {agent.tier}
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border text-blue-400 border-blue-500/30 bg-blue-500/10">
+                      {agent.site}
                     </span>
                   </div>
                 </td>
@@ -465,7 +462,7 @@ function PoolAgentTable({ agents, assignTarget }: { agents: PoolAgent[]; assignT
                 </td>
                 <td className={cn(
                   "px-3 py-2.5 font-mono text-right tabular-nums",
-                  agent.tier === "T3" && agent.pool.longCalls < T3_POOL_KPI.MIN_LONG_CALLS ? "text-red-400" : undefined
+                  agent.pool.longCalls < T3_POOL_KPI.MIN_LONG_CALLS ? "text-red-400" : undefined
                 )}>
                   {agent.pool.longCalls}
                 </td>
@@ -1117,15 +1114,15 @@ export default function LeadsPool() {
                     </div>
                   )}
 
-                  {poolAgents.some((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE && a.tier === "T3") && (
+                  {poolAgents.some((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE) && (
                     <div className="bg-red-500/5 border border-red-500/20 rounded-md p-4">
                       <h3 className="text-xs font-mono uppercase tracking-widest text-red-400 mb-3 flex items-center gap-2">
                         <AlertTriangle className="h-3.5 w-3.5" />
-                        Below Assign Target (T3)
+                        Below Assign Target
                       </h3>
                       <div className="space-y-2">
                         {poolAgents
-                          .filter((a) => a.tier === "T3" && a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE)
+                          .filter((a) => a.pool.answeredCalls > 0 && a.pool.assignRate < T3_POOL_KPI.MIN_ASSIGN_RATE)
                           .sort((a, b) => a.pool.assignRate - b.pool.assignRate)
                           .map((a) => (
                             <div key={a.name} className="flex items-center gap-2">

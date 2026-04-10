@@ -182,15 +182,16 @@ export default function BonusTracker() {
     };
   }, [rows, bonusAgents.length]);
 
-  const tierBreakdown = useMemo(() => {
-    return (["T1", "T2", "T3"] as const).map((tier) => {
-      const tierRows = rows.filter((r) => r.tier === tier);
-      const leads = tierRows.reduce((s, r) => s + (r.custom_leads ?? 0), 0);
-      const sales = tierRows.reduce((s, r) => s + (r.custom_sales ?? 0), 0);
-      const premium = tierRows.reduce((s, r) => s + Number(r.custom_premium ?? 0), 0);
-      const agentsWithActivity = new Set(tierRows.filter((r) => (r.custom_leads ?? 0) > 0 || (r.custom_sales ?? 0) > 0).map((r) => r.agent_name)).size;
-      const totalAgents = new Set(tierRows.map((r) => r.agent_name)).size;
-      return { tier, leads, sales, premium, agentsWithActivity, totalAgents };
+  const siteBreakdown = useMemo(() => {
+    const siteSet = new Set(rows.map(r => r.site ?? "Other"));
+    return Array.from(siteSet).sort().map((site) => {
+      const siteRows = rows.filter((r) => (r.site ?? "Other") === site);
+      const leads = siteRows.reduce((s, r) => s + (r.custom_leads ?? 0), 0);
+      const sales = siteRows.reduce((s, r) => s + (r.custom_sales ?? 0), 0);
+      const premium = siteRows.reduce((s, r) => s + Number(r.custom_premium ?? 0), 0);
+      const agentsWithActivity = new Set(siteRows.filter((r) => (r.custom_leads ?? 0) > 0 || (r.custom_sales ?? 0) > 0).map((r) => r.agent_name)).size;
+      const totalAgents = new Set(siteRows.map((r) => r.agent_name)).size;
+      return { site, leads, sales, premium, agentsWithActivity, totalAgents };
     });
   }, [rows]);
 
@@ -282,22 +283,22 @@ export default function BonusTracker() {
             <MetricCard label="Agents Active" value={totals.agentsWithBonus} subtext={`of ${new Set(rows.map((r) => r.agent_name)).size}`} />
           </div>
 
-          {/* Tier breakdown */}
+          {/* Site breakdown */}
           <div className="bg-card border border-border rounded-md p-4">
             <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">
-              Bonus Production by Tier
+              Bonus Production by Site
             </h3>
-            <div className="grid grid-cols-3 gap-4">
-              {tierBreakdown.map(({ tier, leads, sales, premium, agentsWithActivity, totalAgents }) => (
-                <div key={tier} className="p-3 rounded-md bg-background border border-border">
+            <div className={cn("grid gap-4", siteBreakdown.length === 2 ? "grid-cols-2" : siteBreakdown.length >= 3 ? "grid-cols-3" : "grid-cols-1")}>
+              {siteBreakdown.map(({ site, leads, sales, premium, agentsWithActivity, totalAgents }) => (
+                <div key={site} className="p-3 rounded-md bg-background border border-border">
                   <div className="flex items-center justify-between mb-2">
                     <span className={cn(
                       "px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border",
-                      tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
-                      tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                      "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                      site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
+                      site === "CLT" || site === "CHA" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                      "bg-blue-500/10 text-blue-400 border-blue-500/30"
                     )}>
-                      {tier}
+                      {site}
                     </span>
                     <span className="text-[10px] font-mono text-muted-foreground">{agentsWithActivity}/{totalAgents} agents</span>
                   </div>
@@ -341,7 +342,6 @@ export default function BonusTracker() {
                     <tr className="border-b border-border text-left">
                       <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-12">#</th>
                       <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
-                      <SortHeader label="Tier" sortKey="tier" current={sort} onToggle={toggle} align="left" />
                       <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
                       <SortHeader label="Days" sortKey="daysActive" current={sort} onToggle={toggle} />
                       <SortHeader label="Bonus Leads" sortKey="bonusLeads" current={sort} onToggle={toggle} />
@@ -367,14 +367,13 @@ export default function BonusTracker() {
                         <td className="px-3 py-2.5">
                           <span className={cn(
                             "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border",
-                            agent.tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
-                            agent.tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                            "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                            agent.site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
+                            (agent.site === "CLT" || agent.site === "CHA") ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                            "bg-blue-500/10 text-blue-400 border-blue-500/30"
                           )}>
-                            {agent.tier}
+                            {agent.site}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                         <td className="px-3 py-2.5 font-mono text-right tabular-nums text-muted-foreground">{agent.daysActive}</td>
                         <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.bonusLeads}</td>
                         <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold text-purple-400">{agent.bonusSales}</td>

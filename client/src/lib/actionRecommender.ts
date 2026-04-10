@@ -1,5 +1,6 @@
 import type { Tier } from "./types";
 import { TIER_CONFIGS, type TierConfig } from "./tierTargets";
+import { UNIFIED_CONFIG, UNIFIED_POOL } from "./unifiedTargets";
 
 // ============================================================
 // Action Recommender Engine
@@ -27,6 +28,8 @@ export interface ActionMetrics {
   pipelineSize: number | null;
   callQueue: number | null;
   poolDials: number;
+  poolSelfAssigned: number;
+  poolPct: number;
   todaysLeads: number;
   todaysSales: number;
   todaysDials: number;
@@ -288,13 +291,20 @@ function recommendT3(
   weeklyCR: number | null,
   dailyCRs: number[],
   pipeline: PipelineSnapshot | undefined,
-  _intraday: IntradaySnapshot | undefined,
+  intraday: IntradaySnapshot | undefined,
   pool: PoolSnapshot | undefined,
 ): { action: ActionType; severity: ActionSeverity; reason: string } {
   const pastDue = pipeline?.pastDue ?? 0;
   const callQueue = pipeline?.callQueue ?? 0;
   const consecutiveLow = countConsecutiveLowCRDays(dailyCRs, config.CR_CRISIS);
+  const poolDials = pool?.poolDials ?? 0;
+  const totalDials = intraday?.totalDials ?? 0;
+  const poolPct = totalDials > 0 ? (poolDials / totalDials) * 100 : 0;
+  const poolAnswered = pool?.poolAnswered ?? 0;
+  const poolSelfAssigned = pool?.poolSelfAssigned ?? 0;
+  const assignRate = poolAnswered > 0 ? (poolSelfAssigned / poolAnswered) * 100 : 0;
 
+  // P1: Past due follow-ups are always critical
   if (pastDue > 0) {
     return {
       action: "WORK_FOLLOWUPS",
@@ -303,14 +313,16 @@ function recommendT3(
     };
   }
 
-  if (callQueue > 200) {
+  // P2: Queue over 120 is critically bloated (spam risk compounds with large queues)
+  if (callQueue > 120) {
     return {
       action: "CLEAR_PIPELINE",
       severity: "critical",
-      reason: `Queue bloated at ${callQueue} leads (max 200). Stop pool sessions and withdraw leads past 6 contact attempts.`,
+      reason: `Queue bloated at ${callQueue} leads (critical: >120). Stop pool sessions and withdraw leads past 6 contact attempts — large queues amplify spam flagging.`,
     };
   }
 
+  // P3: Sustained low close rate
   if (consecutiveLow >= config.CR_CRISIS_DAYS && weeklyCR !== null) {
     return {
       action: "REVIEW_QUALITY",
@@ -319,33 +331,30 @@ function recommendT3(
     };
   }
 
+  // P4: Queue over max (80) needs cleanup
   if (callQueue > config.MAX_PIPELINE) {
     return {
       action: "CLEAR_PIPELINE",
       severity: "warning",
-      reason: `Queue at ${callQueue} (healthy max ${config.MAX_PIPELINE}). Reduce pool time and enforce 6-attempt withdrawal cadence.`,
+      reason: `Queue at ${callQueue} (max ${config.MAX_PIPELINE}). Withdraw stale contacts past 6 attempts before adding more from pool.`,
     };
   }
 
-  if (callQueue < 50) {
+  // P5: Pool-first check — agent spending too much time in queue
+  if (totalDials > 0 && poolPct < 55) {
     return {
       action: "GET_IN_POOL",
       severity: "warning",
-      reason: `Queue light at ${callQueue} leads (healthy: 50–120). Increase pool time and self-assign more answered contacts.`,
+      reason: `Pool dials at ${poolPct.toFixed(0)}% of total (target: 55-80%). Shift time from queue to pool — queue dialing causes spam flags.`,
     };
   }
 
-  if (
-    weeklyCR !== null &&
-    weeklyCR >= config.CR_TARGET &&
-    callQueue >= 50 &&
-    callQueue <= config.MAX_PIPELINE &&
-    pastDue === 0
-  ) {
+  // P6: Low self-assign rate in pool
+  if (poolAnswered > 10 && assignRate < 30) {
     return {
-      action: "ON_TRACK",
-      severity: "info",
-      reason: `CR ${weeklyCR.toFixed(0)}% · Queue ${callQueue} · Past due ${pastDue} — performing well.`,
+      action: "GET_IN_POOL",
+      severity: "warning",
+      reason: `Pool assign rate at ${assignRate.toFixed(0)}% (target: 40%+). Self-assign every answered contact to remove from rotation.`,
     };
   }
 
@@ -353,8 +362,91 @@ function recommendT3(
     action: "ON_TRACK",
     severity: "info",
     reason: weeklyCR !== null
-      ? `CR ${weeklyCR.toFixed(0)}% · Queue ${callQueue} · Past due ${pastDue} — on track.`
-      : `Queue ${callQueue} · Past due ${pastDue} — on track.`,
+      ? `CR ${weeklyCR.toFixed(0)}% · Queue ${callQueue} · Pool ${poolPct.toFixed(0)}% · Past due ${pastDue} — on track.`
+      : `Queue ${callQueue} · Pool ${poolPct.toFixed(0)}% · Past due ${pastDue} — on track.`,
+  };
+}
+
+function recommendUnified(
+  config: TierConfig,
+  weeklyCR: number | null,
+  dailyCRs: number[],
+  pipeline: PipelineSnapshot | undefined,
+  intraday: IntradaySnapshot | undefined,
+  pool: PoolSnapshot | undefined,
+): { action: ActionType; severity: ActionSeverity; reason: string } {
+  const pastDue = pipeline?.pastDue ?? 0;
+  const pipelineSize = (pipeline?.newLeads ?? 0) + (pipeline?.todaysFollowUps ?? 0) + pastDue;
+  const consecutiveLow = countConsecutiveLowCRDays(dailyCRs, config.CR_CRISIS);
+  const poolSelfAssigned = pool?.poolSelfAssigned ?? 0;
+
+  if (pastDue > 0) {
+    return {
+      action: "WORK_FOLLOWUPS",
+      severity: "critical",
+      reason: `${pastDue} past due follow-up${pastDue > 1 ? "s" : ""} — $${pastDue * config.LEAD_COST} in lead spend at risk. Work these before taking any new calls or entering the pool.`,
+    };
+  }
+
+  if (pipelineSize > config.MAX_PIPELINE) {
+    return {
+      action: "CLEAR_PIPELINE",
+      severity: "critical",
+      reason: `Pipeline at ${pipelineSize} leads (max ${config.MAX_PIPELINE}). Close out stale leads before accepting new inbound or pool contacts.`,
+    };
+  }
+
+  if (consecutiveLow >= config.CR_CRISIS_DAYS && weeklyCR !== null) {
+    return {
+      action: "REVIEW_QUALITY",
+      severity: "critical",
+      reason: `Close rate below ${config.CR_CRISIS}% for ${consecutiveLow} consecutive days (weekly: ${weeklyCR.toFixed(0)}%). Audit call quality and presentations.`,
+    };
+  }
+
+  if (weeklyCR !== null && weeklyCR < config.CR_FLOOR) {
+    return {
+      action: "WORK_FOLLOWUPS",
+      severity: "warning",
+      reason: `Weekly CR at ${weeklyCR.toFixed(0)}% (floor: ${config.CR_FLOOR}%). Focus on converting existing pipeline before taking more volume.`,
+    };
+  }
+
+  if (poolSelfAssigned < UNIFIED_POOL.FOLLOWUPS_PER_DAY && (intraday?.talkTimeMin ?? 0) > 60) {
+    return {
+      action: "GET_IN_POOL",
+      severity: "warning",
+      reason: `Only ${poolSelfAssigned} pool self-assigns today (target: ${UNIFIED_POOL.FOLLOWUPS_PER_DAY}). Find 5 people from the pool to follow up with.`,
+    };
+  }
+
+  if (
+    weeklyCR !== null &&
+    weeklyCR >= config.CR_TARGET &&
+    pipelineSize < 20 &&
+    pastDue === 0
+  ) {
+    return {
+      action: "TAKE_MORE_LEADS",
+      severity: "info",
+      reason: `CR at ${weeklyCR.toFixed(0)}% with clean pipeline (${pipelineSize} leads). Eligible for additional leads beyond 7/day.`,
+    };
+  }
+
+  if (pipelineSize < 10 && (pool?.poolDials ?? 0) === 0) {
+    return {
+      action: "GET_IN_POOL",
+      severity: "info",
+      reason: `Light pipeline at ${pipelineSize} leads with zero pool dials. Pool session will build follow-up pipeline.`,
+    };
+  }
+
+  return {
+    action: "ON_TRACK",
+    severity: "info",
+    reason: weeklyCR !== null
+      ? `CR ${weeklyCR.toFixed(0)}% · Pipeline ${pipelineSize} · Pool assigns ${poolSelfAssigned} — on track.`
+      : `Pipeline ${pipelineSize} · Pool assigns ${poolSelfAssigned} — on track.`,
   };
 }
 
@@ -365,11 +457,12 @@ export function computeRecommendations(
   pipelineMap: Map<string, PipelineSnapshot>,
   intradayMap: Map<string, IntradaySnapshot>,
   poolMap: Map<string, PoolSnapshot>,
+  useUnified = true,
 ): AgentRecommendation[] {
   const results: AgentRecommendation[] = [];
 
   for (const agent of weeklyStats) {
-    const config = TIER_CONFIGS[agent.tier];
+    const config = useUnified ? UNIFIED_CONFIG : TIER_CONFIGS[agent.tier];
     const { weeklyCR, dailyCRs } = computeWeeklyCR(agent.dailyRows, agent.tier);
     const pipeline = pipelineMap.get(agent.name);
     const intraday = intradayMap.get(agent.name);
@@ -377,16 +470,20 @@ export function computeRecommendations(
 
     let result: { action: ActionType; severity: ActionSeverity; reason: string };
 
-    switch (agent.tier) {
-      case "T1":
-        result = recommendT1(config, weeklyCR, dailyCRs, pipeline, intraday);
-        break;
-      case "T2":
-        result = recommendT2(config, weeklyCR, dailyCRs, pipeline, intraday, pool);
-        break;
-      case "T3":
-        result = recommendT3(config, weeklyCR, dailyCRs, pipeline, intraday, pool);
-        break;
+    if (useUnified) {
+      result = recommendUnified(config, weeklyCR, dailyCRs, pipeline, intraday, pool);
+    } else {
+      switch (agent.tier) {
+        case "T1":
+          result = recommendT1(config, weeklyCR, dailyCRs, pipeline, intraday);
+          break;
+        case "T2":
+          result = recommendT2(config, weeklyCR, dailyCRs, pipeline, intraday, pool);
+          break;
+        case "T3":
+          result = recommendT3(config, weeklyCR, dailyCRs, pipeline, intraday, pool);
+          break;
+      }
     }
 
     const pastDue = pipeline?.pastDue ?? null;
@@ -394,6 +491,13 @@ export function computeRecommendations(
     const pipelineSize = pipeline
       ? (pipeline.newLeads + pipeline.todaysFollowUps + (pipeline.pastDue ?? 0))
       : null;
+    const poolDials = pool?.poolDials ?? 0;
+    const poolSelfAssigned = pool?.poolSelfAssigned ?? 0;
+    const totalDials = intraday?.totalDials ?? 0;
+    const poolPct = totalDials > 0 ? (poolDials / totalDials) * 100 : 0;
+
+    const todaysLeads = intraday ? intraday.ibLeadsDelivered + intraday.obLeads : 0;
+    const todaysSales = intraday ? intraday.ibSales + intraday.obSales : 0;
 
     results.push({
       name: agent.name,
@@ -409,14 +513,12 @@ export function computeRecommendations(
         pastDue,
         pipelineSize,
         callQueue,
-        poolDials: pool?.poolDials ?? 0,
-        todaysLeads: intraday
-          ? intraday.ibLeadsDelivered + intraday.obLeads
-          : 0,
-        todaysSales: intraday
-          ? intraday.ibSales + intraday.obSales
-          : 0,
-        todaysDials: intraday?.totalDials ?? 0,
+        poolDials,
+        poolSelfAssigned,
+        poolPct,
+        todaysLeads,
+        todaysSales,
+        todaysDials: totalDials,
         todaysTalkMin: intraday?.talkTimeMin ?? 0,
       },
     });

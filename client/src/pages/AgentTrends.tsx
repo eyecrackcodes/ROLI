@@ -577,10 +577,10 @@ export default function AgentTrends() {
             {activeAgents.map((a) => (
               <SelectItem key={a.name} value={a.name} className="font-mono">
                 <span className={cn(
-                  "inline-block w-6 text-[10px] font-bold mr-2",
-                  a.tier === "T1" ? "text-blue-400" : a.tier === "T2" ? "text-emerald-400" : "text-amber-400"
+                  "inline-block w-8 text-[10px] font-bold mr-2",
+                  a.site === "RMT" ? "text-violet-400" : (a.site === "CLT" || a.site === "CHA") ? "text-emerald-400" : "text-blue-400"
                 )}>
-                  {a.tier}
+                  {a.site}
                 </span>
                 {a.name}
               </SelectItem>
@@ -591,13 +591,13 @@ export default function AgentTrends() {
           <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
             <span className={cn(
               "px-2 py-0.5 rounded-full font-bold border",
-              currentAgent.tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
-              currentAgent.tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-              "bg-amber-500/10 text-amber-400 border-amber-500/30"
+              currentAgent.site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
+              (currentAgent.site === "CLT" || currentAgent.site === "CHA") ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+              "bg-blue-500/10 text-blue-400 border-blue-500/30"
             )}>
-              {currentAgent.tier}
+              {currentAgent.site}
             </span>
-            <span>{currentAgent.site}</span>
+            <span className="text-[10px] font-mono text-muted-foreground/60">{currentAgent.tier}</span>
             <span>Vol: {currentAgent.daily_lead_volume}/day</span>
           </div>
         )}

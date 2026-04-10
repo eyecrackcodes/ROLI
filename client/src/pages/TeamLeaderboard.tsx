@@ -25,15 +25,15 @@ function RankMedal({ rank }: { rank: number }) {
   return <span className="text-[11px] font-mono text-muted-foreground tabular-nums w-4 text-center">{rank}</span>;
 }
 
-function TierBadge({ tier }: { tier: string }) {
+function SiteBadge({ site }: { site: string }) {
   return (
     <span className={cn(
       "px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border",
-      tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
-      tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-      "bg-amber-500/10 text-amber-400 border-amber-500/30"
+      site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
+      (site === "CLT" || site === "CHA") ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+      "bg-blue-500/10 text-blue-400 border-blue-500/30"
     )}>
-      {tier}
+      {site}
     </span>
   );
 }
@@ -60,8 +60,7 @@ function AgentRow({ agent, isTop, isBottom }: { agent: TeamAgentStats; isTop: bo
           <span className={cn(isTop && "text-emerald-400", isBottom && "text-red-400")}>{agent.name}</span>
         </div>
       </td>
-      <td className="px-3 py-2 text-center"><TierBadge tier={agent.tier} /></td>
-      <td className="px-3 py-2 font-mono text-xs text-center text-muted-foreground">{agent.site}</td>
+      <td className="px-3 py-2 text-center"><SiteBadge site={agent.site} /></td>
       <td className="px-3 py-2 font-mono text-xs text-right tabular-nums">{agent.totalSales}</td>
       <td className="px-3 py-2 font-mono text-xs text-right tabular-nums">{fmt(agent.totalPremium)}</td>
       <td className="px-3 py-2 font-mono text-xs text-right tabular-nums">{fmt(agent.profit)}</td>
@@ -152,7 +151,6 @@ function TeamCard({ team, expanded, onToggle }: { team: TeamSummary; expanded: b
               <thead>
                 <tr className="border-b border-border text-left">
                   <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Agent</th>
-                  <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-center">Tier</th>
                   <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-center">Site</th>
                   <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Sales</th>
                   <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Premium</th>

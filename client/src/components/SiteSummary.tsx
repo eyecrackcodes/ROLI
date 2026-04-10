@@ -127,29 +127,38 @@ function SiteCard({
 }
 
 export function SiteSummary({ agents, showProfit }: SiteSummaryProps) {
-  const atx = calcSite(agents, "AUS");
+  const rmt = calcSite(agents, "RMT");
   const clt = calcSite(agents, "CHA");
+  const atx = calcSite(agents, "AUS");
+
+  const sites: Array<{ label: string; stats: SiteStats }> = [];
+  if (rmt.agents > 0) sites.push({ label: "RMT (Remote)", stats: rmt });
+  if (clt.agents > 0) sites.push({ label: "CLT (Charlotte)", stats: clt });
+  if (atx.agents > 0) sites.push({ label: "ATX (Austin)", stats: atx });
 
   const combined: SiteStats = {
-    sales: atx.sales + clt.sales,
-    premium: atx.premium + clt.premium,
-    ibLeads: atx.ibLeads + clt.ibLeads,
-    ibSales: atx.ibSales + clt.ibSales,
-    obLeads: atx.obLeads + clt.obLeads,
-    obSales: atx.obSales + clt.obSales,
-    bonus: atx.bonus + clt.bonus,
+    sales: sites.reduce((s, x) => s + x.stats.sales, 0),
+    premium: sites.reduce((s, x) => s + x.stats.premium, 0),
+    ibLeads: sites.reduce((s, x) => s + x.stats.ibLeads, 0),
+    ibSales: sites.reduce((s, x) => s + x.stats.ibSales, 0),
+    obLeads: sites.reduce((s, x) => s + x.stats.obLeads, 0),
+    obSales: sites.reduce((s, x) => s + x.stats.obSales, 0),
+    bonus: sites.reduce((s, x) => s + x.stats.bonus, 0),
     bonusPremium: 0,
-    agents: atx.agents + clt.agents,
-    profit: atx.profit + clt.profit,
-    leadCost: atx.leadCost + clt.leadCost,
+    agents: sites.reduce((s, x) => s + x.stats.agents, 0),
+    profit: sites.reduce((s, x) => s + x.stats.profit, 0),
+    leadCost: sites.reduce((s, x) => s + x.stats.leadCost, 0),
   };
 
   if (combined.agents === 0) return null;
 
+  const cols = sites.length + 1;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      <SiteCard label="ATX (Austin)" stats={atx} showProfit={showProfit} />
-      <SiteCard label="CLT (Charlotte)" stats={clt} showProfit={showProfit} />
+    <div className={`grid grid-cols-1 md:grid-cols-${Math.min(cols, 4)} gap-3`}>
+      {sites.map(({ label, stats }) => (
+        <SiteCard key={label} label={label} stats={stats} showProfit={showProfit} />
+      ))}
       <SiteCard label="Combined" stats={combined} showProfit={showProfit} className="border-blue-500/30" />
     </div>
   );

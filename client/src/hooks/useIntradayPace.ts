@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { T3_PACE_CURVE, T3_INTRADAY_TARGETS, BUSINESS_HOURS } from "@/lib/t3Targets";
+import { UNIFIED_PACE_CURVE, UNIFIED_INTRADAY_TARGETS } from "@/lib/unifiedTargets";
 
 interface IntradayRow {
   agent_name: string;
@@ -91,22 +92,19 @@ export function useIntradayPace(overrideDate?: string) {
         supabase.from("intraday_snapshots")
           .select("agent_name, scrape_hour, total_dials, talk_time_minutes, pool_dials, pool_talk_minutes, pool_long_calls, pool_self_assigned")
           .eq("scrape_date", todayStr)
-          .eq("tier", "T3")
           .order("scrape_hour", { ascending: false }),
         supabase.from("agents")
-          .select("name, site")
-          .eq("tier", "T3")
+          .select("name, site, tier")
           .eq("is_active", true),
       ]);
 
       if (!snapRows || !agentRows) { setAgents([]); return; }
 
-      const siteMap = new Map<string, string>();
-      for (const a of agentRows as Array<{ name: string; site: string }>) {
-        siteMap.set(a.name, a.site);
+      const agentInfo = new Map<string, { site: string; tier: string }>();
+      for (const a of agentRows as Array<{ name: string; site: string; tier: string }>) {
+        agentInfo.set(a.name, { site: a.site, tier: a.tier });
       }
 
-      // Get the latest snapshot per agent
       const latestByAgent = new Map<string, IntradayRow>();
       for (const r of snapRows as IntradayRow[]) {
         if (!latestByAgent.has(r.agent_name)) {
@@ -114,32 +112,39 @@ export function useIntradayPace(overrideDate?: string) {
         }
       }
 
-      // Find the closest pace curve value for the current hour
       const curveHour = Math.min(Math.max(hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END);
-      const curveValue = T3_PACE_CURVE[curveHour] ?? 1.0;
 
       const results: AgentPaceStatus[] = [];
       for (const [name, row] of latestByAgent) {
-        if (!siteMap.has(name)) continue;
+        const info = agentInfo.get(name);
+        if (!info) continue;
 
-        // Use the agent's latest snapshot hour for the curve, not wall clock,
-        // so we compare what they've done vs what they should have by that hour
         const agentCurveHour = Math.min(Math.max(row.scrape_hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END);
-        const agentCurve = T3_PACE_CURVE[agentCurveHour] ?? curveValue;
 
-        // Calls Report total_dials already includes pool dials (deduplicated)
-        const combinedDials = buildPaceMetric(
-          row.total_dials ?? 0,
-          T3_INTRADAY_TARGETS.COMBINED_DIALS, agentCurve);
-        const talkTime = buildPaceMetric(
-          row.talk_time_minutes ?? 0,
-          T3_INTRADAY_TARGETS.TALK_TIME, agentCurve);
-        const longCalls = buildPaceMetric(
+        // Use T3-specific targets for legacy T3 agents, unified for everyone else
+        const isT3 = info.tier === "T3";
+        const paceCurve = isT3 ? T3_PACE_CURVE : UNIFIED_PACE_CURVE;
+        const agentCurve = paceCurve[agentCurveHour] ?? (paceCurve[curveHour] ?? 1.0);
+        const threshold = isT3 ? T3_INTRADAY_TARGETS.BEHIND_THRESHOLD : UNIFIED_INTRADAY_TARGETS.BEHIND_THRESHOLD;
+
+        const buildMetric = (actual: number, target: number): PaceMetric => {
+          const expected = Math.round(target * agentCurve);
+          const pct = expected > 0 ? (actual / expected) * 100 : (actual > 0 ? 100 : 0);
+          return { actual, expected, pct, behind: actual < expected * threshold };
+        };
+
+        const combinedDials = isT3
+          ? buildMetric(row.total_dials ?? 0, T3_INTRADAY_TARGETS.COMBINED_DIALS)
+          : buildMetric(row.total_dials ?? 0, UNIFIED_INTRADAY_TARGETS.IB_LEADS * 30);
+        const talkTime = isT3
+          ? buildMetric(row.talk_time_minutes ?? 0, T3_INTRADAY_TARGETS.TALK_TIME)
+          : buildMetric(row.talk_time_minutes ?? 0, UNIFIED_INTRADAY_TARGETS.TALK_TIME);
+        const longCalls = buildMetric(
           row.pool_long_calls ?? 0,
-          T3_INTRADAY_TARGETS.LONG_CALLS, agentCurve);
-        const poolDials = buildPaceMetric(
+          isT3 ? T3_INTRADAY_TARGETS.LONG_CALLS : 2);
+        const poolDials = buildMetric(
           row.pool_dials ?? 0,
-          T3_INTRADAY_TARGETS.POOL_DIALS, agentCurve);
+          isT3 ? T3_INTRADAY_TARGETS.POOL_DIALS : UNIFIED_INTRADAY_TARGETS.POOL_FOLLOWUPS * 10);
 
         const behindMetrics: string[] = [];
         if (combinedDials.behind) behindMetrics.push("Dials");
@@ -154,7 +159,7 @@ export function useIntradayPace(overrideDate?: string) {
 
         results.push({
           name,
-          site: siteMap.get(name) ?? "—",
+          site: info.site,
           hour: row.scrape_hour,
           metrics: { combinedDials, talkTime, longCalls, poolDials },
           behindMetrics,

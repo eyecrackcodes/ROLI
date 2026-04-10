@@ -8,6 +8,7 @@ import {
   type ScorecardGate,
   buildT3Gates,
 } from "./t3Targets";
+import { UNIFIED_CONFIG } from "./unifiedTargets";
 
 // Re-export T3 targets for unified access
 export {
@@ -18,6 +19,8 @@ export {
   buildT3Gates,
 };
 export type { GateStatus, ScorecardGate };
+
+export { UNIFIED_CONFIG };
 
 // ============================================================
 // Tier-Specific Target Definitions
@@ -130,7 +133,7 @@ export const T3_CONFIG: TierConfig = {
   CR_FLOOR: 4,
   CR_CRISIS: 3,
   CR_CRISIS_DAYS: 3,
-  MAX_PIPELINE: 120,
+  MAX_PIPELINE: 80,
   MAX_PAST_DUE: 0,
   DAILY_LEADS: 25,
   LEAD_COST: 15,
@@ -144,7 +147,14 @@ export const TIER_CONFIGS: Record<Tier, TierConfig> = {
   T3: T3_CONFIG,
 };
 
-export function getTierConfig(tier: Tier): TierConfig {
+/**
+ * Returns the operational config for an agent.
+ * After the 2026-04-10 org restructure, all active agents use UNIFIED_CONFIG.
+ * Pass `useUnified: true` for active agents; historical views can pass false
+ * to get the original tier-specific config.
+ */
+export function getTierConfig(tier: Tier, useUnified = false): TierConfig {
+  if (useUnified) return UNIFIED_CONFIG;
   return TIER_CONFIGS[tier];
 }
 

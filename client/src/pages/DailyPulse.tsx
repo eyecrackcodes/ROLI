@@ -180,6 +180,184 @@ function PoolOriginTag({ agent }: { agent: DailyPulseAgent }) {
   );
 }
 
+function UnifiedTable({ agents, onAgentClick, teamFilter = "ALL" }: {
+  agents: DailyPulseAgent[];
+  onAgentClick?: (agent: DailyPulseAgent) => void;
+  teamFilter?: string;
+}) {
+  const { sort, toggle } = useSort("totalPremium");
+  const [siteFilter, setSiteFilter] = useState("ALL");
+  const sites = useMemo(() => {
+    const s = new Set(agents.map(a => a.site));
+    return Array.from(s).sort();
+  }, [agents]);
+
+  const filtered = useMemo(() => {
+    let list = agents;
+    if (siteFilter !== "ALL") list = list.filter(a => a.site === siteFilter);
+    if (teamFilter !== "ALL") {
+      if (teamFilter === "UNASSIGNED") list = list.filter(a => !a.manager);
+      else list = list.filter(a => a.manager === teamFilter);
+    }
+    return list;
+  }, [agents, siteFilter, teamFilter]);
+  const sorted = useMemo(() => sortAgents(filtered, sort), [filtered, sort]);
+  const hasFunnel = filtered.some(a => a.funnel && a.funnel.dials > 0);
+  const hasPool = filtered.some(a => a.pool && a.pool.callsMade > 0);
+
+  const totalPremium = filtered.reduce((s, a) => s + a.totalPremium, 0);
+  const totalSales = filtered.reduce((s, a) => s + a.salesToday, 0);
+  const totalIB = filtered.reduce((s, a) => s + (a.ibCalls ?? 0), 0);
+  const totalIBSales = filtered.reduce((s, a) => s + (a.ibSales ?? 0), 0);
+  const totalOB = filtered.reduce((s, a) => s + (a.obLeads ?? 0), 0);
+  const totalOBSales = filtered.reduce((s, a) => s + (a.obSales ?? 0), 0);
+  const totalPoolSales = filtered.reduce((s, a) => s + (a.pool?.salesMade ?? 0), 0);
+  const totalPoolAssigned = filtered.reduce((s, a) => s + (a.pool?.selfAssignedLeads ?? 0), 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Site filter pills */}
+      {sites.length > 1 && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Site:</span>
+          {["ALL", ...sites].map(s => (
+            <button
+              key={s}
+              onClick={() => setSiteFilter(s)}
+              className={cn(
+                "px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors",
+                siteFilter === s
+                  ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
+                  : "bg-card text-muted-foreground border-border hover:text-foreground"
+              )}
+            >
+              {s} {s !== "ALL" && `(${agents.filter(a => a.site === s).length})`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Summary metrics */}
+      <div className={cn("grid grid-cols-2 gap-3", hasPool ? "sm:grid-cols-6" : "sm:grid-cols-5")}>
+        <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
+        <MetricCard label="Total Sales" value={totalSales} color="green" />
+        <MetricCard label="IB CR" value={formatCR(totalIBSales, totalIB)} color="yellow" />
+        <MetricCard label="OB CR" value={formatCR(totalOBSales, totalOB)} color="yellow" />
+        {hasPool && (
+          <MetricCard
+            label="Pool CR"
+            value={totalPoolAssigned > 0 ? `${((totalPoolSales / totalPoolAssigned) * 100).toFixed(1)}%` : "--"}
+            color={totalPoolAssigned > 0 && (totalPoolSales / totalPoolAssigned) >= 0.10 ? "green" : totalPoolSales > 0 ? "amber" : "default"}
+            subtext={`${totalPoolSales} sales / ${totalPoolAssigned} assigned`}
+          />
+        )}
+        <MetricCard label="Agents" value={filtered.length} />
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left">
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-12">#</th>
+              <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
+              <SortHeader label="IB Calls" sortKey="ibCalls" current={sort} onToggle={toggle} />
+              <SortHeader label="IB Sales" sortKey="ibSales" current={sort} onToggle={toggle} />
+              <SortHeader label="IB CR" sortKey="ibCR" current={sort} onToggle={toggle} />
+              <SortHeader label="OB Leads" sortKey="obLeads" current={sort} onToggle={toggle} />
+              <SortHeader label="OB Sales" sortKey="obSales" current={sort} onToggle={toggle} />
+              <SortHeader label="OB CR" sortKey="obCR" current={sort} onToggle={toggle} />
+              {hasPool && <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-cyan-400/70 text-right">Pool Sales</th>}
+              {hasPool && <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-cyan-400/70 text-right">Pool CR</th>}
+              {hasFunnel && <SortHeader label="Contacts" sortKey="contacts" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Convos" sortKey="conversations" current={sort} onToggle={toggle} />}
+              {hasFunnel && <SortHeader label="Pres" sortKey="presentations" current={sort} onToggle={toggle} />}
+              <SortHeader label="Premium" sortKey="totalPremium" current={sort} onToggle={toggle} />
+              <SortHeader label="Bonus" sortKey="bonus" current={sort} onToggle={toggle} />
+              <SortHeader label="MTD ROLI" sortKey="mtdROLI" current={sort} onToggle={toggle} />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((agent, i) => (
+              <tr
+                key={agent.name}
+                className={cn(
+                  "border-b border-border/50 transition-colors hover:bg-accent/30",
+                  i % 2 === 0 ? "bg-transparent" : "bg-card/30"
+                )}
+              >
+                <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
+                <td className="px-3 py-2.5 font-semibold text-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
+                    <button onClick={(e) => { e.stopPropagation(); onAgentClick?.(agent); }} className="text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3" /></button>
+                    <PoolBadge pool={agent.pool} />
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibSales ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.ibSales ?? 0} leads={agent.ibCalls ?? 0} /></td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  <span className="inline-flex items-center justify-end">{agent.obSales ?? 0}<PoolOriginTag agent={agent} /></span>
+                </td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.obSales ?? 0} leads={agent.obLeads ?? 0} /></td>
+                {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{agent.pool?.salesMade ? agent.pool.salesMade : <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.pool?.salesMade ?? 0} leads={agent.pool?.selfAssignedLeads ?? 0} /></td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.contactsMade ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums font-bold">{formatCurrency(agent.totalPremium)}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  {(agent.bonusSales ?? 0) > 0 ? (
+                    <span className="text-purple-400">
+                      {agent.bonusSales} <span className="text-[10px] text-purple-400/70">/ {formatCurrency(agent.bonusPremium ?? 0)}</span>
+                    </span>
+                  ) : <span className="text-muted-foreground">--</span>}
+                </td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
+                  <span className={cn(
+                    (agent.mtdROLI ?? 0) >= 1.5 ? "text-emerald-400" :
+                    (agent.mtdROLI ?? 0) >= 0.75 ? "text-amber-400" : "text-red-400"
+                  )}>
+                    {(agent.mtdROLI ?? 0).toFixed(2)}x
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-border bg-card/60 font-bold text-foreground">
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 text-xs uppercase tracking-widest text-muted-foreground">Total ({filtered.length})</td>
+              <td className="px-3 py-2.5" />
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalIB}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalIBSales}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalIBSales} leads={totalIB} /></td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalOB}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalOBSales}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalOBSales} leads={totalOB} /></td>
+              {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{totalPoolSales || "--"}</td>}
+              {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalPoolSales} leads={totalPoolAssigned} /></td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.contactsMade ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
+              {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{filtered.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-blue-400">{formatCurrency(totalPremium)}</td>
+              {(() => {
+                const totalBonusSales = filtered.reduce((s, a) => s + (a.bonusSales ?? 0), 0);
+                const totalBonusPrem = filtered.reduce((s, a) => s + (a.bonusPremium ?? 0), 0);
+                return <td className="px-3 py-2.5 font-mono text-right tabular-nums text-purple-400">{totalBonusSales > 0 ? `${totalBonusSales} / ${formatCurrency(totalBonusPrem)}` : "--"}</td>;
+              })()}
+              <td className="px-3 py-2.5" />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function T3Table({ onAgentClick, teamFilter = "ALL" }: { onAgentClick?: (agent: DailyPulseAgent) => void; teamFilter?: string }) {
   const { dailyT3, workingDaysCompleted } = useData();
   const { sort, toggle } = useSort("talkTime");
@@ -996,28 +1174,7 @@ export default function DailyPulse() {
           <p className="text-sm font-mono text-muted-foreground animate-pulse">Loading data...</p>
         </div>
       ) : hasData ? (
-        <Tabs defaultValue="t3" className="w-full">
-          <TabsList className="bg-card border border-border">
-            <TabsTrigger value="t3" className="font-mono text-xs data-[state=active]:bg-accent">
-              TIER 3 — OUTBOUND ({data.dailyT3.length})
-            </TabsTrigger>
-            <TabsTrigger value="t2" className="font-mono text-xs data-[state=active]:bg-accent">
-              TIER 2 — HYBRID ({data.dailyT2.length})
-            </TabsTrigger>
-            <TabsTrigger value="t1" className="font-mono text-xs data-[state=active]:bg-accent">
-              TIER 1 — INBOUND ({data.dailyT1.length})
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="t3" className="mt-4">
-            <T3Table onAgentClick={handleAgentClick} teamFilter={teamFilter} />
-          </TabsContent>
-          <TabsContent value="t2" className="mt-4">
-            <T2Table onAgentClick={handleAgentClick} teamFilter={teamFilter} />
-          </TabsContent>
-          <TabsContent value="t1" className="mt-4">
-            <T1Table onAgentClick={handleAgentClick} teamFilter={teamFilter} />
-          </TabsContent>
-        </Tabs>
+        <UnifiedTable agents={allAgents} onAgentClick={handleAgentClick} teamFilter={teamFilter} />
       ) : (
         <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
           <div className="text-4xl font-mono text-muted-foreground/20">---</div>

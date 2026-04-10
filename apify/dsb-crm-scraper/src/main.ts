@@ -17,11 +17,14 @@ interface ActorInput {
   scrapeDate?: string;
   loginUrl?: string;
   poolReconcileDays?: number;
+  agentTiers?: Record<string, string>;
 }
+
+type TierLabel = "T1" | "T2" | "T3";
 
 interface AgentRecord {
   agent_name: string;
-  tier: "T1" | "T2" | "T3";
+  tier: TierLabel;
   ib_leads_delivered: number;
   ob_leads_delivered: number;
   custom_leads: number;
@@ -54,7 +57,7 @@ interface PoolInventoryRecord {
 
 interface AgentPerformanceRecord {
   agent_name: string;
-  tier: "T1" | "T2" | "T3";
+  tier: TierLabel;
   dials: number;
   leads_worked: number;
   contacts_made: number;
@@ -68,10 +71,9 @@ interface AgentPerformanceRecord {
 
 const CRM_BASE = "https://crm.digitalseniorbenefits.com";
 
-const TIERS: Array<{ tier: "T1" | "T2" | "T3"; agencyId: string }> = [
-  { tier: "T1", agencyId: "12055" },
-  { tier: "T2", agencyId: "12056" },
-  { tier: "T3", agencyId: "10581" },
+const AGENCIES: Array<{ site: string; agencyId: string }> = [
+  { site: "RMT", agencyId: "12912" },
+  { site: "CHA", agencyId: "4798" },
 ];
 
 function todayISO(): string {
@@ -127,7 +129,7 @@ function buildAgentPerformanceUrl(agencyId: string, scrapeDate: string): string 
   return `${CRM_BASE}/admin-daily-agent-performance/?period=custom&start_date=${d}&end_date=${d}&agent_id=all&coach=&agency_id=${agencyId}`;
 }
 
-function emptyRecord(name: string, tier: "T1" | "T2" | "T3"): AgentRecord {
+function emptyRecord(name: string, tier: TierLabel): AgentRecord {
   return {
     agent_name: name, tier,
     ib_leads_delivered: 0, ob_leads_delivered: 0, custom_leads: 0,
@@ -137,7 +139,7 @@ function emptyRecord(name: string, tier: "T1" | "T2" | "T3"): AgentRecord {
   };
 }
 
-function getOrCreate(map: Map<string, AgentRecord>, name: string, tier: "T1" | "T2" | "T3"): AgentRecord {
+function getOrCreate(map: Map<string, AgentRecord>, name: string, tier: TierLabel): AgentRecord {
   const key = name.trim();
   if (!map.has(key)) map.set(key, emptyRecord(key, tier));
   return map.get(key)!;
@@ -232,48 +234,46 @@ async function scrapeLeadTracker(
   page: Page,
   agencyId: string,
   scrapeDate: string,
-  tier: "T1" | "T2" | "T3",
-  agentMap: Map<string, AgentRecord>
+  site: string,
+  agentMap: Map<string, AgentRecord>,
+  tierLookup: (name: string) => TierLabel,
 ): Promise<void> {
   const url = buildLeadTrackerUrl(agencyId, scrapeDate);
-  log.info(`Lead Tracker [${tier}]: ${url}`);
+  log.info(`Lead Tracker [${site}]: ${url}`);
   await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
   await page.waitForTimeout(3000);
 
-  // Wait for table to render
   await page.waitForSelector('table, .dataTables_wrapper', { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1000);
 
-  // Download CSV via Export button
   const downloadDir = path.join(process.cwd(), "downloads");
   if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
 
   const exportBtn = await findExportButton(page);
   if (!exportBtn) {
-    log.warning(`Lead Tracker [${tier}]: No Export button found — skipping`);
+    log.warning(`Lead Tracker [${site}]: No Export button found — skipping`);
     return;
   }
 
   const downloadPromise = page.waitForEvent("download", { timeout: 30000 });
   await exportBtn.scrollIntoViewIfNeeded().catch(() => {});
   await exportBtn.click({ force: true });
-  log.info(`Lead Tracker [${tier}]: Clicked Export, waiting for download...`);
+  log.info(`Lead Tracker [${site}]: Clicked Export, waiting for download...`);
 
   const download: Download = await downloadPromise;
-  const filePath = path.join(downloadDir, `lead-tracker-${tier}-${Date.now()}.csv`);
+  const filePath = path.join(downloadDir, `lead-tracker-${site}-${Date.now()}.csv`);
   await download.saveAs(filePath);
-  log.info(`Lead Tracker [${tier}]: CSV saved to ${filePath}`);
+  log.info(`Lead Tracker [${site}]: CSV saved to ${filePath}`);
 
-  // Parse CSV — each row is one lead
   const content = fs.readFileSync(filePath, "utf-8");
   const records = parse(content, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as Record<string, string>[];
-  log.info(`Lead Tracker [${tier}]: ${records.length} lead rows`);
+  log.info(`Lead Tracker [${site}]: ${records.length} lead rows`);
 
-  // Count leads per agent per type
   for (const row of records) {
     const agentName = row["Agent"]?.trim();
     if (!agentName) continue;
 
+    const tier = tierLookup(agentName);
     const leadType = (row["Type"] ?? "").trim().toLowerCase();
     const rec = getOrCreate(agentMap, agentName, tier);
 
@@ -284,10 +284,7 @@ async function scrapeLeadTracker(
     } else if (leadType.includes("custom")) {
       rec.custom_leads++;
     } else {
-      // For T1 (pure IB) default to inbound, for T3 (pure OB) default to outbound
-      if (tier === "T1") rec.ib_leads_delivered++;
-      else if (tier === "T3") rec.ob_leads_delivered++;
-      else rec.ob_leads_delivered++; // T2 unknown defaults to OB
+      rec.ib_leads_delivered++;
     }
   }
 
@@ -307,20 +304,8 @@ interface SaleMadePass {
   label: string;
 }
 
-function getSaleMadePasses(tier: "T1" | "T2" | "T3"): SaleMadePass[] {
-  if (tier === "T1") {
-    return [
-      { typeFilter: "all", channel: "inbound", label: "All (IB)" },
-      { typeFilter: "custom", channel: "custom", label: "Custom" },
-    ];
-  }
-  if (tier === "T3") {
-    return [
-      { typeFilter: "all", channel: "outbound", label: "All (OB)" },
-      { typeFilter: "custom", channel: "custom", label: "Custom" },
-    ];
-  }
-  // T2 hybrid — split by type
+function getSaleMadePasses(): SaleMadePass[] {
+  // Unified model: all agents are hybrid, split by CRM type filter
   return [
     { typeFilter: "9", channel: "inbound", label: "Call In (IB)" },
     { typeFilter: "18", channel: "inbound", label: "Web Call In (IB)" },
@@ -333,7 +318,7 @@ function applySaleMadeData(
   agentName: string,
   salesCount: number,
   premium: number,
-  tier: "T1" | "T2" | "T3",
+  tier: TierLabel,
   channel: SaleChannel,
   agentMap: Map<string, AgentRecord>
 ): void {
@@ -341,14 +326,6 @@ function applySaleMadeData(
   if (channel === "custom") {
     rec.custom_sales += salesCount;
     rec.custom_premium += premium;
-    // For T1/T3 the "all" pass already counted these in the primary channel — subtract to avoid double-counting
-    if (tier === "T1") {
-      rec.ib_sales -= salesCount;
-      rec.ib_premium -= premium;
-    } else if (tier === "T3") {
-      rec.ob_sales -= salesCount;
-      rec.ob_premium -= premium;
-    }
   } else if (channel === "inbound") {
     rec.ib_sales += salesCount;
     rec.ib_premium += premium;
@@ -362,19 +339,19 @@ async function scrapeSaleMade(
   page: Page,
   agencyId: string,
   scrapeDate: string,
-  tier: "T1" | "T2" | "T3",
-  agentMap: Map<string, AgentRecord>
+  site: string,
+  agentMap: Map<string, AgentRecord>,
+  tierLookup: (name: string) => TierLabel,
 ): Promise<void> {
-  const passes = getSaleMadePasses(tier);
+  const passes = getSaleMadePasses();
 
   for (const pass of passes) {
     const url = buildSaleMadeUrl(agencyId, scrapeDate, pass.typeFilter);
-    log.info(`Sale Made [${tier}] ${pass.label}: ${url}`);
+    log.info(`Sale Made [${site}] ${pass.label}: ${url}`);
     await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
     await page.waitForTimeout(3000);
     await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
 
-    // Try CSV export
     const exportBtn = await findExportButton(page);
     if (exportBtn) {
       try {
@@ -386,16 +363,17 @@ async function scrapeSaleMade(
         await exportBtn.click({ force: true });
 
         const download: Download = await downloadPromise;
-        const filePath = path.join(downloadDir, `sale-made-${tier}-${pass.channel}-${Date.now()}.csv`);
+        const filePath = path.join(downloadDir, `sale-made-${site}-${pass.channel}-${Date.now()}.csv`);
         await download.saveAs(filePath);
 
         const content = fs.readFileSync(filePath, "utf-8");
         const records = parse(content, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as Record<string, string>[];
-        log.info(`Sale Made [${tier}] ${pass.label}: ${records.length} rows from CSV`);
+        log.info(`Sale Made [${site}] ${pass.label}: ${records.length} rows from CSV`);
 
         for (const row of records) {
           const agentName = (row["Agent"] ?? row["Agent Name"] ?? "").trim();
           if (!agentName || agentName.toLowerCase() === "total") continue;
+          const tier = tierLookup(agentName);
           const salesCount = parseNumber(row["Count"] ?? row["Policies"] ?? "1");
           const premium = parseNumber(row["Total Premium"] ?? row["Premium"] ?? row["Annual Premium"] ?? row["Modal Premium"] ?? "0");
           applySaleMadeData(agentName, salesCount, premium, tier, pass.channel, agentMap);
@@ -404,12 +382,10 @@ async function scrapeSaleMade(
         try { fs.unlinkSync(filePath); } catch {}
         continue;
       } catch (err) {
-        log.warning(`Sale Made [${tier}] ${pass.label}: CSV failed, trying HTML table`);
+        log.warning(`Sale Made [${site}] ${pass.label}: CSV failed, trying HTML table`);
       }
     }
 
-    // Fallback: HTML table scrape
-    // Columns: #(0), Agent(1), Count(2), Total Premium(3), ...
     const rows = await page.$$eval('table tbody tr', (trs) =>
       trs.map((tr) => {
         const cells = Array.from(tr.querySelectorAll('td'));
@@ -417,12 +393,12 @@ async function scrapeSaleMade(
       })
     );
 
-    log.info(`Sale Made [${tier}] ${pass.label}: ${rows.length} rows from HTML`);
+    log.info(`Sale Made [${site}] ${pass.label}: ${rows.length} rows from HTML`);
     for (const cells of rows) {
       if (cells.length < 4) continue;
-      // Column 0 = row #, Column 1 = Agent, Column 2 = Count, Column 3 = Total Premium
       const agentName = cells[1]?.trim();
       if (!agentName || agentName.toLowerCase() === "total" || agentName === "Agent") continue;
+      const tier = tierLookup(agentName);
       const salesCount = parseNumber(cells[2]);
       const premium = parseNumber(cells[3]);
       applySaleMadeData(agentName, salesCount, premium, tier, pass.channel, agentMap);
@@ -436,17 +412,17 @@ async function scrapeCallsReport(
   page: Page,
   agencyId: string,
   scrapeDate: string,
-  tier: "T1" | "T2" | "T3",
-  agentMap: Map<string, AgentRecord>
+  site: string,
+  agentMap: Map<string, AgentRecord>,
+  tierLookup: (name: string) => TierLabel,
 ): Promise<void> {
   const url = buildCallsReportUrl(agencyId, scrapeDate);
-  log.info(`Calls Report [${tier}]: ${url}`);
+  log.info(`Calls Report [${site}]: ${url}`);
   await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
   await page.waitForTimeout(3000);
 
   await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
 
-  // Try CSV export first
   const exportBtn = await findExportButton(page);
   if (exportBtn) {
     try {
@@ -458,17 +434,17 @@ async function scrapeCallsReport(
       await exportBtn.click({ force: true });
 
       const download: Download = await downloadPromise;
-      const filePath = path.join(downloadDir, `calls-${tier}-${Date.now()}.csv`);
+      const filePath = path.join(downloadDir, `calls-${site}-${Date.now()}.csv`);
       await download.saveAs(filePath);
 
       const content = fs.readFileSync(filePath, "utf-8");
       const records = parse(content, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as Record<string, string>[];
-      log.info(`Calls Report [${tier}]: ${records.length} rows from CSV`);
+      log.info(`Calls Report [${site}]: ${records.length} rows from CSV`);
 
       for (const row of records) {
         const agentName = (row["Agent"] ?? row["Agent Name"] ?? row["Name"] ?? "").trim();
         if (!agentName) continue;
-        const rec = getOrCreate(agentMap, agentName, tier);
+        const rec = getOrCreate(agentMap, agentName, tierLookup(agentName));
         rec.total_dials += parseNumber(row["Total Calls"] ?? row["Calls"] ?? row["Dials"] ?? row["Outgoing"] ?? "0");
         rec.talk_time_minutes += parseTalkTime(row["Talk Time"] ?? row["Duration"] ?? row["Talk"] ?? "0");
       }
@@ -476,11 +452,10 @@ async function scrapeCallsReport(
       try { fs.unlinkSync(filePath); } catch {}
       return;
     } catch (err) {
-      log.warning(`Calls Report [${tier}]: CSV export failed, falling back to HTML table`);
+      log.warning(`Calls Report [${site}]: CSV export failed, falling back to HTML table`);
     }
   }
 
-  // Fallback: scrape HTML table
   const headers = await page.$$eval('table thead th', (ths) =>
     ths.map((th) => th.textContent?.trim().toLowerCase() ?? "")
   );
@@ -495,12 +470,12 @@ async function scrapeCallsReport(
   const dialsIdx = headers.findIndex((h) => h.includes("call") || h.includes("dial") || h.includes("outgoing"));
   const talkIdx = headers.findIndex((h) => h.includes("talk") || h.includes("duration"));
 
-  log.info(`Calls Report [${tier}]: ${rows.length} rows from HTML, columns: name=${nameIdx}, dials=${dialsIdx}, talk=${talkIdx}`);
+  log.info(`Calls Report [${site}]: ${rows.length} rows from HTML, columns: name=${nameIdx}, dials=${dialsIdx}, talk=${talkIdx}`);
 
   for (const cells of rows) {
     const agentName = cells[nameIdx >= 0 ? nameIdx : 0]?.trim();
     if (!agentName || agentName === "Total" || agentName === "Agent") continue;
-    const rec = getOrCreate(agentMap, agentName, tier);
+    const rec = getOrCreate(agentMap, agentName, tierLookup(agentName));
     if (dialsIdx >= 0) rec.total_dials += parseNumber(cells[dialsIdx]);
     if (talkIdx >= 0) rec.talk_time_minutes += parseTalkTime(cells[talkIdx]);
   }
@@ -612,10 +587,11 @@ async function scrapeAgentPerformance(
   page: Page,
   agencyId: string,
   scrapeDate: string,
-  tier: "T1" | "T2" | "T3",
+  site: string,
+  tierLookup: (name: string) => TierLabel,
 ): Promise<AgentPerformanceRecord[]> {
   const url = buildAgentPerformanceUrl(agencyId, scrapeDate);
-  log.info(`Agent Performance [${tier}]: ${url}`);
+  log.info(`Agent Performance [${site}]: ${url}`);
   await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
   await page.waitForTimeout(3000);
   await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
@@ -641,7 +617,7 @@ async function scrapeAgentPerformance(
   const talkIdx = headers.findIndex((h) => h.includes("talk min") || h.includes("talk time"));
   const premiumIdx = headers.findIndex((h) => h.includes("sale made ap") || h.includes("premium"));
 
-  log.info(`Agent Performance [${tier}]: ${rows.length} rows, columns: agent=${agentIdx}, dials=${dialsIdx}, leadsWorked=${leadsWorkedIdx}, contact=${contactIdx}, convo=${convoIdx}, pres=${presIdx}, fu=${fuIdx}, sale=${saleIdx}, talk=${talkIdx}, premium=${premiumIdx}`);
+  log.info(`Agent Performance [${site}]: ${rows.length} rows, columns: agent=${agentIdx}, dials=${dialsIdx}, leadsWorked=${leadsWorkedIdx}, contact=${contactIdx}, convo=${convoIdx}, pres=${presIdx}, fu=${fuIdx}, sale=${saleIdx}, talk=${talkIdx}, premium=${premiumIdx}`);
 
   const results: AgentPerformanceRecord[] = [];
 
@@ -651,7 +627,7 @@ async function scrapeAgentPerformance(
 
     results.push({
       agent_name: agentName,
-      tier,
+      tier: tierLookup(agentName),
       dials: parseNumber(cells[dialsIdx >= 0 ? dialsIdx : 1]),
       leads_worked: parseNumber(cells[leadsWorkedIdx >= 0 ? leadsWorkedIdx : 2]),
       contacts_made: parseNumber(cells[contactIdx >= 0 ? contactIdx : 3]),
@@ -664,7 +640,7 @@ async function scrapeAgentPerformance(
     });
   }
 
-  log.info(`Agent Performance [${tier}]: parsed ${results.length} agent records`);
+  log.info(`Agent Performance [${site}]: parsed ${results.length} agent records`);
   return results;
 }
 
@@ -689,40 +665,47 @@ try {
 
   await login(page, loginUrl, input.crmUsername, input.crmPassword);
 
+  const agentTiers: Record<string, string> = input.agentTiers ?? {};
+  const tierLookup = (name: string): TierLabel => {
+    const t = agentTiers[name.trim()];
+    if (t === "T1" || t === "T2" || t === "T3") return t;
+    return "T2";
+  };
+
   const agentMap = new Map<string, AgentRecord>();
 
-  for (const { tier, agencyId } of TIERS) {
-    log.info(`\n========== ${tier} (Agency ${agencyId}) ==========`);
+  for (const { site, agencyId } of AGENCIES) {
+    log.info(`\n========== ${site} (Agency ${agencyId}) ==========`);
 
     try {
-      await scrapeLeadTracker(page, agencyId, scrapeDate, tier, agentMap);
+      await scrapeLeadTracker(page, agencyId, scrapeDate, site, agentMap, tierLookup);
     } catch (err) {
-      log.error(`Lead Tracker [${tier}] failed: ${err instanceof Error ? err.message : err}`);
+      log.error(`Lead Tracker [${site}] failed: ${err instanceof Error ? err.message : err}`);
     }
 
     try {
-      await scrapeSaleMade(page, agencyId, scrapeDate, tier, agentMap);
+      await scrapeSaleMade(page, agencyId, scrapeDate, site, agentMap, tierLookup);
     } catch (err) {
-      log.error(`Sale Made [${tier}] failed: ${err instanceof Error ? err.message : err}`);
+      log.error(`Sale Made [${site}] failed: ${err instanceof Error ? err.message : err}`);
     }
 
     try {
-      await scrapeCallsReport(page, agencyId, scrapeDate, tier, agentMap);
+      await scrapeCallsReport(page, agencyId, scrapeDate, site, agentMap, tierLookup);
     } catch (err) {
-      log.error(`Calls Report [${tier}] failed: ${err instanceof Error ? err.message : err}`);
+      log.error(`Calls Report [${site}] failed: ${err instanceof Error ? err.message : err}`);
     }
   }
 
-  // ---- Daily Agent Performance (per tier) ----
+  // ---- Daily Agent Performance (per agency) ----
   let perfAgents: AgentPerformanceRecord[] = [];
 
-  for (const { tier, agencyId } of TIERS) {
+  for (const { site, agencyId } of AGENCIES) {
     try {
-      log.info(`\n========== AGENT PERFORMANCE ${tier} ==========`);
-      const tierPerf = await scrapeAgentPerformance(page, agencyId, scrapeDate, tier);
-      perfAgents.push(...tierPerf);
+      log.info(`\n========== AGENT PERFORMANCE ${site} ==========`);
+      const sitePerf = await scrapeAgentPerformance(page, agencyId, scrapeDate, site, tierLookup);
+      perfAgents.push(...sitePerf);
     } catch (err) {
-      log.error(`Agent Performance [${tier}] failed: ${err instanceof Error ? err.message : err}`);
+      log.error(`Agent Performance [${site}] failed: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -775,15 +758,12 @@ try {
   await browser.close();
 
   const agents = Array.from(agentMap.values());
-  log.info(`\nScraped ${agents.length} total agents across all tiers`);
+  log.info(`\nScraped ${agents.length} total agents across all agencies`);
   log.info(`Pool agents: ${poolAgents.length}, Pool inventory statuses: ${poolInventory.length}`);
 
-  for (const tier of ["T1", "T2", "T3"] as const) {
-    const tierAgents = agents.filter((a) => a.tier === tier);
-    const totalLeads = tierAgents.reduce((s, a) => s + a.ib_leads_delivered + a.ob_leads_delivered, 0);
-    const totalSales = tierAgents.reduce((s, a) => s + a.ib_sales + a.ob_sales, 0);
-    log.info(`  ${tier}: ${tierAgents.length} agents, ${totalLeads} leads, ${totalSales} sales`);
-  }
+  const totalLeads = agents.reduce((s, a) => s + a.ib_leads_delivered + a.ob_leads_delivered, 0);
+  const totalSales = agents.reduce((s, a) => s + a.ib_sales + a.ob_sales, 0);
+  log.info(`  Total: ${agents.length} agents, ${totalLeads} leads, ${totalSales} sales`);
 
   if (poolAgents.length > 0) {
     const totalPoolCalls = poolAgents.reduce((s, a) => s + a.calls_made, 0);

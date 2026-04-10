@@ -106,11 +106,11 @@ function ProfileHeader({
             <h1 className="text-xl font-bold text-foreground">{name}</h1>
             <span className={cn(
               "px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border",
-              tier === "T1" ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                : tier === "T2" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-            )}>{tier}</span>
-            <span className="text-xs font-mono text-muted-foreground">{site}</span>
+              site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30"
+                : site === "CLT" || site === "CHA" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                : "bg-blue-500/10 text-blue-400 border-blue-500/30"
+            )}>{site}</span>
+            <span className="text-[10px] font-mono text-muted-foreground/60">{tier}</span>
           </div>
           {manager && <p className="text-xs font-mono text-muted-foreground">Manager: {manager}</p>}
           {flags.length > 0 && (

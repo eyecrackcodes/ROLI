@@ -187,7 +187,7 @@ export function usePoolFlow(overrideDate?: string) {
         supabase.from("intraday_snapshots")
           .select("agent_name, scrape_hour, pool_dials, pool_self_assigned")
           .eq("scrape_date", targetDate)
-          .eq("tier", "T3")
+          .gt("pool_dials", 0)
           .order("scrape_hour"),
       ]);
 

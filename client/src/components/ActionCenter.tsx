@@ -91,13 +91,13 @@ function SeverityDot({ severity }: { severity: ActionSeverity }) {
   return <span className={cn("inline-block w-2 h-2 rounded-full", color)} />;
 }
 
-function TierBadge({ tier }: { tier: string }) {
+function SiteBadge({ site }: { site: string }) {
   const color =
-    tier === "T1"
-      ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
-      : tier === "T2"
+    site === "RMT"
+      ? "bg-violet-500/10 text-violet-400 border-violet-500/30"
+      : site === "CLT" || site === "CHA"
         ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-        : "bg-amber-500/10 text-amber-400 border-amber-500/30";
+        : "bg-blue-500/10 text-blue-400 border-blue-500/30";
   return (
     <span
       className={cn(
@@ -105,7 +105,7 @@ function TierBadge({ tier }: { tier: string }) {
         color,
       )}
     >
-      {tier}
+      {site}
     </span>
   );
 }
@@ -127,7 +127,6 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
   } = useActionCenter(overrideDate);
 
   const [sort, setSort] = useState<SortState>({ key: "severity", dir: "asc" });
-  const [tierFilter, setTierFilter] = useState("ALL");
   const [siteFilter, setSiteFilter] = useState("ALL");
   const [actionFilter, setActionFilter] = useState("ALL");
   const [drillAgent, setDrillAgent] = useState<{
@@ -158,11 +157,10 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
 
   const filtered = useMemo(() => {
     let agents = [...recommendations];
-    if (tierFilter !== "ALL") agents = agents.filter((a) => a.tier === tierFilter);
     if (siteFilter !== "ALL") agents = agents.filter((a) => a.site === siteFilter);
     if (actionFilter !== "ALL") agents = agents.filter((a) => a.action === actionFilter);
     return agents;
-  }, [recommendations, tierFilter, siteFilter, actionFilter]);
+  }, [recommendations, siteFilter, actionFilter]);
 
   const sorted = useMemo(() => {
     const severityRank: Record<ActionSeverity, number> = {
@@ -204,6 +202,16 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
         return sort.dir === "desc"
           ? b.metrics.todaysDials - a.metrics.todaysDials
           : a.metrics.todaysDials - b.metrics.todaysDials;
+      }
+      if (sort.key === "todaysLeads") {
+        return sort.dir === "desc"
+          ? b.metrics.todaysLeads - a.metrics.todaysLeads
+          : a.metrics.todaysLeads - b.metrics.todaysLeads;
+      }
+      if (sort.key === "todaysCR") {
+        const aCR = a.metrics.todaysLeads > 0 ? a.metrics.todaysSales / a.metrics.todaysLeads : -1;
+        const bCR = b.metrics.todaysLeads > 0 ? b.metrics.todaysSales / b.metrics.todaysLeads : -1;
+        return sort.dir === "desc" ? bCR - aCR : aCR - bCR;
       }
       return 0;
     });
@@ -291,7 +299,7 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                     >
                       {a.name}
                     </Link>
-                    <TierBadge tier={a.tier} />
+                    <SiteBadge site={a.site} />
                     <span className="text-[10px] font-mono text-muted-foreground">
                       {a.site}
                     </span>
@@ -355,7 +363,7 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                     >
                       {a.name}
                     </Link>
-                    <TierBadge tier={a.tier} />
+                    <SiteBadge site={a.site} />
                     <span className="text-[10px] font-mono text-muted-foreground">
                       {a.site}
                     </span>
@@ -400,43 +408,23 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-            Tier:
+            Site:
           </span>
-          {["ALL", "T1", "T2", "T3"].map((t) => (
+          {["ALL", ...allSites].map((s) => (
             <button
-              key={t}
-              onClick={() => setTierFilter(t)}
+              key={s}
+              onClick={() => setSiteFilter(s)}
               className={cn(
                 "px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors",
-                tierFilter === t
+                siteFilter === s
                   ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
                   : "bg-card text-muted-foreground border-border hover:text-foreground",
               )}
             >
-              {t}
+              {s}
             </button>
           ))}
         </div>
-
-        {allSites.length > 1 && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-              Site:
-            </span>
-            <select
-              value={siteFilter}
-              onChange={(e) => setSiteFilter(e.target.value)}
-              className="text-[10px] font-mono bg-card border border-border rounded px-2 py-1 text-foreground"
-            >
-              <option value="ALL">All Sites</option>
-              {allSites.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
 
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
@@ -525,6 +513,18 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                 current={sort}
                 onToggle={toggle}
               />
+              <SortHeader
+                label="Today Leads"
+                sortKey="todaysLeads"
+                current={sort}
+                onToggle={toggle}
+              />
+              <SortHeader
+                label="Today CR"
+                sortKey="todaysCR"
+                current={sort}
+                onToggle={toggle}
+              />
               <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-left">
                 Recommendation
               </th>
@@ -565,7 +565,7 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                   </button>
                 </td>
                 <td className="px-3 py-2">
-                  <TierBadge tier={agent.tier} />
+                  <SiteBadge site={agent.site} />
                 </td>
                 <td className="px-3 py-2">
                   <ActionBadge action={agent.action} />
@@ -601,6 +601,18 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {agent.metrics.todaysDials || "--"}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {agent.metrics.todaysLeads > 0 ? (
+                    <span title="Leads delivered / self-assigned">
+                      {agent.metrics.todaysLeads}
+                    </span>
+                  ) : "--"}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {agent.metrics.todaysLeads > 0
+                    ? `${((agent.metrics.todaysSales / agent.metrics.todaysLeads) * 100).toFixed(0)}%`
+                    : "--"}
                 </td>
                 <td className="px-3 py-2 text-left">
                   <span className="text-[10px] text-muted-foreground/80 italic line-clamp-2">

@@ -23,20 +23,21 @@ alwaysApply: true
 | Pool Close Rate | `sales_made / self_assigned_leads × 100` | Conversion rate on pool leads the agent self-assigned |
 | Gaming Flag | Based on Pool Efficiency thresholds | See below |
 
-### T3 Outbound KPI Targets (v2 — Three-Channel Model)
+### T3 Outbound KPI Targets (v3 — Pool-First Model)
 
 Daily compliance scorecard for T3 outbound agents across all three activity channels
 (follow-up appointments, queue dialer, leads pool). Agent must pass 5 of 7 gates to be compliant.
+Pool is the primary production channel; queue is limited to warm follow-ups to avoid spam flags.
 
 | # | Gate | KPI | Target |
 |---|---|---|---|
 | 1 | Combined Volume | Total dials (queue + pool) | ≥ 200/day |
-| 2 | Pool Presence | Pool % of total dials | 25-45% |
-| 3 | Engagement | Long Calls (15+ min) | ≥ 4/day |
+| 2 | Pool Presence | Pool % of total dials | 55-80% |
+| 3 | Engagement | Long Calls (15+ min) | ≥ 6/day |
 | 4 | Talk Time | Total talk minutes (queue + pool) | ≥ 180 min |
-| 5 | Assignment | Self-assign rate | ≥ 30% of pool answered |
+| 5 | Assignment | Self-assign rate | ≥ 40% of pool answered |
 | 6 | Appointment Discipline | Past due follow-ups | 0 |
-| 7 | Queue Health | Call queue size | ≤ 120 leads |
+| 7 | Queue Health | Call queue size | ≤ 80 leads |
 
 ### Activity Channel Definitions
 
@@ -45,13 +46,13 @@ Daily compliance scorecard for T3 outbound agents across all three activity chan
   dialer cadence. Past due = missed or unworked appointments.
 - **Queue dialer** — Agent's personal assigned leads. System cycles through automatically. Each lead
   gets max 6 contact attempts, then must be withdrawn. DNC/no-longer-reachable leads withdrawn immediately.
-  Healthy queue: 50-120 leads. Queue > 150 = bloat. Contact attempts and withdrawals are queue-only
-  mechanics — they do not apply to the leads pool.
+  Healthy queue: 30-80 leads. Queue > 120 = bloat. Limit queue sessions to ~1 hr/day to reduce spam
+  flagging. Contact attempts and withdrawals are queue-only mechanics — they do not apply to the leads pool.
 - **Leads pool** — Shared unassigned leads. Agent enters pool session, dials, self-assigns every
   answered contact to remove from rotation. Self-assigning is the only way a lead leaves the pool.
   Feeds tomorrow's follow-up pipeline and queue.
 
-Expected funnel at 200 combined dials (~115 queue + ~5 follow-up + ~80 pool): ~40 pool answered (50% contact rate) → 12+ self-assigned (30%) → 4+ long calls → 0.86 sales/day (at balanced 25-44% pool ratio). Avg premium per sale: $1,150.
+Expected funnel at 200 combined dials (~45 queue + ~5 follow-up + ~150 pool): ~75 pool answered (50% contact rate) → 30+ self-assigned (40%) → 6+ long calls → ~1.0 sales/day (at pool-first 55-80% pool ratio). Avg premium per sale: $1,150.
 
 ### Presentation Rate (Pool)
 
@@ -73,8 +74,8 @@ not interested and DNC — to remove leads from rotation and prevent unnecessary
 | Assign Rate | Interpretation |
 |---|---|
 | ≥ 65% | Excellent — fully cleaning pool contacts |
-| 30–64% | Compliant — pool is moving, discipline in place |
-| < 30% | Non-compliant — contacts recycling back into pool |
+| 40–64% | Compliant — pool is moving, discipline in place |
+| < 40% | Non-compliant — contacts recycling back into pool |
 
 ### Queue Health Thresholds
 
@@ -83,10 +84,10 @@ Follow-up appointments are task-date driven (NOT in the dialer queue).
 
 | Queue Size | Interpretation |
 |---|---|
-| < 50 | Light — increase pool time for more self-assigns |
-| 50–120 | Healthy — balanced inflow/outflow at 6-attempt cadence |
-| 120–200 | Accumulating — audit queue, enforce withdrawals |
-| > 200 | Bloated — leads rotting, stop pool until queue is cleared |
+| < 30 | Very light — normal with pool-first model |
+| 30–80 | Healthy — balanced inflow/outflow at 6-attempt cadence |
+| 80–120 | Accumulating — audit queue, enforce withdrawals |
+| > 120 | Bloated — leads rotting, stop pool until queue is cleared |
 
 | Past Due | Interpretation |
 |---|---|
@@ -184,8 +185,8 @@ patterns to set realistic hourly expectations.
 |---|---|---|
 | Combined Dials | 200 | total_dials + pool_dials |
 | Talk Time | 180 min | talk_time_minutes + pool_talk_minutes |
-| Long Calls | 4 | pool_long_calls |
-| Pool Dials | 50 | pool_dials |
+| Long Calls | 6 | pool_long_calls |
+| Pool Dials | 150 | pool_dials |
 
 ### Behind Pace Definition
 
