@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
+import { ActionCenter } from "@/components/ActionCenter";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import {
   Zap, AlertTriangle, Shield, TrendingUp, TrendingDown, Minus,
   DollarSign, UserCheck, UserX,
   ChevronDown, ChevronUp, Download, Activity, BookOpen, Eye,
+  Crosshair,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -739,6 +741,8 @@ function TermsDefinitions() {
   );
 }
 
+type PipelineTab = "health" | "actions";
+
 export default function PipelineIntelligence() {
   const data = useData();
   const { pipelineAgents, pipelineLoading, selectedDate, availableDates } = data;
@@ -750,6 +754,7 @@ export default function PipelineIntelligence() {
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 25;
+  const [activeTab, setActiveTab] = useState<PipelineTab>("health");
 
   const setTierFilter = useCallback((v: string) => { _setTierFilter(v); setPage(0); }, []);
   const setFlagFilter = useCallback((v: string) => { _setFlagFilter(v); setPage(0); }, []);
@@ -868,6 +873,42 @@ export default function PipelineIntelligence() {
         </div>
       </div>
 
+      {/* Tab Switcher */}
+      <div className="flex items-center gap-1 border-b border-border pb-0">
+        <button
+          onClick={() => setActiveTab("health")}
+          className={cn(
+            "px-4 py-2 text-xs font-mono font-bold uppercase tracking-widest border-b-2 transition-colors -mb-px",
+            activeTab === "health"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Shield className="h-3.5 w-3.5 inline mr-1.5 -mt-0.5" />
+          Pipeline Health
+        </button>
+        <button
+          onClick={() => setActiveTab("actions")}
+          className={cn(
+            "px-4 py-2 text-xs font-mono font-bold uppercase tracking-widest border-b-2 transition-colors -mb-px",
+            activeTab === "actions"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Crosshair className="h-3.5 w-3.5 inline mr-1.5 -mt-0.5" />
+          Action Center
+        </button>
+      </div>
+
+      {/* Action Center Tab */}
+      {activeTab === "actions" && (
+        <ActionCenter overrideDate={selectedDate} />
+      )}
+
+      {/* Pipeline Health Tab */}
+      {activeTab === "health" && (
+      <>
       <TermsDefinitions />
 
       {pipelineLoading ? (
@@ -1189,6 +1230,8 @@ export default function PipelineIntelligence() {
             </div>
           )}
         </>
+      )}
+      </>
       )}
 
       {drillAgent && (

@@ -182,7 +182,7 @@ function detectFlags(agent: PipelineAgent, tierAvgCR: number): BehavioralFlag[] 
   }
 
   const poolPct = agent.totalDials > 0 ? (agent.poolDials / agent.totalDials) * 100 : 0;
-  if (poolPct > 40 && agent.callQueue > 10) {
+  if (poolPct > 45 && agent.callQueue > 10) {
     flags.push("POOL_FARMER");
   }
 

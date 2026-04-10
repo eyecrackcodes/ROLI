@@ -1,0 +1,199 @@
+{
+  "name": "Hourly Agent Action Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 9-17 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "aa-schedule-01",
+      "name": "Schedule :05 past hour CST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {},
+      "id": "aa-manual-01",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-200, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch all data sources needed for the Action Recommender\nconst apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base   = 'YOUR_SUPABASE_REST_URL';\nconst hdr    = { apikey, Authorization: `Bearer ${apikey}` };\n\nconst now = new Date();\nconst centralStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst centralHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hour12: false }));\n\n// Compute Monday of current week (CST)\nconst centralNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));\nconst dayOfWeek = centralNow.getDay(); // 0=Sun, 1=Mon, ...\nconst mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;\nconst monday = new Date(centralNow);\nmonday.setDate(monday.getDate() - mondayOffset);\nconst mondayStr = monday.toISOString().slice(0, 10);\n\nconst [roster, weeklyData, intradayData, pipelineData, poolData] = await Promise.all([\n  // Active agents across all tiers\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/agents?select=name,site,tier,manager&is_active=eq.true`,\n    headers: hdr, json: true,\n  }),\n  // Weekly daily_scrape_data (Mon through today)\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/daily_scrape_data?select=agent_name,scrape_date,ib_leads_delivered,ob_leads_delivered,ib_sales,ob_sales,custom_sales&scrape_date=gte.${mondayStr}&scrape_date=lte.${centralStr}&order=scrape_date.asc`,\n    headers: hdr, json: true,\n  }),\n  // Latest intraday snapshot per agent today\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/intraday_snapshots?select=agent_name,total_dials,talk_time_minutes,ib_leads_delivered,ib_sales,ob_leads_delivered,ob_sales,ib_premium,ob_premium,custom_premium,pool_dials,pool_talk_minutes,pool_self_assigned,pool_answered,pool_long_calls&scrape_date=eq.${centralStr}&order=scrape_hour.desc`,\n    headers: hdr, json: true,\n  }),\n  // Latest pipeline compliance for today\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/pipeline_compliance_daily?select=agent_name,past_due_follow_ups,new_leads,call_queue_count,todays_follow_ups&scrape_date=eq.${centralStr}`,\n    headers: hdr, json: true,\n  }),\n  // Latest leads pool data for today\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/leads_pool_daily_data?select=agent_name,calls_made,talk_time_minutes,self_assigned_leads,answered_calls,long_calls,sales_made&scrape_date=eq.${centralStr}`,\n    headers: hdr, json: true,\n  }),\n]);\n\nif (!roster || roster.length === 0) {\n  throw new Error('No active agents found');\n}\n\n// Build roster lookup\nconst rosterMap = {};\nfor (const a of roster) rosterMap[a.name] = a;\n\n// Build weekly stats per agent\nconst weeklyByAgent = {};\nfor (const r of (weeklyData || [])) {\n  if (!rosterMap[r.agent_name]) continue;\n  if (!weeklyByAgent[r.agent_name]) weeklyByAgent[r.agent_name] = [];\n  weeklyByAgent[r.agent_name].push({\n    date: r.scrape_date,\n    ibLeads: r.ib_leads_delivered || 0,\n    obLeads: r.ob_leads_delivered || 0,\n    ibSales: r.ib_sales || 0,\n    obSales: r.ob_sales || 0,\n    customSales: r.custom_sales || 0,\n  });\n}\n\n// Build intraday map (latest per agent)\nconst intradayMap = {};\nfor (const r of (intradayData || [])) {\n  if (!intradayMap[r.agent_name] && rosterMap[r.agent_name]) {\n    intradayMap[r.agent_name] = r;\n  }\n}\n\n// Build pipeline map\nconst pipeMap = {};\nfor (const r of (pipelineData || [])) {\n  if (rosterMap[r.agent_name]) pipeMap[r.agent_name] = r;\n}\n\n// Build pool map\nconst poolMapData = {};\nfor (const r of (poolData || [])) {\n  if (rosterMap[r.agent_name]) poolMapData[r.agent_name] = r;\n}\n\nreturn [{\n  json: {\n    scrapeDate: centralStr,\n    centralHour,\n    mondayStr,\n    rosterMap,\n    weeklyByAgent,\n    intradayMap,\n    pipeMap,\n    poolMapData,\n    agentCount: roster.length,\n  }\n}];"
+      },
+      "id": "aa-fetch-data-01",
+      "name": "Fetch All Data Sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { scrapeDate, centralHour, rosterMap, weeklyByAgent, intradayMap, pipeMap, poolMapData, agentCount } = $input.first().json;\n\n// ── Tier configs (mirroring client/src/lib/tierTargets.ts) ──\nconst TIER_CONFIGS = {\n  T1: { CR_TARGET: 25, CR_FLOOR: 20, CR_CRISIS: 15, CR_CRISIS_DAYS: 3, MAX_PIPELINE: 25, LEAD_COST: 83, hasPool: false },\n  T2: { CR_TARGET: 20, CR_FLOOR: 15, CR_CRISIS: 10, CR_CRISIS_DAYS: 3, MAX_PIPELINE: 40, LEAD_COST: 73, hasPool: true },\n  T3: { CR_TARGET: 5,  CR_FLOOR: 4,  CR_CRISIS: 3,  CR_CRISIS_DAYS: 3, MAX_PIPELINE: 120, LEAD_COST: 15, hasPool: true },\n};\n\nfunction computeWeeklyCR(rows, tier) {\n  if (!rows || rows.length === 0) return { weeklyCR: null, dailyCRs: [] };\n  const isIB = tier === 'T1' || tier === 'T2';\n  const dailyCRs = rows.map(r => {\n    const leads = isIB ? r.ibLeads : (r.obLeads || r.ibLeads);\n    const sales = isIB ? r.ibSales : (r.obSales || r.ibSales + r.obSales + r.customSales);\n    return leads > 0 ? (sales / leads) * 100 : 0;\n  });\n  const totalL = rows.reduce((s, r) => s + (isIB ? r.ibLeads : (r.obLeads || r.ibLeads)), 0);\n  const totalS = rows.reduce((s, r) => s + (isIB ? r.ibSales : (r.obSales || r.ibSales + r.obSales + r.customSales)), 0);\n  return { weeklyCR: totalL > 0 ? (totalS / totalL) * 100 : null, dailyCRs };\n}\n\nfunction consLow(dailyCRs, threshold) {\n  let c = 0;\n  for (let i = dailyCRs.length - 1; i >= 0; i--) { if (dailyCRs[i] < threshold) c++; else break; }\n  return c;\n}\n\nfunction recommend(tier, cfg, weeklyCR, dailyCRs, pipe, pool) {\n  const pastDue = pipe?.past_due_follow_ups ?? 0;\n  const callQueue = pipe?.call_queue_count ?? 0;\n  const pipeSize = (pipe?.new_leads ?? 0) + (pipe?.todays_follow_ups ?? 0) + pastDue;\n  const poolDials = pool?.calls_made ?? 0;\n  const consLowDays = consLow(dailyCRs, cfg.CR_CRISIS);\n\n  // T1 / T2 shared critical checks\n  if (tier !== 'T3') {\n    if (pastDue > 3) return { action: 'WORK_FOLLOWUPS', severity: 'critical', reason: `${pastDue} past due follow-ups — $${pastDue * cfg.LEAD_COST} in lead spend rotting. Work these before taking any new calls.` };\n    if (pipeSize > cfg.MAX_PIPELINE) return { action: 'CLEAR_PIPELINE', severity: 'critical', reason: `Pipeline at ${pipeSize} leads (max ${cfg.MAX_PIPELINE}). Close out stale leads.` };\n    if (consLowDays >= cfg.CR_CRISIS_DAYS && weeklyCR !== null) return { action: 'REVIEW_QUALITY', severity: 'critical', reason: `CR below ${cfg.CR_CRISIS}% for ${consLowDays} consecutive days (weekly: ${weeklyCR.toFixed(0)}%).` };\n    if (pastDue > 0) return { action: 'WORK_FOLLOWUPS', severity: 'warning', reason: `${pastDue} past due follow-up${pastDue > 1 ? 's' : ''} — work these first.` };\n    if (weeklyCR !== null && weeklyCR < cfg.CR_FLOOR) return { action: 'WORK_FOLLOWUPS', severity: 'warning', reason: `Weekly CR at ${weeklyCR.toFixed(0)}% (target: ${cfg.CR_TARGET}%+). Focus on converting existing pipeline.` };\n  }\n\n  // T1 specific\n  if (tier === 'T1') {\n    if (weeklyCR !== null && weeklyCR >= cfg.CR_TARGET && pipeSize < 15 && pastDue === 0)\n      return { action: 'TAKE_MORE_LEADS', severity: 'info', reason: `CR at ${weeklyCR.toFixed(0)}% with clean pipeline (${pipeSize} leads). Capacity available.` };\n    return { action: 'ON_TRACK', severity: 'info', reason: `${weeklyCR !== null ? 'CR ' + weeklyCR.toFixed(0) + '%' : ''} · Pipeline ${pipeSize} · Past due ${pastDue} — on track.` };\n  }\n\n  // T2 specific\n  if (tier === 'T2') {\n    if (pipeSize < 10 && poolDials === 0) return { action: 'GET_IN_POOL', severity: 'warning', reason: `Light pipeline at ${pipeSize} leads with zero pool dials. Pool session needed.` };\n    if (weeklyCR !== null && weeklyCR >= cfg.CR_TARGET + 5 && pipeSize < 25 && pastDue === 0)\n      return { action: 'TAKE_MORE_LEADS', severity: 'info', reason: `IB CR at ${weeklyCR.toFixed(0)}% — closing strong. Eligible for bonus leads.` };\n    if (pipeSize < 10) return { action: 'GET_IN_POOL', severity: 'info', reason: `Pipeline at ${pipeSize} leads — pool sessions will build tomorrow's follow-ups.` };\n    return { action: 'ON_TRACK', severity: 'info', reason: `${weeklyCR !== null ? 'IB CR ' + weeklyCR.toFixed(0) + '%' : ''} · Pipeline ${pipeSize} · Pool ${poolDials} — on track.` };\n  }\n\n  // T3\n  if (pastDue > 0) return { action: 'WORK_FOLLOWUPS', severity: 'critical', reason: `${pastDue} past due — work appointments before any pool/queue activity.` };\n  if (callQueue > 200) return { action: 'CLEAR_PIPELINE', severity: 'critical', reason: `Queue bloated at ${callQueue}. Stop pool. Withdraw leads past 6 attempts.` };\n  if (consLowDays >= cfg.CR_CRISIS_DAYS && weeklyCR !== null) return { action: 'REVIEW_QUALITY', severity: 'critical', reason: `CR below ${cfg.CR_CRISIS}% for ${consLowDays} days (weekly: ${weeklyCR.toFixed(0)}%).` };\n  if (callQueue > cfg.MAX_PIPELINE) return { action: 'CLEAR_PIPELINE', severity: 'warning', reason: `Queue at ${callQueue} (max ${cfg.MAX_PIPELINE}). Reduce pool, enforce withdrawals.` };\n  if (callQueue < 50) return { action: 'GET_IN_POOL', severity: 'warning', reason: `Queue light at ${callQueue}. Increase pool time and self-assigns.` };\n  return { action: 'ON_TRACK', severity: 'info', reason: `${weeklyCR !== null ? 'CR ' + weeklyCR.toFixed(0) + '%' : ''} · Queue ${callQueue} · Past due ${pastDue} — on track.` };\n}\n\n// ── Run recommender for all agents ──\nconst results = [];\nfor (const [name, agent] of Object.entries(rosterMap)) {\n  const tier = agent.tier;\n  const cfg = TIER_CONFIGS[tier];\n  if (!cfg) continue;\n  const weekRows = weeklyByAgent[name] || [];\n  const { weeklyCR, dailyCRs } = computeWeeklyCR(weekRows, tier);\n  const pipe = pipeMap[name];\n  const pool = poolMapData[name];\n  const intra = intradayMap[name];\n\n  const rec = recommend(tier, cfg, weeklyCR, dailyCRs, pipe, pool);\n  results.push({\n    name, tier, site: agent.site, manager: agent.manager || null,\n    ...rec,\n    weeklyCR: weeklyCR !== null ? Math.round(weeklyCR) : null,\n    pastDue: pipe?.past_due_follow_ups ?? null,\n    callQueue: pipe?.call_queue_count ?? null,\n    pipelineSize: pipe ? (pipe.new_leads ?? 0) + (pipe.todays_follow_ups ?? 0) + (pipe.past_due_follow_ups ?? 0) : null,\n    poolDials: pool?.calls_made ?? 0,\n    todaysDials: intra?.total_dials ?? 0,\n    todaysTalkMin: intra?.talk_time_minutes ?? 0,\n  });\n}\n\n// Sort: critical first, then warning, then info\nconst sev = { critical: 0, warning: 1, info: 2 };\nresults.sort((a, b) => sev[a.severity] - sev[b.severity]);\n\nconst critical = results.filter(r => r.severity === 'critical');\nconst warning  = results.filter(r => r.severity === 'warning');\nconst onTrack  = results.filter(r => r.severity === 'info');\n\nreturn [{ json: { scrapeDate, centralHour, agentCount, critical, warning, onTrack, results } }];"
+      },
+      "id": "aa-compute-01",
+      "name": "Run Recommender Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-alerts",
+              "leftValue": "={{ $json.critical.length + $json.warning.length }}",
+              "rightValue": "0",
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "aa-filter-01",
+      "name": "Any Alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [540, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { scrapeDate, centralHour, critical, warning, onTrack, agentCount } = $input.first().json;\n\n// Format date for display\nconst [y, mo, d] = scrapeDate.split('-');\nconst dt = new Date(+y, +mo - 1, +d);\nconst dn = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];\nconst mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()];\nconst dd = `${dn} ${mn} ${+d}, ${y}`;\nconst ampm = centralHour > 12 ? `${centralHour - 12}:05 PM` : `${centralHour}:05 AM`;\n\nconst ACTION_LABELS = {\n  TAKE_MORE_LEADS: 'TAKE MORE LEADS',\n  WORK_FOLLOWUPS: 'WORK FOLLOW-UPS',\n  GET_IN_POOL: 'GET IN POOL',\n  CLEAR_PIPELINE: 'CLEAR PIPELINE',\n  REVIEW_QUALITY: 'REVIEW QUALITY',\n  ON_TRACK: 'ON TRACK',\n};\n\nconst blocks = [];\n\nblocks.push({ type: 'header', text: { type: 'plain_text', text: `Hourly Action Check — ${dd}` } });\n\nblocks.push({ type: 'section', text: { type: 'mrkdwn', text:\n  `*${ampm} CT*  ·  ${agentCount} agents tracked\\n\\n` +\n  `*${critical.length}* need attention  ·  *${warning.length}* warnings  ·  *${onTrack.length}* on track`\n}});\n\nblocks.push({ type: 'divider' });\n\n// Critical agents\nif (critical.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:rotating_light: CRITICAL (${critical.length})*` } });\n  for (const a of critical.slice(0, 10)) {\n    const crStr = a.weeklyCR !== null ? `Weekly CR: ${a.weeklyCR}%` : '';\n    const pdStr = a.pastDue !== null ? `Past Due: ${a.pastDue}` : '';\n    const qStr  = a.tier === 'T3' && a.callQueue !== null ? `Queue: ${a.callQueue}` : '';\n    const pStr  = a.pipelineSize !== null ? `Pipeline: ${a.pipelineSize}` : '';\n    const stats = [crStr, pdStr, a.tier === 'T3' ? qStr : pStr].filter(Boolean).join(' | ');\n    blocks.push({ type: 'section', text: { type: 'mrkdwn', text:\n      `*${ACTION_LABELS[a.action] || a.action}* — *${a.name}*  _(${a.tier}, ${a.site})_\\n` +\n      `${stats}\\n` +\n      `_↳ ${a.reason}_`\n    }});\n  }\n  if (critical.length > 10) {\n    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `_…and ${critical.length - 10} more critical._` }] });\n  }\n  blocks.push({ type: 'divider' });\n}\n\n// Warning agents\nif (warning.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:warning: WARNING (${warning.length})*` } });\n  for (const a of warning.slice(0, 10)) {\n    const crStr = a.weeklyCR !== null ? `Weekly CR: ${a.weeklyCR}%` : '';\n    const pdStr = a.pastDue !== null ? `Past Due: ${a.pastDue}` : '';\n    const qStr  = a.tier === 'T3' && a.callQueue !== null ? `Queue: ${a.callQueue}` : '';\n    const pStr  = a.pipelineSize !== null ? `Pipeline: ${a.pipelineSize}` : '';\n    const poolStr = a.poolDials > 0 ? `Pool: ${a.poolDials}` : '';\n    const stats = [crStr, pdStr, a.tier === 'T3' ? qStr : pStr, poolStr].filter(Boolean).join(' | ');\n    blocks.push({ type: 'section', text: { type: 'mrkdwn', text:\n      `*${ACTION_LABELS[a.action] || a.action}* — *${a.name}*  _(${a.tier}, ${a.site})_\\n` +\n      `${stats}\\n` +\n      `_↳ ${a.reason}_`\n    }});\n  }\n  if (warning.length > 10) {\n    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `_…and ${warning.length - 10} more warnings._` }] });\n  }\n  blocks.push({ type: 'divider' });\n}\n\n// On Track summary\nblocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text:\n  `*On Track:* ${onTrack.length} agents  |  Targets: T1 CR 25-30% · T2 IB CR 20-25% · T3 CR 4%+  |  Pipeline: T1 ≤25 · T2 ≤40 · T3 Queue ≤120`\n}]});\n\nconst fallback = `Hourly Action Check — ${dd} ${ampm}: ${critical.length} critical, ${warning.length} warning, ${onTrack.length} on track`;\n\nreturn [{ json: { text: fallback, blocks } }];"
+      },
+      "id": "aa-build-slack-01",
+      "name": "Build Slack Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "aa-send-slack-01",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1020, 0]
+    },
+    {
+      "parameters": {},
+      "id": "aa-noop-01",
+      "name": "No Alerts — Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [780, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  text: ':x: *Hourly Action Alert failed*\\n' + ($input.first().json.error || $input.first().json.message || 'Unknown error — check n8n execution log.')\n} }];"
+      },
+      "id": "aa-build-error-01",
+      "name": "Build Error Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [540, 340]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "aa-send-error-01",
+      "name": "Alert Slack Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 340]
+    }
+  ],
+  "connections": {
+    "Schedule :05 past hour CST": {
+      "main": [
+        [{ "node": "Fetch All Data Sources", "type": "main", "index": 0 }]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Fetch All Data Sources", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch All Data Sources": {
+      "main": [
+        [{ "node": "Run Recommender Engine", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Recommender Engine": {
+      "main": [
+        [{ "node": "Any Alerts?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Any Alerts?": {
+      "main": [
+        [{ "node": "Build Slack Alert", "type": "main", "index": 0 }],
+        [{ "node": "No Alerts — Skip", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Slack Alert": {
+      "main": [
+        [{ "node": "Send to Slack", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Error Alert": {
+      "main": [
+        [{ "node": "Alert Slack Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "America/Chicago",
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "roli-action-alert"
+  },
+  "tags": []
+}

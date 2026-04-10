@@ -7,13 +7,13 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 8 * * 1-5"
+              "expression": "0 8-18 * * 1-5"
             }
           ]
         }
       },
       "id": "pc-schedule-01",
-      "name": "Daily 8am CST",
+      "name": "Hourly 8am-6pm CST",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
       "position": [-800, 112]

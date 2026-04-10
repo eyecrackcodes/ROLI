@@ -56,7 +56,7 @@ Shared leads — nobody owns them. When someone answers, you self-assign them to
 | Expected talk time | 60-90 min |
 | Long calls (15+ min) | ≥ 4/day |
 | Self-assign rate | ≥ 30% of pool answered |
-| Pool % of total dials | 25-40% |
+| Pool % of total dials | 25-45% |
 
 **Contact rate** = % of pool dials where someone answers. At 50%, half your dials connect to a live person.
 
@@ -115,7 +115,7 @@ Shared leads — nobody owns them. When someone answers, you self-assign them to
 | Total Dials | 200+ | ~5 follow-up + ~115 queue + ~80 pool |
 | Total Talk Time | 180+ min | ~30 min follow-up + ~80 min queue + ~75 min pool |
 | Long Calls (15+ min) | 4+ | Pool presentations |
-| Pool % of Total Dials | 25-40% | 70-100 pool dials out of 200+ total |
+| Pool % of Total Dials | 25-45% | pool dials ÷ total dials |
 | Self-Assign Rate | 30%+ of pool answered | Every answered pool contact gets assigned |
 | Past Due Follow-Ups | 0 | Cleared in Block 1 |
 | Queue Size | ≤ 120 | Maintained through withdrawals in Block 2 |
@@ -210,7 +210,7 @@ By Week 2, pool self-assigns start generating their own follow-up appointments. 
 
 ## Revenue Projections
 
-Balanced agents (25-39% pool, 4+ long calls) average 0.86 sales/day.
+Balanced agents (25-44% pool, 4+ long calls) average 0.86 sales/day.
 
 ### Daily
 
@@ -239,7 +239,7 @@ Balanced agents (25-39% pool, 4+ long calls) average 0.86 sales/day.
 | High dials, low talk time | 200+ dials, < 100 min talk | Speed-dialing without engaging |
 | Past due rising | Past due > 0 and growing | Missing scheduled appointments |
 | Queue growing | Queue > 150 and increasing | Not withdrawing after 6 attempts |
-| Pool heavy + queue neglected | Pool > 40% + queue > 120 | Avoiding pipeline work |
+| Pool heavy + queue neglected | Pool > 45% + queue > 120 | Avoiding pipeline work |
 | Assigns without engagement | High assign rate, 0 long calls | Checking the box without real conversations |
 
 ---

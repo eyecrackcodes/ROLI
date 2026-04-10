@@ -1,0 +1,168 @@
+{
+  "name": "T3 Midday Pace Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "6 13 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-a000-000000000001",
+      "name": "Schedule 1:06 PM CST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base  = 'https://bcibmmbxrjfiulofserv.supabase.co/rest/v1';\nconst hdr   = { apikey, Authorization: `Bearer ${apikey}` };\n\nconst now = new Date();\nconst centralStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst centralHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hour12: false }));\n\nconst [snapshots, roster] = await Promise.all([\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/intraday_snapshots?scrape_date=eq.${centralStr}&tier=eq.T3&order=scrape_hour.desc`,\n    headers: hdr,\n    json: true,\n  }),\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/agents?select=name,site&is_active=eq.true&tier=eq.T3`,\n    headers: hdr,\n    json: true,\n  }),\n]);\n\nconst siteMap = {};\nfor (const a of roster) siteMap[a.name] = a.site;\n\nconst latest = {};\nfor (const r of snapshots) {\n  if (!latest[r.agent_name] && siteMap[r.agent_name]) {\n    latest[r.agent_name] = r;\n  }\n}\n\nreturn [{\n  json: {\n    scrapeDate: centralStr,\n    centralHour,\n    agents: Object.values(latest),\n    siteMap,\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0002-4000-a000-000000000002",
+      "name": "Fetch Intraday Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { scrapeDate, centralHour, agents, siteMap } = $input.first().json;\n\nconst PACE = { 9:0.05, 10:0.15, 11:0.28, 12:0.42, 13:0.50, 14:0.65, 15:0.78, 16:0.92, 17:1.0 };\nconst TGT  = { dials:200, talk:180, long:4, pool:50 };\nconst BEH  = 0.80;\nfunction clamp(v,lo,hi){ return Math.min(Math.max(v,lo),hi); }\n\nconst results = [];\nfor (const row of agents) {\n  const h = clamp(row.scrape_hour, 9, 17);\n  const c = PACE[h] ?? 1.0;\n  const mk = (act, tgt) => {\n    const exp = Math.round(tgt * c);\n    const pct = exp > 0 ? Math.round((act/exp)*100) : (act > 0 ? 100 : 0);\n    return { actual: act, exp, pct, behind: act < exp * BEH };\n  };\n  const dials = mk(row.total_dials ?? 0, TGT.dials);\n  const talk  = mk(row.talk_time_minutes ?? 0, TGT.talk);\n  const long  = mk(row.pool_long_calls ?? 0, TGT.long);\n  const pool  = mk(row.pool_dials ?? 0, TGT.pool);\n  const behind = [];\n  if (dials.behind) behind.push('Dials');\n  if (talk.behind)  behind.push('Talk');\n  if (long.behind)  behind.push('Long Calls');\n  if (pool.behind)  behind.push('Pool');\n  const status = behind.length >= 3 ? 'critical' : behind.length > 0 ? 'behind' : 'on_pace';\n  const mpd = dials.actual > 0 ? talk.actual / dials.actual : 0;\n  results.push({ name: row.agent_name, site: siteMap[row.agent_name]||'—', hour: row.scrape_hour, status, behind, dials, talk, long, pool, mpd });\n}\n\nconst rnk = { critical:0, behind:1, on_pace:2 };\nresults.sort((a,b) => {\n  if (rnk[a.status] !== rnk[b.status]) return rnk[a.status] - rnk[b.status];\n  return b.behind.length - a.behind.length || a.dials.pct - b.dials.pct;\n});\n\n// ── Coaching insight engine ─────────────────────────────────────────\nfunction insight(a) {\n  const mpd = a.mpd.toFixed(1);\n  if (a.dials.pct >= 70 && a.talk.pct < 40)\n    return `${mpd} min/dial — dialing without engaging. Slow down, qualify, and present.`;\n  if (a.dials.pct < 50 && a.talk.pct < 50)\n    return `Only ${a.dials.actual} dials so far. Activity gap — needs to ramp up immediately.`;\n  if (a.pool.actual > 0 && a.long.actual === 0 && a.pool.pct >= 80)\n    return `${a.pool.actual} pool dials but 0 long calls. Dialing pool without presenting — qualify deeper.`;\n  if (a.dials.pct >= 60 && a.talk.pct < 60)\n    return `${mpd} min/dial — calls are too short. Focus on getting into presentations.`;\n  if (a.dials.pct < 70 && a.talk.pct >= 60)\n    return `Good engagement (${mpd} min/dial) but only ${a.dials.actual} dials. Need more volume.`;\n  if (!a.dials.behind && a.talk.behind)\n    return `Dials on track but talk time lagging — conversations ending too quickly.`;\n  if (!a.dials.behind && !a.talk.behind && a.long.behind)\n    return `Volume and talk OK but only ${a.long.actual} long calls. Push for 15+ min presentations.`;\n  return `Behind on ${a.behind.join(' and ')}. Review activity and adjust.`;\n}\n\nconst onP = results.filter(a => a.status==='on_pace').length;\nconst beh = results.filter(a => a.status==='behind').length;\nconst cri = results.filter(a => a.status==='critical').length;\n\nconst [y,mo,d] = scrapeDate.split('-');\nconst dt = new Date(+y, +mo-1, +d);\nconst dn = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];\nconst mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()];\nconst dd = `${dn} ${mn} ${+d}, ${y}`;\nconst ch = clamp(centralHour, 9, 17);\nconst cp = Math.round((PACE[ch]??1)*100);\nconst eD = Math.round(TGT.dials*(PACE[ch]??1));\nconst eT = Math.round(TGT.talk*(PACE[ch]??1));\nconst eL = Math.round(TGT.long*(PACE[ch]??1));\nconst eP = Math.round(TGT.pool*(PACE[ch]??1));\n\nconst blocks = [];\n\nblocks.push({ type:'header', text:{ type:'plain_text', text:`Midday Pace Check — ${dd}` }});\n\nblocks.push({ type:'section', text:{ type:'mrkdwn', text:\n  `*${cp}% of day complete*  ·  ${centralHour > 12 ? centralHour - 12 : centralHour}:06 PM CT\\n\\n` +\n  `By now each agent should have:\\n` +\n  `>  *${eD}* dials  ·  *${eT}m* talk  ·  *${eL}* long calls  ·  *${eP}* pool dials\\n\\n` +\n  (results.length === 0 ? '_No T3 intraday data for today._'\n    : `*${onP}* on pace  ·  *${beh}* behind  ·  *${cri}* need attention`)\n}});\n\nblocks.push({ type:'divider' });\n\nconst st = (lbl,m) => m.behind ? `*${lbl}: ${Math.round(m.actual)}/${m.exp}*` : `${lbl}: ${Math.round(m.actual)}/${m.exp}`;\n\nconst att = results.filter(a => a.status !== 'on_pace');\nconst pace = results.filter(a => a.status === 'on_pace');\n\nfor (const a of att) {\n  const tag = a.status === 'critical' ? 'CRITICAL' : 'BEHIND';\n  blocks.push({ type:'section', text:{ type:'mrkdwn', text:\n    `*${tag}* — *${a.name}*  _(${a.site})_\\n` +\n    `${st('Dials',a.dials)}  ·  ${st('Talk',a.talk)}  ·  ${st('Long',a.long)}  ·  ${st('Pool',a.pool)}\\n` +\n    `_↳ ${insight(a)}_`\n  }});\n  if (blocks.length >= 46) {\n    const rem = att.length - att.indexOf(a) - 1;\n    if (rem > 0) blocks.push({ type:'section', text:{ type:'mrkdwn', text:`_…and ${rem} more behind pace._` }});\n    break;\n  }\n}\n\nif (att.length > 0 && pace.length > 0) blocks.push({ type:'divider' });\n\nfor (const a of pace) {\n  blocks.push({ type:'section', text:{ type:'mrkdwn', text:\n    `*${a.name}*  _(${a.site})_ — on pace\\n` +\n    `Dials: ${Math.round(a.dials.actual)}/${a.dials.exp}  ·  Talk: ${Math.round(a.talk.actual)}m/${a.talk.exp}m  ·  Long: ${a.long.actual}/${a.long.exp}  ·  Pool: ${Math.round(a.pool.actual)}/${a.pool.exp}`\n  }});\n  if (blocks.length >= 48) {\n    const rem = pace.length - pace.indexOf(a) - 1;\n    if (rem > 0) blocks.push({ type:'context', elements:[{ type:'mrkdwn', text:`_…and ${rem} more on pace._` }]});\n    break;\n  }\n}\n\nblocks.push({ type:'context', elements:[{ type:'mrkdwn',\n  text:`Targets: 200 dials · 180m talk · 4 long calls · 50 pool dials  |  Behind = <80% of expected  |  5/7 gates = good standing`\n}]});\n\nconst fallback = `Midday Pace Check — ${dd}: ${onP} on pace, ${beh} behind, ${cri} critical`;\nreturn [{ json: { channel:'YOUR_SLACK_CHANNEL_ID', text: fallback, blocks } }];"
+      },
+      "id": "a1b2c3d4-0003-4000-a000-000000000003",
+      "name": "Build Pace Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a1b2c3d4-0004-4000-a000-000000000004",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  text: ':x: *Midday Pace Alert failed*\\n' + ($input.first().json.error || 'Unknown error — check n8n execution log.')\n} }];"
+      },
+      "id": "a1b2c3d4-0005-4000-a000-000000000005",
+      "name": "Build Error Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a1b2c3d4-0006-4000-a000-000000000006",
+      "name": "Alert Slack Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 200]
+    }
+  ],
+  "connections": {
+    "Schedule 1:06 PM CST": {
+      "main": [
+        [
+          {
+            "node": "Fetch Intraday Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Intraday Data": {
+      "main": [
+        [
+          {
+            "node": "Build Pace Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pace Alert": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Alert Slack Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chicago",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "89ecaea7644e2fc8bb00924fa95bf8f2f321b4752bc18483de9de5a764fee65c"
+  }
+}

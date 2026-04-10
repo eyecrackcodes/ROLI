@@ -31,7 +31,7 @@ Daily compliance scorecard for T3 outbound agents across all three activity chan
 | # | Gate | KPI | Target |
 |---|---|---|---|
 | 1 | Combined Volume | Total dials (queue + pool) | ≥ 200/day |
-| 2 | Pool Presence | Pool % of total dials | 25-40% |
+| 2 | Pool Presence | Pool % of total dials | 25-45% |
 | 3 | Engagement | Long Calls (15+ min) | ≥ 4/day |
 | 4 | Talk Time | Total talk minutes (queue + pool) | ≥ 180 min |
 | 5 | Assignment | Self-assign rate | ≥ 30% of pool answered |
@@ -44,14 +44,14 @@ Daily compliance scorecard for T3 outbound agents across all three activity chan
   Agent makes 1 attempt at scheduled time. If no answer, sticky note + move lead to queue for
   dialer cadence. Past due = missed or unworked appointments.
 - **Queue dialer** — Agent's personal assigned leads. System cycles through automatically. Each lead
-  gets max 6 contact attempts, then must be withdrawn. DNC/dead leads withdrawn immediately.
+  gets max 6 contact attempts, then must be withdrawn. DNC/no-longer-reachable leads withdrawn immediately.
   Healthy queue: 50-120 leads. Queue > 150 = bloat. Contact attempts and withdrawals are queue-only
   mechanics — they do not apply to the leads pool.
 - **Leads pool** — Shared unassigned leads. Agent enters pool session, dials, self-assigns every
   answered contact to remove from rotation. Self-assigning is the only way a lead leaves the pool.
   Feeds tomorrow's follow-up pipeline and queue.
 
-Expected funnel at 200 combined dials (~115 queue + ~5 follow-up + ~80 pool): ~40 pool answered (50% contact rate) → 12+ self-assigned (30%) → 4+ long calls → 0.86 sales/day (at balanced 25-39% pool ratio). Avg premium per sale: $1,150.
+Expected funnel at 200 combined dials (~115 queue + ~5 follow-up + ~80 pool): ~40 pool answered (50% contact rate) → 12+ self-assigned (30%) → 4+ long calls → 0.86 sales/day (at balanced 25-44% pool ratio). Avg premium per sale: $1,150.
 
 ### Presentation Rate (Pool)
 
