@@ -68,6 +68,48 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_marketing_summary: {
+        Row: {
+          avg_premium: number
+          cost_per_sale: number
+          cpc: number
+          marketing_acq_pct: number
+          report_date: string
+          roas: number
+          synced_at: string
+          total_calls: number
+          total_cost: number
+          total_premium: number
+          total_sales: number
+        }
+        Insert: {
+          avg_premium?: number
+          cost_per_sale?: number
+          cpc?: number
+          marketing_acq_pct?: number
+          report_date: string
+          roas?: number
+          synced_at?: string
+          total_calls?: number
+          total_cost?: number
+          total_premium?: number
+          total_sales?: number
+        }
+        Update: {
+          avg_premium?: number
+          cost_per_sale?: number
+          cpc?: number
+          marketing_acq_pct?: number
+          report_date?: string
+          roas?: number
+          synced_at?: string
+          total_calls?: number
+          total_cost?: number
+          total_premium?: number
+          total_sales?: number
+        }
+        Relationships: []
+      }
       daily_scrape_data: {
         Row: {
           agent_id_crm: number | null

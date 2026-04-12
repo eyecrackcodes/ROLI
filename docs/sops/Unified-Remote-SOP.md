@@ -1,5 +1,7 @@
 # Unified Agent SOP — Flat Model
 
+> **SUPERSEDED:** This document has been replaced by **[Agent-SOP.md](Agent-SOP.md)**, which includes comprehensive pipeline discipline, leads pool standards, compliance scorecard, and escalation framework. This file is retained for reference only.
+
 **Effective:** April 10, 2026
 **Applies to:** All active agents (Remote & Charlotte)
 

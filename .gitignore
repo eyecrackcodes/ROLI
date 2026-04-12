@@ -122,3 +122,14 @@ tmp_payload.json
 
 # n8n live workflows (contain secrets)
 n8n/*-LIVE.json
+
+# n8n fetch snippet with local Supabase / Marketing keys (tracked template: hourly-fetch-with-marketing.example.js)
+n8n/snippets/hourly-fetch-with-marketing.js
+
+# MCP / local SQL scratch at repo root (do not commit)
+_args*_one_line.txt
+_invoke*.json
+mcp_args_part*.json
+mcp_payload_part*.json
+mcp_split_part*.json
+mcp_split_part*.sql

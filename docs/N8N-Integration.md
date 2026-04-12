@@ -1,5 +1,11 @@
 # N8N Integration — DSB Tier Calculator Ingestion Pipeline
 
+## Hourly Action Alert + Marketing AAR
+
+Workflow: [`n8n/hourly-action-alert.json`](../n8n/hourly-action-alert.json).
+
+Each run (weekdays 9:00–17:00 CST) fetches **Marketing AAR** `company_daily_metrics` for the current Central date (or latest row), **upserts** into ROLI **`daily_marketing_summary`**, and uses live **CPC** as lead cost in Slack copy and the recommender. Configure ROLI + Marketing URLs and anon keys in the **Fetch All Data Sources** code node (see [`n8n/snippets/README.md`](../n8n/snippets/README.md)).
+
 ## Overview
 
 The CRM scraper (Apify actor) runs daily and sends data to the DSB Tier Calculator via an N8N webhook. The data flows through:

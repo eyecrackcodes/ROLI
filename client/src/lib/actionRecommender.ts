@@ -452,17 +452,27 @@ function recommendUnified(
 
 // ---- Public API ----
 
+export interface RecommendationEngineOptions {
+  /** Live CPC from Marketing AAR (synced to ROLI). When set with useUnified, overrides UNIFIED_CONFIG.LEAD_COST. */
+  leadCost?: number;
+}
+
 export function computeRecommendations(
   weeklyStats: WeeklyAgentStats[],
   pipelineMap: Map<string, PipelineSnapshot>,
   intradayMap: Map<string, IntradaySnapshot>,
   poolMap: Map<string, PoolSnapshot>,
   useUnified = true,
+  options?: RecommendationEngineOptions,
 ): AgentRecommendation[] {
   const results: AgentRecommendation[] = [];
 
   for (const agent of weeklyStats) {
-    const config = useUnified ? UNIFIED_CONFIG : TIER_CONFIGS[agent.tier];
+    const baseCfg = useUnified ? UNIFIED_CONFIG : TIER_CONFIGS[agent.tier];
+    const config =
+      useUnified && options?.leadCost != null && options.leadCost > 0
+        ? { ...UNIFIED_CONFIG, LEAD_COST: Math.round(options.leadCost) }
+        : baseCfg;
     const { weeklyCR, dailyCRs } = computeWeeklyCR(agent.dailyRows, agent.tier);
     const pipeline = pipelineMap.get(agent.name);
     const intraday = intradayMap.get(agent.name);

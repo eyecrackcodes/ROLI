@@ -748,7 +748,7 @@ type PipelineTab = "health" | "actions";
 
 export default function PipelineIntelligence() {
   const data = useData();
-  const { pipelineAgents, pipelineLoading, selectedDate, availableDates } = data;
+  const { pipelineAgents, pipelineLoading, selectedDate, availableDates, marketingSummary } = data;
   const { sort, toggle } = useSort("healthScore");
   const [drillAgent, setDrillAgent] = useState<{ name: string; tier: string; site: string } | null>(null);
   const [siteFilter, _setSiteFilter] = useState<string>("ALL");
@@ -881,6 +881,46 @@ export default function PipelineIntelligence() {
           )}
         </div>
       </div>
+
+      {marketingSummary && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-[10px] font-mono text-muted-foreground">
+          <span className="font-bold uppercase tracking-wider text-foreground">Org marketing</span>
+          {marketingSummary.summary_mode === "rolling_7d_intraday" && marketingSummary.rolling_window && (
+            <span className="text-sky-400/90">
+              7d avg ({marketingSummary.rolling_window.days}d): {marketingSummary.rolling_window.from} →{" "}
+              {marketingSummary.rolling_window.to}
+            </span>
+          )}
+          {marketingSummary.summary_mode !== "rolling_7d_intraday" &&
+            marketingSummary.report_date !== selectedDate && (
+              <span className="text-amber-400/90">as of {marketingSummary.report_date}</span>
+            )}
+          <span>
+            CPC{" "}
+            <span className="tabular-nums text-foreground">${Math.round(marketingSummary.cpc)}</span>
+          </span>
+          <span>
+            Avg prem{" "}
+            <span className="tabular-nums text-foreground">${Math.round(marketingSummary.avg_premium).toLocaleString()}</span>
+          </span>
+          <span>
+            ROAS{" "}
+            <span className="tabular-nums text-foreground">
+              {Number(marketingSummary.roas).toFixed(2)}×
+            </span>
+          </span>
+          <span>
+            Daily spend{" "}
+            <span className="tabular-nums text-foreground">${Math.round(marketingSummary.total_cost).toLocaleString()}</span>
+          </span>
+          {marketingSummary.cost_per_sale > 0 && (
+            <span>
+              Cost / sale{" "}
+              <span className="tabular-nums text-foreground">${marketingSummary.cost_per_sale.toLocaleString()}</span>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Tab Switcher */}
       <div className="flex items-center gap-1 border-b border-border pb-0">

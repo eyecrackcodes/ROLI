@@ -239,10 +239,17 @@ export interface PriorDayCompliance {
   pastDue: number;
 }
 
-const STALE_QUEUE_RATE: Record<string, number> = { T1: 0.15, T2: 0.10, T3: 0.08 };
-const FALLBACK_PREMIUM: Record<string, number> = { T1: 400, T2: 300, T3: 1150 };
-const FALLBACK_CR: Record<string, number> = { T1: 0.08, T2: 0.06, T3: 0.04 };
+/** Unified flat model — stale queue contribution (replaces tier-specific rates). */
+const STALE_QUEUE_RATE_UNIFIED = 0.1;
+const UNIFIED_FALLBACK_PREMIUM = 700;
+const UNIFIED_FALLBACK_CR = 0.1;
 const MIN_DAYS_FOR_AGENT_STATS = 3;
+
+/** Org-wide marketing row (CPC, avg premium) synced from Marketing AAR into ROLI. */
+export interface MarketingContext {
+  avgPremium: number;
+  cpc?: number;
+}
 
 export function buildPipelineAgents(
   productionRows: ProductionRow[],
@@ -252,6 +259,7 @@ export function buildPipelineAgents(
   historicalStats?: Map<string, HistoricalAgentStats>,
   priorDayCompliance?: Map<string, PriorDayCompliance>,
   funnelMap?: Map<string, FunnelMetrics>,
+  marketingContext?: MarketingContext | null,
 ): PipelineAgent[] {
   const complianceMap = new Map<string, PipelineComplianceRow>();
   for (const row of complianceRows) complianceMap.set(row.agent_name, row);
@@ -296,9 +304,13 @@ export function buildPipelineAgents(
 
   const tierAvgCRMap = new Map<string, number>();
   const tierAvgPremMap = new Map<string, number>();
+  const mktAvgPrem = marketingContext?.avgPremium;
   for (const [tier, agg] of Array.from(tierAgg)) {
-    tierAvgCRMap.set(tier, agg.totalLeads > 0 ? agg.totalSales / agg.totalLeads : FALLBACK_CR[tier] ?? 0.06);
-    tierAvgPremMap.set(tier, agg.totalSales > 0 ? agg.totalPremium / agg.totalSales : FALLBACK_PREMIUM[tier] ?? 300);
+    tierAvgCRMap.set(tier, agg.totalLeads > 0 ? agg.totalSales / agg.totalLeads : UNIFIED_FALLBACK_CR);
+    tierAvgPremMap.set(
+      tier,
+      agg.totalSales > 0 ? agg.totalPremium / agg.totalSales : (mktAvgPrem && mktAvgPrem > 0 ? mktAvgPrem : UNIFIED_FALLBACK_PREMIUM),
+    );
   }
 
   const agents: PipelineAgent[] = [];
@@ -339,8 +351,8 @@ export function buildPipelineAgents(
     const postSaleLeads = comp.post_sale_leads ?? 0;
 
     // --- Data-driven financial modeling ---
-    const tierAvgPrem = tierAvgPremMap.get(tier) ?? FALLBACK_PREMIUM[tier] ?? 300;
-    const tierAvgCR = tierAvgCRMap.get(tier) ?? FALLBACK_CR[tier] ?? 0.06;
+    const tierAvgPrem = tierAvgPremMap.get(tier) ?? (mktAvgPrem && mktAvgPrem > 0 ? mktAvgPrem : UNIFIED_FALLBACK_PREMIUM);
+    const tierAvgCR = tierAvgCRMap.get(tier) ?? UNIFIED_FALLBACK_CR;
 
     let avgPremium: number;
     let premiumSource: "agent" | "tier";
@@ -362,7 +374,7 @@ export function buildPipelineAgents(
       closeRateSource = "tier";
     }
 
-    const staleRate = STALE_QUEUE_RATE[tier] ?? 0.10;
+    const staleRate = STALE_QUEUE_RATE_UNIFIED;
     const staleCallQueue = Math.round(callQueue * staleRate);
     const totalStale = pastDue + newLeads + staleCallQueue;
     const revenueAtRisk = Math.round(totalStale * avgPremium);

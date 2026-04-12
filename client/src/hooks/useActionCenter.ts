@@ -10,6 +10,7 @@ import {
   type IntradaySnapshot,
   type PoolSnapshot,
 } from "@/lib/actionRecommender";
+import { fetchMarketingSummary } from "@/lib/marketingSummary";
 
 export interface ActionCenterSummary {
   totalAgents: number;
@@ -199,7 +200,15 @@ export function useActionCenter(overrideDate?: string) {
         }
       }
 
-      const recs = computeRecommendations(weeklyStats, pipelineMap, intradayMap, poolMap);
+      const marketing = await fetchMarketingSummary(supabase, todayStr);
+      const recs = computeRecommendations(
+        weeklyStats,
+        pipelineMap,
+        intradayMap,
+        poolMap,
+        true,
+        marketing && marketing.cpc > 0 ? { leadCost: marketing.cpc } : undefined,
+      );
       setRecommendations(recs);
       setLastRefresh(new Date());
     } catch {

@@ -23,36 +23,26 @@ alwaysApply: true
 | Pool Close Rate | `sales_made / self_assigned_leads × 100` | Conversion rate on pool leads the agent self-assigned |
 | Gaming Flag | Based on Pool Efficiency thresholds | See below |
 
-### T3 Outbound KPI Targets (v3 — Pool-First Model)
+### Pool Activity Targets (Unified Model)
 
-Daily compliance scorecard for T3 outbound agents across all three activity channels
-(follow-up appointments, queue dialer, leads pool). Agent must pass 5 of 7 gates to be compliant.
-Pool is the primary production channel; queue is limited to warm follow-ups to avoid spam flags.
+Pool is supplemental to inbound production. Every agent receives 7 inbound leads/day at $60/lead.
+Pool sessions fill gaps between inbound activity and build tomorrow's follow-up pipeline.
 
-| # | Gate | KPI | Target |
-|---|---|---|---|
-| 1 | Combined Volume | Total dials (queue + pool) | ≥ 200/day |
-| 2 | Pool Presence | Pool % of total dials | 55-80% |
-| 3 | Engagement | Long Calls (15+ min) | ≥ 6/day |
-| 4 | Talk Time | Total talk minutes (queue + pool) | ≥ 180 min |
-| 5 | Assignment | Self-assign rate | ≥ 40% of pool answered |
-| 6 | Appointment Discipline | Past due follow-ups | 0 |
-| 7 | Queue Health | Call queue size | ≤ 80 leads |
+| Metric | Target | Notes |
+|---|---|---|
+| Pool Follow-Ups/Day | Find 5 people to follow up with | From pool contacts + missed calls |
+| Pool Sales/Week | 1 sale from pool contacts | Weekly target, not daily |
+| Self-Assign Rate | ≥ 30% of pool answered calls | Self-assign every answered contact to clean pool |
 
 ### Activity Channel Definitions
 
 - **Follow-up appointments** — Task-date driven callbacks the agent scheduled. NOT in the dialer.
   Agent makes 1 attempt at scheduled time. If no answer, sticky note + move lead to queue for
   dialer cadence. Past due = missed or unworked appointments.
-- **Queue dialer** — Agent's personal assigned leads. System cycles through automatically. Each lead
-  gets max 6 contact attempts, then must be withdrawn. DNC/no-longer-reachable leads withdrawn immediately.
-  Healthy queue: 30-80 leads. Queue > 120 = bloat. Limit queue sessions to ~1 hr/day to reduce spam
-  flagging. Contact attempts and withdrawals are queue-only mechanics — they do not apply to the leads pool.
-- **Leads pool** — Shared unassigned leads. Agent enters pool session, dials, self-assigns every
-  answered contact to remove from rotation. Self-assigning is the only way a lead leaves the pool.
-  Feeds tomorrow's follow-up pipeline and queue.
-
-Expected funnel at 200 combined dials (~45 queue + ~5 follow-up + ~150 pool): ~75 pool answered (50% contact rate) → 30+ self-assigned (40%) → 6+ long calls → ~1.0 sales/day (at pool-first 55-80% pool ratio). Avg premium per sale: $1,150.
+- **Leads pool** — Shared unassigned leads. Agent enters pool session during designated blocks
+  (after follow-up appointments are complete), dials, self-assigns every answered contact to
+  remove from rotation. Self-assigning is the only way a lead leaves the pool. Feeds tomorrow's
+  follow-up pipeline.
 
 ### Presentation Rate (Pool)
 
@@ -73,27 +63,26 @@ not interested and DNC — to remove leads from rotation and prevent unnecessary
 
 | Assign Rate | Interpretation |
 |---|---|
-| ≥ 65% | Excellent — fully cleaning pool contacts |
-| 40–64% | Compliant — pool is moving, discipline in place |
-| < 40% | Non-compliant — contacts recycling back into pool |
+| ≥ 50% | Excellent — fully cleaning pool contacts |
+| 30–49% | Compliant — pool is moving, discipline in place |
+| < 30% | Non-compliant — contacts recycling back into pool |
 
-### Queue Health Thresholds
+### Pipeline Health Thresholds
 
-Queue leads get a max of 6 contact attempts via the dialer, then must be withdrawn.
-Follow-up appointments are task-date driven (NOT in the dialer queue).
+All agents share the same pipeline limits under the unified model.
 
-| Queue Size | Interpretation |
+| Pipeline Size | Interpretation |
 |---|---|
-| < 30 | Very light — normal with pool-first model |
-| 30–80 | Healthy — balanced inflow/outflow at 6-attempt cadence |
-| 80–120 | Accumulating — audit queue, enforce withdrawals |
-| > 120 | Bloated — leads rotting, stop pool until queue is cleared |
+| ≤ 20 | Healthy — room for inbound + pool follow-ups |
+| 21–30 | At capacity — work existing pipeline before adding more |
+| 31–40 | Over limit — clear pipeline before pool or additional inbound |
+| > 40 | Critical — stop all new activity, work pipeline down immediately |
 
 | Past Due | Interpretation |
 |---|---|
 | 0 | Clean — all appointments worked on schedule |
-| 1–5 | Attention — catch up immediately |
-| > 5 | Non-compliant — missing scheduled appointments, stop pool |
+| 1–3 | Attention — catch up immediately |
+| > 3 | Critical — stop pool, work follow-ups before any other activity |
 
 ### Pool Efficiency Thresholds
 
@@ -108,17 +97,21 @@ Follow-up appointments are task-date driven (NOT in the dialer queue).
 
 | Metric | Formula | Notes |
 |---|---|---|
-| Total Stale | `past_due + new_leads + (call_queue * staleRate)` | staleRate: T1=15%, T2=10%, T3=8% |
-| Revenue at Risk | `total_stale * avgPremium` | Uses agent's 30-day rolling avg premium (falls back to tier avg) |
-| Projected Recovery | `total_stale * closeRate * avgPremium` | Uses agent's 30-day rolling close rate (falls back to tier avg) |
+| Total Stale | `past_due + new_leads + (call_queue * staleRate)` | Default staleRate: 10% |
+| Revenue at Risk | `total_stale * avgPremium` | Uses agent's 30-day rolling avg premium (falls back to floor avg) |
+| Projected Recovery | `total_stale * closeRate * avgPremium` | Uses agent's 30-day rolling close rate (falls back to floor avg) |
 | Pipeline Health Score | Composite of 4 sub-scores (0-25 each) | See pipelineIntelligence.ts |
 | Past Due Delta (d/d) | `today_past_due - yesterday_past_due` | Negative = improving, positive = deteriorating |
 
 ### Revenue Model Data Sources
 
 Agent-level stats require minimum 3 days of data and 2+ sales (premium) or 5+ leads (close rate).
-Below threshold, falls back to tier-level averages computed from same 30-day window.
-Fallback constants when no data: T1=$400/8%, T2=$300/6%, T3=$1,150/4%.
+Below threshold, falls back to floor-level averages computed from same 30-day window.
+Fallback constants when no data: $700 avg premium / 10% close rate.
+
+> **Code note:** `pipelineIntelligence.ts` uses a unified **10%** stale-queue rate and **$700 / 10%**
+> tier fallbacks; when `daily_marketing_summary` has a row for the selected date (synced from
+> Marketing AAR via n8n), **avg premium** from that row is used to improve tier-level premium estimates.
 
 ## Follow-Up Compliance
 
@@ -167,34 +160,36 @@ Production day is 9 AM – 5 PM Central (8 hours). Agents typically ramp up in t
 first hour and dip at lunch. The curve is NOT linear — it uses observed production
 patterns to set realistic hourly expectations.
 
-| Hour | Cumulative % | Expected Dials (of 200) | Expected Talk (of 180m) |
-|---|---|---|---|
-| 9 AM | 5% | 10 | 9m |
-| 10 AM | 15% | 30 | 27m |
-| 11 AM | 28% | 56 | 50m |
-| 12 PM | 42% | 84 | 76m |
-| 1 PM | 50% | 100 | 90m |
-| 2 PM | 65% | 130 | 117m |
-| 3 PM | 78% | 156 | 140m |
-| 4 PM | 92% | 184 | 166m |
-| 5 PM | 100% | 200 | 180m |
+| Hour | Cumulative % |
+|---|---|
+| 9 AM | 5% |
+| 10 AM | 15% |
+| 11 AM | 28% |
+| 12 PM | 42% |
+| 1 PM | 50% |
+| 2 PM | 65% |
+| 3 PM | 78% |
+| 4 PM | 92% |
+| 5 PM | 100% |
+
+> **Note:** The specific dial/talk-time columns (200 dials, 180 min) were calibrated for the
+> prior T3 outbound model. Under the unified model there is no fixed daily dial target — agents
+> take inbound leads and do supplemental pool work. The cumulative % curve still applies to
+> whatever intraday targets are set.
 
 ### Intraday Metrics Tracked
 
-| Metric | Daily Target | Source |
-|---|---|---|
-| Combined Dials | 200 | total_dials + pool_dials |
-| Talk Time | 180 min | talk_time_minutes + pool_talk_minutes |
-| Long Calls | 6 | pool_long_calls |
-| Pool Dials | 150 | pool_dials |
+| Metric | Source |
+|---|---|
+| Inbound Dials | total_dials |
+| Pool Dials | pool_dials |
+| Talk Time | talk_time_minutes + pool_talk_minutes |
+| Pool Self-Assigns | pool_self_assigned |
+| Pool Long Calls | pool_long_calls |
 
 ### Behind Pace Definition
 
 An agent is **behind pace** when actual < 80% of expected for that hour.
-An agent is **critical** when behind on 3 or more of the 4 tracked metrics.
-
-Example: At 2 PM, expected combined dials = 200 × 0.65 = 130.
-Behind threshold = 130 × 0.80 = 104. Agent with 103 dials → behind. Agent with 105 → on pace.
 
 The 80% buffer prevents false alerts from minor timing variations (bathroom break,
 long presentation call, etc.).

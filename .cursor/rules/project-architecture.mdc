@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Business Domain
 
-Life insurance sales operations for Digital Senior Benefits (DSB). Agents are tiered (T1/T2/T3) across two sites (AUS/CHA). The platform tracks production, pipeline health, leads pool activity, and contest rankings.
+Life insurance sales operations for Digital Senior Benefits (DSB). All agents operate under a unified flat model (no tier distinctions) across two sites (RMT/CHA). Every agent receives 7 inbound leads/day at $60/lead with supplemental pool access. The platform tracks production, pipeline health, leads pool activity, and contest rankings.
 
 ## Tech Stack
 
@@ -30,7 +30,7 @@ Life insurance sales operations for Digital Senior Benefits (DSB). Agents are ti
 - All timestamps must be UTC-8 (Pacific) or Central where noted
 - Call durations display as MM:SS, never raw seconds
 - Missed calls = `lead_uid = 'UNKNOWN'` (not answered_flag)
-- Agent capacity: 8-10 leads/day max
+- Agent capacity: 7 leads/day standard (additional if CR ≥ 15% and pipeline clean)
 - `scrape_date` always adjusted to last weekday (no Saturday/Sunday dates)
 - CRM agent IDs stored in `agents.crm_agent_id` to bypass fuzzy matching
 - Name aliases in `agent_name_aliases` table for CRM name mismatches
@@ -39,11 +39,12 @@ Life insurance sales operations for Digital Senior Benefits (DSB). Agents are ti
 
 | Table | Purpose |
 |---|---|
-| `agents` | Agent roster with tier, site, crm_agent_id, terminated_date |
+| `agents` | Agent roster with site, crm_agent_id, terminated_date (tier column retained for historical data) |
 | `daily_scrape_data` | Daily production metrics from CRM Calls Report |
 | `leads_pool_daily_data` | Leads Pool report metrics (separate from main production) |
 | `pipeline_compliance_daily` | Pipeline hygiene from CRM Advanced Dashboard Stats |
 | `intraday_snapshots` | Hourly snapshots for intraday progression |
+| `daily_marketing_summary` | Org-wide CPC/ROAS (synced from Marketing AAR by n8n hourly alert) |
 | `agent_name_aliases` | Maps canonical names to CRM dropdown names |
 | `evaluation_windows` | Monthly evaluation periods |
 | `monthly_snapshots` | ROLI scores per evaluation window |

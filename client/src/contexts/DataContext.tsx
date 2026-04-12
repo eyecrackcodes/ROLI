@@ -6,8 +6,17 @@ import {
 } from "@/lib/sampleData";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { EvaluationWindow } from "@/hooks/useEvaluationWindows";
-import type { PipelineAgent, PipelineComplianceRow, ProductionRow, PoolRow as PipelinePoolRow, HistoricalAgentStats, PriorDayCompliance } from "@/lib/pipelineIntelligence";
+import type {
+  PipelineAgent,
+  PipelineComplianceRow,
+  ProductionRow,
+  PoolRow as PipelinePoolRow,
+  HistoricalAgentStats,
+  PriorDayCompliance,
+  MarketingContext,
+} from "@/lib/pipelineIntelligence";
 import { buildPipelineAgents } from "@/lib/pipelineIntelligence";
+import { fetchMarketingSummary, type MarketingDailySummary } from "@/lib/marketingSummary";
 
 interface DailyScrapeRow {
   agent_name: string;
@@ -121,6 +130,8 @@ interface DataContextType {
   pipelineAgents: PipelineAgent[];
   refreshPipeline: () => Promise<void>;
   pipelineLoading: boolean;
+  /** Org-wide CPC / ROAS row for selected pipeline date (synced from Marketing AAR). */
+  marketingSummary: MarketingDailySummary | null;
 }
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -345,6 +356,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [dateRange, setDateRange] = useState<DateRange>({ start: "", end: "" });
   const [poolInventory, setPoolInventory] = useState<PoolInventorySnapshot[]>([]);
   const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
+  const [marketingSummary, setMarketingSummary] = useState<MarketingDailySummary | null>(null);
   const [pipelineLoading, setPipelineLoading] = useState(false);
 
   // Fetch available dates + evaluation window on mount, then smart-select date
@@ -655,6 +667,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       let typedPool = (plRows ?? []) as PipelinePoolRow[];
 
       if (typedComp.length === 0) {
+        setMarketingSummary(null);
         setPipelineAgents([]);
         return;
       }
@@ -726,7 +739,30 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
 
       const pipelineFunnelMap = (perfRows2 ?? []).length > 0 ? buildFunnelMap((perfRows2 ?? []) as AgentPerfRow[]) : undefined;
-      const agents = buildPipelineAgents(typedProd, typedPool, typedComp, agentMap, historicalStats, priorDayCompliance, pipelineFunnelMap);
+
+      let marketingRow: MarketingDailySummary | null = null;
+      try {
+        marketingRow = await fetchMarketingSummary(supabase, targetDate);
+      } catch {
+        marketingRow = null;
+      }
+      setMarketingSummary(marketingRow);
+
+      const marketingCtx: MarketingContext | null =
+        marketingRow && marketingRow.avg_premium > 0
+          ? { avgPremium: marketingRow.avg_premium, cpc: marketingRow.cpc }
+          : null;
+
+      const agents = buildPipelineAgents(
+        typedProd,
+        typedPool,
+        typedComp,
+        agentMap,
+        historicalStats,
+        priorDayCompliance,
+        pipelineFunnelMap,
+        marketingCtx,
+      );
       setPipelineAgents(agents);
     } catch {
       // keep existing data
@@ -818,6 +854,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         dateRange, setDateRange,
         poolInventory,
         pipelineAgents, refreshPipeline, pipelineLoading,
+        marketingSummary,
       }}
     >
       {children}

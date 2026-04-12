@@ -1,21 +1,21 @@
 # Pipeline Discipline — Standard Operating Procedure
 
-**Effective:** April 2026
+> **SUPERSEDED:** This document has been replaced by **[Pipeline-and-Pool-SOP.md](Pipeline-and-Pool-SOP.md)**, which combines pipeline discipline + leads pool standards with live marketing cost data. This file is retained for reference only.
 
-This document defines pipeline standards for all agents, how audits work, and what happens when pipelines aren't clean. It applies to T1, T2, and T3 equally.
+**Effective:** April 2026 (updated for Unified Model)
+
+This document defines pipeline standards for all agents, how audits work, and what happens when pipelines aren't clean. It applies uniformly to all agents under the flat model.
 
 ---
 
 ## The Problem This Solves
 
-Every past-due follow-up is a lead that was warm enough to set an appointment — and the agent let it go cold. Every overloaded queue is a pile of leads that should have been worked or withdrawn. The cost:
+Every past-due follow-up is a lead that was warm enough to set an appointment — and the agent let it go cold. Every overloaded pipeline is a pile of leads that should have been worked or withdrawn. The cost:
 
 
-| Tier | Lead Cost     | Past Due × 5 Leads | Estimated Revenue Lost       |
-| ---- | ------------- | ------------------ | ---------------------------- |
-| T1   | $83/call      | $415 in lead spend | ~$1,438 in potential premium |
-| T2   | $83/call (IB) | $415 in lead spend | ~$1,438 in potential premium |
-| T3   | $15/lead (OB) | $75 in lead spend  | ~$575 in potential premium   |
+| Lead Cost | Past Due × 5 Leads | Estimated Revenue Lost       |
+| --------- | ------------------ | ---------------------------- |
+| $60/lead  | $300 in lead spend | ~$1,050 in potential premium  |
 
 
 Follow-up leads convert at **2-3x the rate of first contacts** because the prospect already expressed interest. Neglecting them is the most expensive mistake on the floor.
@@ -28,8 +28,8 @@ Follow-up leads convert at **2-3x the rate of first contacts** because the prosp
 | Metric                     | Clean                    | Needs Attention | Non-Compliant |
 | -------------------------- | ------------------------ | --------------- | ------------- |
 | Past Due Follow-Ups        | 0                        | 1-3             | 4+            |
+| Pipeline Size              | ≤ 20                     | 21-30           | 31+           |
 | Pipeline Age (oldest lead) | < 7 days                 | 7-14 days       | 14+ days      |
-| Queue Size (T3 only)       | 50-120                   | 120-200         | 200+          |
 | Disposition Rate           | 100% same-day            | 90%+            | < 90%         |
 | Follow-Up Set Rate         | Every interested contact | Most contacts   | Inconsistent  |
 
@@ -45,7 +45,7 @@ Follow-up leads convert at **2-3x the rate of first contacts** because the prosp
 A daily pipeline health alert runs every morning (automated via ROLI + Slack). It flags:
 
 - Any agent with past due > 0
-- Any agent with queue > 150 (T3) or pipeline > 25 (T1/T2)
+- Any agent with pipeline > 30
 - Any agent flagged as FOLLOWUP_AVOIDER or PIPELINE_HOARDER
 
 This is a visibility tool. It surfaces problems the same day they start.
@@ -57,14 +57,13 @@ Management conducts a formal pipeline review every Wednesday. This is the checkp
 **What the audit covers:**
 
 
-| Check                  | Data Source               | Threshold                      |
-| ---------------------- | ------------------------- | ------------------------------ |
-| Past due follow-ups    | pipeline_compliance_daily | Must be 0                      |
-| Past due trend (d/d)   | Daily delta               | Must be flat or declining      |
-| Queue size (T3)        | pipeline_compliance_daily | Must be ≤ 120                  |
-| Pipeline size (T1/T2)  | Active follow-ups         | Must be ≤ 25 (T1) or ≤ 40 (T2) |
-| Close-out discipline   | Leads 14+ days old        | Must be worked or closed out   |
-| Disposition compliance | Same-day disposition rate | Must be 100%                   |
+| Check                  | Data Source               | Threshold                 |
+| ---------------------- | ------------------------- | ------------------------- |
+| Past due follow-ups    | pipeline_compliance_daily | Must be 0                 |
+| Past due trend (d/d)   | Daily delta               | Must be flat or declining |
+| Pipeline size          | pipeline_compliance_daily | Must be ≤ 30              |
+| Close-out discipline   | Leads 14+ days old        | Must be worked or closed out |
+| Disposition compliance | Same-day disposition rate | Must be 100%              |
 
 
 **Who conducts it:** Site managers or team leads, using the ROLI Pipeline Intelligence dashboard.
@@ -90,8 +89,8 @@ Problems are addressed progressively. No one gets docked on a first offense. But
 ### Level 2: Written Warning
 
 
-| Trigger       | Past due > 3 for 3+ consecutive days, OR Level 1 repeated within 2 weeks              |
-| ------------- | ------------------------------------------------------------------------------------- |
+| Trigger       | Past due > 3 for 3+ consecutive days, OR Level 1 repeated within 2 weeks             |
+| ------------- | ------------------------------------------------------------------------------------ |
 | Action        | Formal written warning. Agent signs acknowledgment. Specific improvement targets set. |
 | Timeline      | Next business day after identification.                                               |
 | Documentation | Written, goes in agent's file.                                                        |
@@ -100,18 +99,18 @@ Problems are addressed progressively. No one gets docked on a first offense. But
 ### Level 3: Lead Allocation Reduction
 
 
-| Trigger       | Past due > 5 after written warning, OR chronic non-compliance (3+ warnings in 30 days)                                              |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Action        | Reduce lead allocation until pipeline is clean. T1: drop from 10 to 7 IB/day. T2: drop from 7 to 5 IB/day. T3: suspend pool access. |
-| Timeline      | Effective immediately. Restored when pipeline hits zero past due for 3 consecutive days.                                            |
-| Documentation | Written notification. HR informed.                                                                                                  |
-| Rationale     | If you can't work what you have, you shouldn't receive more.                                                                        |
+| Trigger       | Past due > 5 after written warning, OR chronic non-compliance (3+ warnings in 30 days)                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| Action        | Reduce lead allocation until pipeline is clean: drop from 7 to 5 IB/day and suspend pool access.            |
+| Timeline      | Effective immediately. Restored when pipeline hits zero past due for 3 consecutive days.                     |
+| Documentation | Written notification. HR informed.                                                                           |
+| Rationale     | If you can't work what you have, you shouldn't receive more.                                                 |
 
 
 ### Level 4: Queue Sweep
 
 
-| Trigger       | Queue > 200 (T3) or pipeline > 40 (T1/T2) after written warning                                        |
+| Trigger       | Pipeline > 40 after written warning                                                                    |
 | ------------- | ------------------------------------------------------------------------------------------------------ |
 | Action        | Management forcibly reviews the pipeline and withdraws/closes out leads the agent should have handled. |
 | Timeline      | During the weekly audit.                                                                               |
@@ -131,49 +130,23 @@ Problems are addressed progressively. No one gets docked on a first offense. But
 
 ---
 
-## Tier-Specific Pipeline Standards
-
-### T1 — Inbound
+## Pipeline Standards (All Agents)
 
 
 | Metric               | Standard                                     | Audit Check                |
 | -------------------- | -------------------------------------------- | -------------------------- |
 | Past due             | 0                                            | Daily alert + weekly audit |
-| Pipeline size        | ≤ 25 active follow-ups                       | Weekly audit               |
-| Close-out discipline | No leads older than 14 days without activity | Weekly audit               |
-| Disposition          | 100% same-day                                | Daily alert                |
-
-
-T1 agents handle the most expensive leads. Their pipeline should be small, fast-moving, and fully worked. A T1 agent with 10 past-due follow-ups has ~$2,875 in revenue sitting idle.
-
-### T2 — Hybrid
-
-
-| Metric               | Standard                                     | Audit Check                |
-| -------------------- | -------------------------------------------- | -------------------------- |
-| Past due             | 0                                            | Daily alert + weekly audit |
-| Pipeline size        | ≤ 40 active follow-ups                       | Weekly audit               |
+| Pipeline size        | ≤ 30 leads                                   | Daily alert + weekly audit |
 | Close-out discipline | No leads older than 14 days without activity | Weekly audit               |
 | Pool follow-through  | Pool self-assigns generating follow-ups      | Weekly audit               |
+| Pool self-assign rate| ≥ 30%                                        | Daily alert                |
 | Disposition          | 100% same-day                                | Daily alert                |
 
 
-T2 agents have the most complex pipeline — fed by both inbound and pool. The risk is that pool self-assigns pile up without being worked. Agents must treat pool follow-ups with the same urgency as inbound follow-ups.
-
-### T3 — Outbound
-
-
-| Metric                | Standard          | Audit Check                |
-| --------------------- | ----------------- | -------------------------- |
-| Past due              | 0                 | Daily alert + weekly audit |
-| Queue size            | ≤ 120 leads       | Daily alert + weekly audit |
-| Queue delta (d/d)     | Flat or declining | Weekly audit               |
-| 6-attempt withdrawal  | Enforced          | Weekly audit               |
-| Pool self-assign rate | ≥ 30%             | Daily scorecard            |
-| Disposition           | 100% same-day     | Daily alert                |
-
-
-T3 agents manage the largest pipelines. Queue bloat is the primary risk — leads accumulating without being withdrawn after 6 attempts. The queue should be a flowing river, not a stagnant pond.
+Every agent's pipeline is fed by both inbound leads and pool self-assigns. The risk is that
+pool self-assigns pile up without being worked. Agents must treat pool follow-ups with the
+same urgency as inbound follow-ups. An agent with 10 past-due follow-ups has ~$2,100 in
+revenue sitting idle (at $60/lead × 10 × 35% follow-up close rate × $1,000 avg premium).
 
 ---
 
@@ -186,7 +159,7 @@ Every Wednesday, the auditor runs through this checklist per agent.
 | --- | ---------------------------- | ------------------------------------- | -------------- | -------------- |
 | 1   | Past due = 0                 | ROLI Pipeline Dashboard               | Zero           | Any > 0        |
 | 2   | Past due trend               | d/d delta from prior week             | Flat or down   | Rising         |
-| 3   | Pipeline/queue within limits | Tier-specific max                     | Within range   | Over limit     |
+| 3   | Pipeline ≤ 30                | pipeline_compliance_daily             | ≤ 30           | > 30           |
 | 4   | No leads older than 14 days  | Pipeline age distribution             | All < 14 days  | Any ≥ 14 days  |
 | 5   | Disposition rate = 100%      | Same-day disposition                  | 100%           | < 100%         |
 | 6   | Close-out discipline         | Leads with 3+ missed appts still open | All closed out | Any still open |
@@ -205,16 +178,14 @@ Every Wednesday, the auditor runs through this checklist per agent.
 
 This is why pipeline discipline is a financial priority, not just an operational one.
 
-### Monthly Revenue at Risk (per agent, by tier)
+### Monthly Revenue at Risk (per agent)
 
-Assumes 5 past-due follow-ups sustained over a month, at tier-specific close rates and $1,150 avg premium.
+Assumes 5 past-due follow-ups sustained over a month, at 30% follow-up close rate and $1,150 avg premium.
 
 
-| Tier | Follow-Up Close Rate            | Revenue Lost/Month (5 past due) |
-| ---- | ------------------------------- | ------------------------------- |
-| T1   | 35% (follow-ups convert higher) | $4,025                          |
-| T2   | 30%                             | $3,450                          |
-| T3   | 20%                             | $2,300                          |
+| Follow-Up Close Rate            | Revenue Lost/Month (5 past due) |
+| ------------------------------- | ------------------------------- |
+| 30% (follow-ups convert higher) | $3,450                          |
 
 
 ### Floor-Wide Impact
@@ -239,8 +210,7 @@ The following automated checks run daily and feed into the weekly audit:
 | Alert                | Trigger                                       | Channel                |
 | -------------------- | --------------------------------------------- | ---------------------- |
 | Past Due Alert       | Any agent past due > 0                        | Slack #pipeline-health |
-| Queue Bloat Alert    | T3 agent queue > 150                          | Slack #pipeline-health |
-| Pipeline Overload    | T1/T2 agent pipeline > 25/40                  | Slack #pipeline-health |
+| Pipeline Overload    | Any agent pipeline > 30                       | Slack #pipeline-health |
 | Behavioral Flag      | FOLLOWUP_AVOIDER or PIPELINE_HOARDER detected | Slack #pipeline-health |
 | Weekly Audit Summary | Wednesday rollup of all agents                | Slack #management      |
 
@@ -253,10 +223,10 @@ The following automated checks run daily and feed into the weekly audit:
 | Parameter                 | Value                                       | Source                                                   |
 | ------------------------- | ------------------------------------------- | -------------------------------------------------------- |
 | Avg Premium Per Sale      | $1,150                                      | Floor average                                            |
-| IB Lead Cost              | ~$83/call                                   | Business rule                                            |
-| Follow-Up Close Rate (T1) | 35%                                         | Estimated — follow-ups convert higher than first contact |
-| Follow-Up Close Rate (T2) | 30%                                         | Estimated                                                |
-| Follow-Up Close Rate (T3) | 20%                                         | Estimated                                                |
+| Lead Cost                 | $60/lead                                    | Business rule                                            |
+| Daily Leads               | 7/day                                       | Business rule                                            |
+| Follow-Up Close Rate      | 30%                                         | Estimated — follow-ups convert higher than first contact |
+| Pipeline Max              | 30 leads                                    | Business rule                                            |
 | Audit Cadence             | Weekly (Wednesday) + daily automated alerts | Business rule                                            |
 | Working Days/Month        | 22                                          | Standard                                                 |
 

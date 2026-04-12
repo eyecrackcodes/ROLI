@@ -1,5 +1,4 @@
 {
-  "name": "Unified Hourly Alert — Flat Model",
   "nodes": [
     {
       "parameters": {
@@ -12,75 +11,101 @@
           ]
         }
       },
-      "id": "ua-schedule-01",
+      "id": "c062146e-c8b5-44a6-bfb2-768db52b2858",
       "name": "Schedule :05 past hour CST",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [-200, 0]
+      "position": [
+        -16,
+        -256
+      ]
     },
     {
       "parameters": {},
-      "id": "ua-manual-01",
+      "id": "cfc75e04-a156-421e-892b-77f2fffec244",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [-200, 200]
+      "position": [
+        -16,
+        -64
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base   = 'YOUR_SUPABASE_REST_URL';\nconst hdr    = { apikey, Authorization: `Bearer ${apikey}` };\n\nconst now = new Date();\nconst centralStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\nconst centralHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hour12: false }));\n\nconst centralNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));\nconst dayOfWeek = centralNow.getDay();\nconst mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;\nconst monday = new Date(centralNow);\nmonday.setDate(monday.getDate() - mondayOffset);\nconst mondayStr = monday.toISOString().slice(0, 10);\n\nconst [roster, weeklyData, intradayData, pipelineData, poolData] = await Promise.all([\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/agents?select=name,site,tier,manager&is_active=eq.true`,\n    headers: hdr, json: true,\n  }),\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/daily_scrape_data?select=agent_name,scrape_date,ib_leads_delivered,ob_leads_delivered,ib_sales,ob_sales,custom_sales&scrape_date=gte.${mondayStr}&scrape_date=lte.${centralStr}&order=scrape_date.asc`,\n    headers: hdr, json: true,\n  }),\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/intraday_snapshots?select=agent_name,scrape_hour,total_dials,talk_time_minutes,ib_leads_delivered,ib_sales,ob_leads_delivered,ob_sales,ib_premium,ob_premium,custom_premium,pool_dials,pool_talk_minutes,pool_self_assigned,pool_answered,pool_long_calls&scrape_date=eq.${centralStr}&order=scrape_hour.desc`,\n    headers: hdr, json: true,\n  }),\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/pipeline_compliance_daily?select=agent_name,past_due_follow_ups,new_leads,call_queue_count,todays_follow_ups&scrape_date=eq.${centralStr}`,\n    headers: hdr, json: true,\n  }),\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/leads_pool_daily_data?select=agent_name,calls_made,talk_time_minutes,self_assigned_leads,answered_calls,long_calls,sales_made&scrape_date=eq.${centralStr}`,\n    headers: hdr, json: true,\n  }),\n]);\n\nif (!roster || roster.length === 0) {\n  throw new Error('No active agents found');\n}\n\nconst rosterMap = {};\nfor (const a of roster) rosterMap[a.name] = a;\n\nconst weeklyByAgent = {};\nfor (const r of (weeklyData || [])) {\n  if (!rosterMap[r.agent_name]) continue;\n  if (!weeklyByAgent[r.agent_name]) weeklyByAgent[r.agent_name] = [];\n  weeklyByAgent[r.agent_name].push({\n    date: r.scrape_date,\n    ibLeads: r.ib_leads_delivered || 0,\n    obLeads: r.ob_leads_delivered || 0,\n    ibSales: r.ib_sales || 0,\n    obSales: r.ob_sales || 0,\n    customSales: r.custom_sales || 0,\n  });\n}\n\nconst intradayMap = {};\nfor (const r of (intradayData || [])) {\n  if (!intradayMap[r.agent_name] && rosterMap[r.agent_name]) {\n    intradayMap[r.agent_name] = r;\n  }\n}\n\nconst pipeMap = {};\nfor (const r of (pipelineData || [])) {\n  if (rosterMap[r.agent_name]) pipeMap[r.agent_name] = r;\n}\n\nconst poolMapData = {};\nfor (const r of (poolData || [])) {\n  if (rosterMap[r.agent_name]) poolMapData[r.agent_name] = r;\n}\n\nreturn [{\n  json: {\n    scrapeDate: centralStr,\n    centralHour,\n    mondayStr,\n    rosterMap,\n    weeklyByAgent,\n    intradayMap,\n    pipeMap,\n    poolMapData,\n    agentCount: roster.length,\n  }\n}];"
+        "jsCode": "/**\n * Safe template (committed). Copy to `hourly-fetch-with-marketing.js` (gitignored), fill YOUR_*.\n * Merge into workflow JSON: `node n8n/snippets/merge-hourly-fetch.mjs` (prefers local gitignored file).\n */\nconst apikey = \"YOUR_ROLI_ANON_KEY\";\nlet base = \"YOUR_ROLI_SUPABASE_URL\";\nbase = base.replace(/\\/+$/, \"\");\n\nconst mktApikey = \"YOUR_MARKETING_AAR_ANON_KEY\";\nlet mktBase = \"YOUR_MARKETING_AAR_REST_URL\";\nmktBase = mktBase.replace(/\\/+$/, \"\");\n\n/** PostgREST base: `https://<ref>.supabase.co/rest/v1` */\nfunction toRestV1(origin) {\n  const u = origin.replace(/\\/+$/, \"\");\n  return /\\/rest\\/v1$/i.test(u) ? u : `${u}/rest/v1`;\n}\nbase = toRestV1(base);\nmktBase = toRestV1(mktBase);\n\nconst hdr = { apikey, Authorization: `Bearer ${apikey}` };\nconst hdrMkt = { apikey: mktApikey, Authorization: `Bearer ${mktApikey}` };\n\nconst now = new Date();\nconst centralStr = now.toLocaleDateString(\"en-CA\", {\n  timeZone: \"America/Chicago\",\n});\nconst centralHour = Number(\n  now.toLocaleString(\"en-US\", {\n    timeZone: \"America/Chicago\",\n    hour: \"numeric\",\n    hour12: false,\n  })\n);\n\nconst centralNow = new Date(\n  now.toLocaleString(\"en-US\", { timeZone: \"America/Chicago\" })\n);\nconst dayOfWeek = centralNow.getDay();\nconst mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;\nconst monday = new Date(centralNow);\nmonday.setDate(monday.getDate() - mondayOffset);\nconst mondayStr = monday.toISOString().slice(0, 10);\nconst daysThisWeek = Math.min(dayOfWeek === 0 ? 5 : dayOfWeek, 5);\n\nfunction isPlaceholder(v) {\n  return !v || String(v).startsWith(\"YOUR_\");\n}\n\nconst mktConfigured = !isPlaceholder(mktApikey) && !isPlaceholder(mktBase);\n\nconst mktCols =\n  \"report_date,total_cost,cpc,total_calls,total_sales,total_premium,avg_premium,roas,marketing_acq_pct\";\n\n/** Isolated GET so a Marketing 401/RLS error does not fail the whole ROLI fetch. */\nconst mktGet = async (queryAfterSelect) => {\n  if (!mktConfigured) return [];\n  try {\n    const data = await this.helpers.httpRequest({\n      method: \"GET\",\n      url: `${mktBase}/company_daily_metrics?select=${mktCols}&${queryAfterSelect}`,\n      headers: hdrMkt,\n      json: true,\n    });\n    return Array.isArray(data) ? data : [];\n  } catch {\n    return [];\n  }\n};\n\nconst DEFAULT_LEAD_COST = 60;\nconst DEFAULT_AVG_PREM = 1150;\n\nfunction rowFromMkt(r) {\n  const cpc = Number(r.cpc) || DEFAULT_LEAD_COST;\n  const avgPrem = Number(r.avg_premium) || DEFAULT_AVG_PREM;\n  const tCost = Number(r.total_cost) || 0;\n  const tSales = Number(r.total_sales) || 0;\n  const costPerSale = tSales > 0 ? Math.round(tCost / tSales) : 0;\n  return {\n    report_date: String(r.report_date ?? \"\").slice(0, 10),\n    total_cost: tCost,\n    cpc,\n    total_calls: Number(r.total_calls) || 0,\n    total_sales: tSales,\n    total_premium: Number(r.total_premium) || 0,\n    avg_premium: avgPrem,\n    roas: Number(r.roas) || 0,\n    marketing_acq_pct: Number(r.marketing_acq_pct) || 0,\n    cost_per_sale: costPerSale,\n  };\n}\n\n/** Mean of up to 7 completed AAR days (report_date < centralStr) for intraday CPC / org premium. */\nfunction averageMarketingRows(rows, anchorDate) {\n  if (!rows || rows.length === 0) return null;\n  const norm = rows.map(r => rowFromMkt(r));\n  const dates = [\n    ...new Set(norm.map(r => String(r.report_date).slice(0, 10))),\n  ].sort();\n  const from = dates[0] || anchorDate;\n  const to = dates[dates.length - 1] || anchorDate;\n  const n = norm.length;\n  const mean = pick => norm.reduce((s, r) => s + pick(r), 0) / n;\n  const sumCost = norm.reduce((s, r) => s + r.total_cost, 0);\n  const sumSales = norm.reduce((s, r) => s + r.total_sales, 0);\n  const costPerSale = sumSales > 0 ? Math.round(sumCost / sumSales) : 0;\n  return {\n    report_date: anchorDate,\n    total_cost: mean(r => r.total_cost),\n    cpc: mean(r => r.cpc),\n    total_calls: Math.round(mean(r => r.total_calls)),\n    total_sales: Math.round(mean(r => r.total_sales)),\n    total_premium: mean(r => r.total_premium),\n    avg_premium: mean(r => r.avg_premium),\n    roas: mean(r => r.roas),\n    marketing_acq_pct: mean(r => r.marketing_acq_pct),\n    cost_per_sale: costPerSale,\n    summary_mode: \"rolling_7d_intraday\",\n    rolling_window: { from, to, days: n },\n  };\n}\n\nconst [\n  roster,\n  weeklyData,\n  intradayData,\n  pipelineData,\n  poolData,\n  weeklyPoolData,\n  mktExact,\n  mktLast7,\n] = await Promise.all([\n  this.helpers.httpRequest({\n    method: \"GET\",\n    url: `${base}/agents?select=name,site,tier,manager&is_active=eq.true`,\n    headers: hdr,\n    json: true,\n  }),\n  this.helpers.httpRequest({\n    method: \"GET\",\n    url: `${base}/daily_scrape_data?select=agent_name,scrape_date,ib_leads_delivered,ob_leads_delivered,ib_sales,ob_sales,custom_sales&scrape_date=gte.${mondayStr}&scrape_date=lte.${centralStr}&order=scrape_date.asc`,\n    headers: hdr,\n    json: true,\n  }),\n  this.helpers.httpRequest({\n    method: \"GET\",\n    url: `${base}/intraday_snapshots?select=agent_name,scrape_hour,total_dials,talk_time_minutes,ib_leads_delivered,ib_sales,ob_leads_delivered,ob_sales,ib_premium,ob_premium,custom_premium,pool_dials,pool_talk_minutes,pool_self_assigned,pool_answered,pool_long_calls&scrape_date=eq.${centralStr}&order=scrape_hour.desc`,\n    headers: hdr,\n    json: true,\n  }),\n  this.helpers.httpRequest({\n    method: \"GET\",\n    url: `${base}/pipeline_compliance_daily?select=agent_name,past_due_follow_ups,new_leads,call_queue_count,todays_follow_ups&scrape_date=eq.${centralStr}`,\n    headers: hdr,\n    json: true,\n  }),\n  this.helpers.httpRequest({\n    method: \"GET\",\n    url: `${base}/leads_pool_daily_data?select=agent_name,calls_made,talk_time_minutes,self_assigned_leads,answered_calls,long_calls,sales_made&scrape_date=eq.${centralStr}`,\n    headers: hdr,\n    json: true,\n  }),\n  this.helpers.httpRequest({\n    method: \"GET\",\n    url: `${base}/leads_pool_daily_data?select=agent_name,sales_made&scrape_date=gte.${mondayStr}&scrape_date=lte.${centralStr}`,\n    headers: hdr,\n    json: true,\n  }),\n  mktGet(`report_date=eq.${centralStr}&limit=1`),\n  mktGet(`report_date=lt.${centralStr}&order=report_date.desc&limit=7`),\n]);\n\nconst mktTodayEq = Array.isArray(mktExact) && mktExact[0] ? mktExact[0] : null;\nlet mktRow = mktTodayEq;\nif (!mktRow && mktConfigured) {\n  const mktLatest = await mktGet(\"order=report_date.desc&limit=1\");\n  mktRow = mktLatest[0] || null;\n}\n\nconst last7 = Array.isArray(mktLast7) ? mktLast7 : [];\nconst blended = averageMarketingRows(last7, centralStr);\n\nlet marketingDaily = null;\nlet leadCostOverride = DEFAULT_LEAD_COST;\nlet avgPremiumOverride = DEFAULT_AVG_PREM;\n\nif (blended) {\n  marketingDaily = blended;\n  leadCostOverride = Math.round(blended.cpc);\n  avgPremiumOverride = Math.round(blended.avg_premium);\n} else if (mktRow) {\n  marketingDaily = rowFromMkt(mktRow);\n  leadCostOverride = Math.round(marketingDaily.cpc);\n  avgPremiumOverride = Math.round(marketingDaily.avg_premium);\n}\n\nif (mktTodayEq) {\n  const todayBody = rowFromMkt(mktTodayEq);\n  try {\n    await this.helpers.httpRequest({\n      method: \"POST\",\n      url: `${base}/daily_marketing_summary?on_conflict=report_date`,\n      headers: {\n        ...hdr,\n        \"Content-Type\": \"application/json\",\n        Prefer: \"resolution=merge-duplicates\",\n      },\n      body: todayBody,\n      json: true,\n    });\n  } catch (syncErr) {\n    // Table may not exist yet or RLS — workflow continues\n  }\n}\n\nif (!roster || roster.length === 0) {\n  throw new Error(\"No active agents found\");\n}\n\nconst rosterMap = {};\nfor (const a of roster) rosterMap[a.name] = a;\n\nconst weeklyByAgent = {};\nfor (const r of weeklyData || []) {\n  if (!rosterMap[r.agent_name]) continue;\n  if (!weeklyByAgent[r.agent_name]) weeklyByAgent[r.agent_name] = [];\n  weeklyByAgent[r.agent_name].push({\n    date: r.scrape_date,\n    ibLeads: r.ib_leads_delivered || 0,\n    obLeads: r.ob_leads_delivered || 0,\n    ibSales: r.ib_sales || 0,\n    obSales: r.ob_sales || 0,\n    customSales: r.custom_sales || 0,\n  });\n}\n\nconst weeklyPoolSales = {};\nfor (const r of weeklyPoolData || []) {\n  if (!rosterMap[r.agent_name]) continue;\n  weeklyPoolSales[r.agent_name] =\n    (weeklyPoolSales[r.agent_name] || 0) + (r.sales_made || 0);\n}\n\nconst intradayMap = {};\nfor (const r of intradayData || []) {\n  if (!intradayMap[r.agent_name] && rosterMap[r.agent_name]) {\n    intradayMap[r.agent_name] = r;\n  }\n}\n\nconst pipeMap = {};\nfor (const r of pipelineData || []) {\n  if (rosterMap[r.agent_name]) pipeMap[r.agent_name] = r;\n}\n\nconst poolMapData = {};\nfor (const r of poolData || []) {\n  if (rosterMap[r.agent_name]) poolMapData[r.agent_name] = r;\n}\n\nreturn [\n  {\n    json: {\n      scrapeDate: centralStr,\n      centralHour,\n      mondayStr,\n      daysThisWeek,\n      rosterMap,\n      weeklyByAgent,\n      weeklyPoolSales,\n      intradayMap,\n      pipeMap,\n      poolMapData,\n      agentCount: roster.length,\n      marketingDaily,\n      leadCostOverride,\n      avgPremiumOverride,\n    },\n  },\n];\n"
       },
-      "id": "ua-fetch-data-01",
+      "id": "6d804b34-d280-4284-bea0-c0f17b32a2ec",
       "name": "Fetch All Data Sources",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [40, 100]
+      "position": [
+        224,
+        -160
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const { scrapeDate, centralHour, rosterMap, weeklyByAgent, intradayMap, pipeMap, poolMapData, agentCount } = $input.first().json;\n\nconst CFG = { CR_TARGET: 15, CR_FLOOR: 10, CR_CRISIS: 7, CR_CRISIS_DAYS: 3, MAX_PIPELINE: 30, LEAD_COST: 60, POOL_FOLLOWUPS: 5 };\n\nfunction computeWeeklyCR(rows) {\n  if (!rows || rows.length === 0) return { weeklyCR: null, dailyCRs: [] };\n  const dailyCRs = rows.map(r => {\n    const leads = r.ibLeads + r.obLeads;\n    const sales = r.ibSales + r.obSales + r.customSales;\n    return leads > 0 ? (sales / leads) * 100 : 0;\n  });\n  const totalL = rows.reduce((s, r) => s + r.ibLeads + r.obLeads, 0);\n  const totalS = rows.reduce((s, r) => s + r.ibSales + r.obSales + r.customSales, 0);\n  return { weeklyCR: totalL > 0 ? (totalS / totalL) * 100 : null, dailyCRs };\n}\n\nfunction consLow(dailyCRs, threshold) {\n  let c = 0;\n  for (let i = dailyCRs.length - 1; i >= 0; i--) { if (dailyCRs[i] < threshold) c++; else break; }\n  return c;\n}\n\nfunction recommend(weeklyCR, dailyCRs, pipe, intra, pool) {\n  const pastDue = pipe?.past_due_follow_ups ?? 0;\n  const pipeSize = (pipe?.new_leads ?? 0) + (pipe?.todays_follow_ups ?? 0) + pastDue;\n  const poolSelfAssigned = pool?.self_assigned_leads ?? 0;\n  const poolDials = pool?.calls_made ?? 0;\n  const consLowDays = consLow(dailyCRs, CFG.CR_CRISIS);\n\n  if (pastDue > 0) return { action: 'WORK_FOLLOWUPS', severity: 'critical', reason: `${pastDue} past due follow-up${pastDue > 1 ? 's' : ''} — $${pastDue * CFG.LEAD_COST} at risk.` };\n  if (pipeSize > CFG.MAX_PIPELINE) return { action: 'CLEAR_PIPELINE', severity: 'critical', reason: `Pipeline at ${pipeSize} leads (max ${CFG.MAX_PIPELINE}).` };\n  if (consLowDays >= CFG.CR_CRISIS_DAYS && weeklyCR !== null) return { action: 'REVIEW_QUALITY', severity: 'critical', reason: `CR below ${CFG.CR_CRISIS}% for ${consLowDays} days (weekly: ${weeklyCR.toFixed(0)}%).` };\n  if (weeklyCR !== null && weeklyCR < CFG.CR_FLOOR) return { action: 'WORK_FOLLOWUPS', severity: 'warning', reason: `Weekly CR at ${weeklyCR.toFixed(0)}% (floor: ${CFG.CR_FLOOR}%). Focus on converting pipeline.` };\n  if (poolSelfAssigned < CFG.POOL_FOLLOWUPS && (intra?.talk_time_minutes ?? 0) > 60) return { action: 'GET_IN_POOL', severity: 'warning', reason: `Only ${poolSelfAssigned} pool assigns today (target: ${CFG.POOL_FOLLOWUPS}). Find 5 people from pool to follow up with.` };\n  if (weeklyCR !== null && weeklyCR >= CFG.CR_TARGET && pipeSize < 20 && pastDue === 0) return { action: 'TAKE_MORE_LEADS', severity: 'info', reason: `CR at ${weeklyCR.toFixed(0)}% with clean pipeline. Eligible for >7 leads/day.` };\n  if (pipeSize < 10 && poolDials === 0) return { action: 'GET_IN_POOL', severity: 'info', reason: `Light pipeline at ${pipeSize}. Pool session will build follow-up pipeline.` };\n  return { action: 'ON_TRACK', severity: 'info', reason: `${weeklyCR !== null ? 'CR ' + weeklyCR.toFixed(0) + '%' : ''} · Pipeline ${pipeSize} · Pool assigns ${poolSelfAssigned} — on track.` };\n}\n\nconst results = [];\nfor (const [name, agent] of Object.entries(rosterMap)) {\n  const weekRows = weeklyByAgent[name] || [];\n  const { weeklyCR, dailyCRs } = computeWeeklyCR(weekRows);\n  const pipe = pipeMap[name];\n  const pool = poolMapData[name];\n  const intra = intradayMap[name];\n\n  const rec = recommend(weeklyCR, dailyCRs, pipe, intra, pool);\n\n  const poolDials = pool?.calls_made ?? 0;\n  const poolSelfAssigned = pool?.self_assigned_leads ?? 0;\n  const totalDials = intra?.total_dials ?? 0;\n  const todaysLeads = (intra?.ib_leads_delivered ?? 0) + (intra?.ob_leads_delivered ?? 0);\n  const todaysSales = (intra?.ib_sales ?? 0) + (intra?.ob_sales ?? 0);\n  const todaysCR = todaysLeads > 0 ? (todaysSales / todaysLeads) * 100 : null;\n\n  results.push({\n    name, tier: agent.tier, site: agent.site, manager: agent.manager || null,\n    ...rec,\n    weeklyCR: weeklyCR !== null ? Math.round(weeklyCR * 10) / 10 : null,\n    todaysCR: todaysCR !== null ? Math.round(todaysCR * 10) / 10 : null,\n    pastDue: pipe?.past_due_follow_ups ?? null,\n    pipelineSize: pipe ? (pipe.new_leads ?? 0) + (pipe.todays_follow_ups ?? 0) + (pipe.past_due_follow_ups ?? 0) : null,\n    poolDials, poolSelfAssigned,\n    todaysLeads, todaysSales, todaysDials: totalDials,\n    todaysTalkMin: Math.round(intra?.talk_time_minutes ?? 0),\n  });\n}\n\nconst sev = { critical: 0, warning: 1, info: 2 };\nresults.sort((a, b) => sev[a.severity] - sev[b.severity]);\n\nconst critical = results.filter(r => r.severity === 'critical');\nconst warning  = results.filter(r => r.severity === 'warning');\nconst onTrack  = results.filter(r => r.severity === 'info');\n\nreturn [{ json: {\n  scrapeDate, centralHour, agentCount,\n  critical, warning, onTrack, results,\n} }];"
+        "jsCode": "const {\n  scrapeDate,\n  centralHour,\n  daysThisWeek,\n  rosterMap,\n  weeklyByAgent,\n  weeklyPoolSales,\n  intradayMap,\n  pipeMap,\n  poolMapData,\n  agentCount,\n  leadCostOverride,\n  avgPremiumOverride,\n} = $input.first().json;\n\nconst DEFAULT_LC = 60;\nconst lc =\n  typeof leadCostOverride === 'number' && leadCostOverride > 0 ? leadCostOverride : DEFAULT_LC;\n\nconst CFG = {\n  DAILY_LEADS: 7,\n  LEAD_COST: lc,\n  CR_TARGET: 15,\n  CR_FLOOR: 10,\n  CR_CRISIS: 7,\n  CR_CRISIS_DAYS: 3,\n  MAX_PIPELINE: 30,\n  PIPELINE_CRITICAL: 40,\n  POOL_DAILY_ASSIGNS: 5,\n  POOL_WEEKLY_SALES: 1,\n  POOL_MIN_ASSIGN_RATE: 30,\n  AVG_PREMIUM_ORG: typeof avgPremiumOverride === 'number' && avgPremiumOverride > 0 ? avgPremiumOverride : 1150,\n};\n\nfunction computeWeeklyCR(rows) {\n  if (!rows || rows.length === 0) return { weeklyCR: null, dailyCRs: [], weekLeads: 0, weekSales: 0 };\n  const dailyCRs = rows.map((r) => {\n    const leads = r.ibLeads + r.obLeads;\n    const sales = r.ibSales + r.obSales + r.customSales;\n    return leads > 0 ? (sales / leads) * 100 : 0;\n  });\n  const totalLeads = rows.reduce((s, r) => s + r.ibLeads + r.obLeads, 0);\n  const totalSales = rows.reduce((s, r) => s + r.ibSales + r.obSales + r.customSales, 0);\n  return {\n    weeklyCR: totalLeads > 0 ? (totalSales / totalLeads) * 100 : null,\n    dailyCRs,\n    weekLeads: totalLeads,\n    weekSales: totalSales,\n  };\n}\n\nfunction consLow(dailyCRs, threshold) {\n  let c = 0;\n  for (let i = dailyCRs.length - 1; i >= 0; i--) {\n    if (dailyCRs[i] < threshold) c++;\n    else break;\n  }\n  return c;\n}\n\nfunction recommend(weeklyCR, dailyCRs, weekLeads, weekSales, pipe, intra, pool, poolWeekSales) {\n  const pastDue = pipe?.past_due_follow_ups ?? 0;\n  const pipeSize = (pipe?.new_leads ?? 0) + (pipe?.todays_follow_ups ?? 0) + pastDue;\n  const poolAssigns = pool?.self_assigned_leads ?? 0;\n  const poolAnswered = pool?.answered_calls ?? 0;\n  const assignRate = poolAnswered > 0 ? (poolAssigns / poolAnswered) * 100 : 0;\n  const consLowDays = consLow(dailyCRs, CFG.CR_CRISIS);\n  const isMidDay = centralHour >= 12;\n\n  if (pastDue > 3)\n    return {\n      action: 'WORK_FOLLOWUPS',\n      severity: 'critical',\n      reason: `${pastDue} past due follow-ups — $${pastDue * CFG.LEAD_COST} in lead spend at risk.`,\n    };\n\n  if (pipeSize > CFG.PIPELINE_CRITICAL)\n    return {\n      action: 'CLEAR_PIPELINE',\n      severity: 'critical',\n      reason: `Pipeline at ${pipeSize} leads (critical threshold: ${CFG.PIPELINE_CRITICAL}). Revenue rotting.`,\n    };\n\n  if (consLowDays >= CFG.CR_CRISIS_DAYS && weeklyCR !== null)\n    return {\n      action: 'REVIEW_QUALITY',\n      severity: 'critical',\n      reason: `CR below ${CFG.CR_CRISIS}% for ${consLowDays} consecutive days (weekly: ${weeklyCR.toFixed(0)}%). Audit calls.`,\n    };\n\n  if (pastDue > 0)\n    return {\n      action: 'WORK_FOLLOWUPS',\n      severity: 'warning',\n      reason: `${pastDue} past due follow-up${pastDue > 1 ? 's' : ''}. Work before pool or inbound.`,\n    };\n\n  if (pipeSize > CFG.MAX_PIPELINE)\n    return {\n      action: 'CLEAR_PIPELINE',\n      severity: 'warning',\n      reason: `Pipeline at ${pipeSize} leads (max: ${CFG.MAX_PIPELINE}). Close out or withdraw stale leads.`,\n    };\n\n  if (weeklyCR !== null && weeklyCR < CFG.CR_FLOOR)\n    return {\n      action: 'FOCUS_PIPELINE',\n      severity: 'warning',\n      reason: `Weekly CR at ${weeklyCR.toFixed(0)}% (target: ${CFG.CR_TARGET}%). Focus on converting existing leads.`,\n    };\n\n  if (isMidDay && poolAssigns < 3)\n    return {\n      action: 'GET_IN_POOL',\n      severity: 'warning',\n      reason: `Only ${poolAssigns} pool self-assigns today (target: ${CFG.POOL_DAILY_ASSIGNS}). Find 5 people to follow up with.`,\n    };\n\n  if (poolAnswered >= 10 && assignRate < CFG.POOL_MIN_ASSIGN_RATE)\n    return {\n      action: 'GET_IN_POOL',\n      severity: 'warning',\n      reason: `Pool assign rate at ${assignRate.toFixed(0)}% (min: ${CFG.POOL_MIN_ASSIGN_RATE}%). Self-assign every answered contact.`,\n    };\n\n  if (weeklyCR !== null && weeklyCR >= CFG.CR_TARGET && pipeSize <= 20 && pastDue === 0)\n    return {\n      action: 'TAKE_MORE_LEADS',\n      severity: 'info',\n      reason: `CR at ${weeklyCR.toFixed(0)}% with clean pipeline (${pipeSize}). Eligible for additional inbound leads.`,\n    };\n\n  if (weeklyCR !== null && weeklyCR >= CFG.CR_FLOOR && pipeSize >= 10 && pipeSize <= CFG.MAX_PIPELINE)\n    return {\n      action: 'STAY_IN_QUEUE',\n      severity: 'info',\n      reason: `CR at ${weeklyCR.toFixed(0)}% · Pipeline ${pipeSize} — keep working inbound queue. ${\n        CFG.CR_TARGET - weeklyCR > 0 ? (CFG.CR_TARGET - weeklyCR).toFixed(0) + '% to bonus-lead eligibility.' : ''\n      }`,\n    };\n\n  if (poolAssigns < CFG.POOL_DAILY_ASSIGNS && poolWeekSales < CFG.POOL_WEEKLY_SALES && pipeSize < 10)\n    return {\n      action: 'GET_IN_POOL',\n      severity: 'info',\n      reason: `Light pipeline (${pipeSize}) and ${poolAssigns}/${CFG.POOL_DAILY_ASSIGNS} pool assigns. Build tomorrow's follow-up pipeline from pool.`,\n    };\n\n  const parts = [];\n  if (weeklyCR !== null) parts.push(`CR ${weeklyCR.toFixed(0)}%`);\n  parts.push(`Pipeline ${pipeSize}`);\n  if (poolAssigns > 0) parts.push(`Pool ${poolAssigns} assigns`);\n  if (poolWeekSales > 0) parts.push(`Pool ${poolWeekSales} sales this week`);\n  return { action: 'ON_TRACK', severity: 'info', reason: parts.join(' · ') + ' — on track.' };\n}\n\nconst results = [];\nfor (const [name, agent] of Object.entries(rosterMap)) {\n  const weekRows = weeklyByAgent[name] || [];\n  const { weeklyCR, dailyCRs, weekLeads, weekSales } = computeWeeklyCR(weekRows);\n  const pipe = pipeMap[name];\n  const pool = poolMapData[name];\n  const intra = intradayMap[name];\n  const poolWeekSales = weeklyPoolSales[name] || 0;\n\n  const poolSelfAssigned = pool?.self_assigned_leads ?? 0;\n  const poolAnswered = pool?.answered_calls ?? 0;\n  const poolDials = pool?.calls_made ?? 0;\n  const poolLongCalls = pool?.long_calls ?? 0;\n  const totalDials = intra?.total_dials ?? 0;\n  const todaysLeads = (intra?.ib_leads_delivered ?? 0) + (intra?.ob_leads_delivered ?? 0);\n  const todaysSales = (intra?.ib_sales ?? 0) + (intra?.ob_sales ?? 0);\n  const todaysCR = todaysLeads > 0 ? (todaysSales / todaysLeads) * 100 : null;\n  const todaysPremium = (intra?.ib_premium ?? 0) + (intra?.ob_premium ?? 0) + (intra?.custom_premium ?? 0);\n  const pastDue = pipe?.past_due_follow_ups ?? 0;\n  const pipeSize = pipe ? (pipe.new_leads ?? 0) + (pipe.todays_follow_ups ?? 0) + pastDue : null;\n\n  const rec = recommend(weeklyCR, dailyCRs, weekLeads, weekSales, pipe, intra, pool, poolWeekSales);\n\n  results.push({\n    name,\n    site: agent.site,\n    manager: agent.manager || null,\n    ...rec,\n    weeklyCR: weeklyCR !== null ? Math.round(weeklyCR * 10) / 10 : null,\n    weekLeads,\n    weekSales,\n    todaysCR: todaysCR !== null ? Math.round(todaysCR * 10) / 10 : null,\n    todaysLeads,\n    todaysSales,\n    todaysPremium: Math.round(todaysPremium),\n    todaysDials: totalDials,\n    todaysTalkMin: Math.round(intra?.talk_time_minutes ?? 0),\n    pastDue,\n    pipelineSize: pipeSize,\n    poolDials,\n    poolSelfAssigned,\n    poolAnswered,\n    poolLongCalls,\n    poolWeekSales,\n    poolOnTrack: poolWeekSales >= CFG.POOL_WEEKLY_SALES,\n  });\n}\n\nconst sev = { critical: 0, warning: 1, info: 2 };\nresults.sort((a, b) => sev[a.severity] - sev[b.severity]);\n\nconst critical = results.filter((r) => r.severity === 'critical');\nconst warning = results.filter((r) => r.severity === 'warning');\nconst onTrack = results.filter((r) => r.severity === 'info');\n\nreturn [\n  {\n    json: {\n      scrapeDate,\n      centralHour,\n      agentCount,\n      daysThisWeek,\n      critical,\n      warning,\n      onTrack,\n      results,\n      cfg: CFG,\n    },\n  },\n];"
       },
-      "id": "ua-compute-01",
+      "id": "e25407a2-66b9-4802-9ff6-a20f8d9f24af",
       "name": "Run Recommender + Pace Engine",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [300, 100]
+      "position": [
+        496,
+        -160
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
           "conditions": [
             {
               "id": "has-alerts",
               "leftValue": "={{ $json.critical.length + $json.warning.length }}",
               "rightValue": 0,
-              "operator": { "type": "number", "operation": "gt" }
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
             }
           ],
           "combinator": "and"
-        }
+        },
+        "options": {}
       },
-      "id": "ua-filter-01",
+      "id": "553f770b-90cb-4d13-88fe-fd9e293d1905",
       "name": "Any Alerts?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [540, 100]
+      "position": [
+        736,
+        -160
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const { scrapeDate, centralHour, critical, warning, onTrack, agentCount } = $input.first().json;\n\nconst [y, mo, d] = scrapeDate.split('-');\nconst dt = new Date(+y, +mo - 1, +d);\nconst dn = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];\nconst mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()];\nconst dd = `${dn} ${mn} ${+d}, ${y}`;\nconst ampm = centralHour > 12 ? `${centralHour - 12}:05 PM` : centralHour === 12 ? '12:05 PM' : `${centralHour}:05 AM`;\n\nconst ACTION_LABELS = {\n  TAKE_MORE_LEADS: 'TAKE MORE LEADS',\n  WORK_FOLLOWUPS: 'WORK FOLLOW-UPS',\n  GET_IN_POOL: 'GET IN POOL',\n  CLEAR_PIPELINE: 'CLEAR PIPELINE',\n  REVIEW_QUALITY: 'REVIEW QUALITY',\n  ON_TRACK: 'ON TRACK',\n};\n\nconst blocks = [];\n\nblocks.push({ type: 'header', text: { type: 'plain_text', text: `Hourly Alert — ${dd}` } });\n\nblocks.push({ type: 'section', text: { type: 'mrkdwn', text:\n  `*${ampm} CT*  ·  ${agentCount} agents tracked\\n` +\n  `*${critical.length}* :rotating_light: critical  ·  *${warning.length}* :warning: warning  ·  *${onTrack.length}* :white_check_mark: on track`\n}});\n\nblocks.push({ type: 'divider' });\n\nfunction formatAgent(a) {\n  const crStr = a.weeklyCR !== null ? `Weekly CR: ${a.weeklyCR}%` : 'No CR data';\n  const todayCR = a.todaysCR !== null ? `Today: ${a.todaysCR}%` : '';\n  const leads = `Leads: ${a.todaysLeads}`;\n  const sales = `Sales: ${a.todaysSales}`;\n  const pool = a.poolDials > 0 ? `Pool: ${a.poolDials} dials / ${a.poolSelfAssigned} assigns` : '';\n  const pd = a.pastDue !== null ? `Past Due: ${a.pastDue}` : '';\n  const pipe = a.pipelineSize !== null ? `Pipeline: ${a.pipelineSize}` : '';\n  const stats = [leads, sales, crStr, todayCR, pool, pd, pipe].filter(Boolean).join(' · ');\n  return `*${ACTION_LABELS[a.action]}* — *${a.name}*  _(${a.site})_\\n${stats}\\n_↳ ${a.reason}_`;\n}\n\nif (critical.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:rotating_light: CRITICAL (${critical.length})*` } });\n  for (const a of critical.slice(0, 12)) {\n    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: formatAgent(a) } });\n  }\n  if (critical.length > 12) {\n    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `_…and ${critical.length - 12} more critical._` }] });\n  }\n  blocks.push({ type: 'divider' });\n}\n\nif (warning.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:warning: WARNING (${warning.length})*` } });\n  for (const a of warning.slice(0, 12)) {\n    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: formatAgent(a) } });\n  }\n  if (warning.length > 12) {\n    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `_…and ${warning.length - 12} more warnings._` }] });\n  }\n  blocks.push({ type: 'divider' });\n}\n\nconst rmtTrack = onTrack.filter(a => a.site === 'RMT');\nconst cltTrack = onTrack.filter(a => a.site === 'CHA');\nconst otherTrack = onTrack.filter(a => a.site !== 'RMT' && a.site !== 'CHA');\n\nconst trackLines = [];\nif (rmtTrack.length > 0) trackLines.push(`*RMT* (${rmtTrack.length}): ${rmtTrack.map(a => a.name).join(', ')}`);\nif (cltTrack.length > 0) trackLines.push(`*CLT* (${cltTrack.length}): ${cltTrack.map(a => a.name).join(', ')}`);\nif (otherTrack.length > 0) trackLines.push(`*Other* (${otherTrack.length}): ${otherTrack.map(a => a.name).join(', ')}`);\n\nif (trackLines.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:white_check_mark: ON TRACK (${onTrack.length})*\\n${trackLines.join('\\n')}` } });\n  blocks.push({ type: 'divider' });\n}\n\nblocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text:\n  `Unified model: 7 IB leads/day · CR target 15%+ · Pipeline ≤30 · Pool: 5 assigns/day`\n}]});\n\nconst fallback = `Hourly Alert — ${dd} ${ampm}: ${critical.length} critical, ${warning.length} warning, ${onTrack.length} on track`;\n\nreturn [{ json: { text: fallback, blocks } }];"
+        "jsCode": "const { scrapeDate, centralHour, critical, warning, onTrack, agentCount, daysThisWeek, cfg } = $input.first().json;\n\nconst [y, mo, d] = scrapeDate.split('-');\nconst dt = new Date(+y, +mo - 1, +d);\nconst dn = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];\nconst mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()];\nconst dd = `${dn} ${mn} ${+d}, ${y}`;\nconst ampm = centralHour > 12 ? `${centralHour - 12}:05 PM` : centralHour === 12 ? '12:05 PM' : `${centralHour}:05 AM`;\n\nconst ACTION_LABELS = {\n  TAKE_MORE_LEADS: ':chart_with_upwards_trend: TAKE MORE LEADS',\n  WORK_FOLLOWUPS: ':alarm_clock: WORK FOLLOW-UPS',\n  GET_IN_POOL: ':swimmer: GET IN POOL',\n  CLEAR_PIPELINE: ':broom: CLEAR PIPELINE',\n  REVIEW_QUALITY: ':mag: REVIEW QUALITY',\n  FOCUS_PIPELINE: ':dart: FOCUS PIPELINE',\n  STAY_IN_QUEUE: ':telephone_receiver: STAY IN QUEUE',\n  ON_TRACK: ':white_check_mark: ON TRACK',\n};\n\nconst fmt = (n) => '$' + Math.round(n).toLocaleString();\n\nconst blocks = [];\n\nblocks.push({ type: 'header', text: { type: 'plain_text', text: `Hourly Action Alert \\u2014 ${dd}` } });\n\nblocks.push({ type: 'section', text: { type: 'mrkdwn', text:\n  `*${ampm} CT*  \\u00b7  ${agentCount} agents tracked  \\u00b7  Day ${daysThisWeek} of week\\n` +\n  `*${critical.length}* :rotating_light: critical  \\u00b7  *${warning.length}* :warning: warning  \\u00b7  *${onTrack.length}* :white_check_mark: on track`\n}});\n\nblocks.push({ type: 'divider' });\n\nfunction formatAgent(a) {\n  const siteTag = a.site === 'RMT' ? 'RMT' : 'CLT';\n  const crStr = a.weeklyCR !== null ? `Wk CR: ${a.weeklyCR}% (${a.weekSales}/${a.weekLeads})` : 'No CR data';\n  const todayCR = a.todaysCR !== null ? `Today: ${a.todaysCR}%` : '';\n  const leads = `Leads: ${a.todaysLeads}`;\n  const sales = a.todaysSales > 0 ? `Sales: ${a.todaysSales}` : '';\n  const prem = a.todaysPremium > 0 ? fmt(a.todaysPremium) : '';\n  const pd = a.pastDue > 0 ? `Past Due: ${a.pastDue}` : '';\n  const pipe = a.pipelineSize !== null ? `Pipeline: ${a.pipelineSize}` : '';\n  const poolStr = a.poolDials > 0 ? `Pool: ${a.poolDials} dials / ${a.poolSelfAssigned} assigns` : '';\n  const poolWk = `Pool sales: ${a.poolWeekSales}/${cfg.POOL_WEEKLY_SALES}/wk` + (a.poolOnTrack ? ' :white_check_mark:' : '');\n\n  const statsLine = [leads, sales, prem, crStr, todayCR].filter(Boolean).join(' \\u00b7 ');\n  const pipePool = [pd, pipe, poolStr, poolWk].filter(Boolean).join(' \\u00b7 ');\n\n  return `${ACTION_LABELS[a.action] || a.action} \\u2014 *${a.name}*  _(${siteTag})_\\n${statsLine}\\n${pipePool}\\n_\\u21b3 ${a.reason}_`;\n}\n\nif (critical.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:rotating_light: CRITICAL (${critical.length})*` } });\n  for (const a of critical.slice(0, 15)) {\n    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: formatAgent(a) } });\n  }\n  if (critical.length > 15) {\n    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `_\\u2026and ${critical.length - 15} more critical._` }] });\n  }\n  blocks.push({ type: 'divider' });\n}\n\nif (warning.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:warning: WARNING (${warning.length})*` } });\n  for (const a of warning.slice(0, 15)) {\n    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: formatAgent(a) } });\n  }\n  if (warning.length > 15) {\n    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `_\\u2026and ${warning.length - 15} more warnings._` }] });\n  }\n  blocks.push({ type: 'divider' });\n}\n\nconst rmtTrack = onTrack.filter(a => a.site === 'RMT');\nconst cltTrack = onTrack.filter(a => a.site !== 'RMT');\n\nconst trackLines = [];\nif (rmtTrack.length > 0) trackLines.push(`*RMT* (${rmtTrack.length}): ${rmtTrack.map(a => a.name).join(', ')}`);\nif (cltTrack.length > 0) trackLines.push(`*CLT* (${cltTrack.length}): ${cltTrack.map(a => a.name).join(', ')}`);\n\nif (trackLines.length > 0) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*:white_check_mark: ON TRACK (${onTrack.length})*\\n${trackLines.join('\\n')}` } });\n  blocks.push({ type: 'divider' });\n}\n\nconst allAgents = [...critical, ...warning, ...onTrack];\nconst totalPoolSales = allAgents.reduce((s, a) => s + a.poolWeekSales, 0);\nconst totalPoolAssigns = allAgents.reduce((s, a) => s + a.poolSelfAssigned, 0);\nconst totalPoolDials = allAgents.reduce((s, a) => s + a.poolDials, 0);\nconst agentsInPool = allAgents.filter(a => a.poolDials > 0).length;\nconst agentsPoolGoalMet = allAgents.filter(a => a.poolOnTrack).length;\n\nblocks.push({ type: 'section', text: { type: 'mrkdwn', text:\n  `*:busts_in_silhouette: Pool Summary*\\n` +\n  `${agentsInPool} agents active in pool  \\u00b7  ${totalPoolDials} dials  \\u00b7  ${totalPoolAssigns} assigns today\\n` +\n  `${totalPoolSales} pool sales this week  \\u00b7  ${agentsPoolGoalMet}/${agentCount} agents hit 1/wk target`\n}});\n\nblocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text:\n  `Targets: CR ${cfg.CR_TARGET}%+ (1 deal per ${cfg.DAILY_LEADS} leads)  |  Pipeline \\u2264${cfg.MAX_PIPELINE}  |  Pool: ${cfg.POOL_DAILY_ASSIGNS} assigns/day, ${cfg.POOL_WEEKLY_SALES} sale/wk  |  Past Due: 0  |  CPC: ${cfg.LEAD_COST}  |  Org avg prem: ${cfg.AVG_PREMIUM_ORG}`\n}]});\n\nconst fallback = `Hourly Alert \\u2014 ${dd} ${ampm}: ${critical.length} critical, ${warning.length} warning, ${onTrack.length} on track`;\n\nreturn [{ json: { text: fallback, blocks } }];"
       },
-      "id": "ua-build-slack-01",
+      "id": "4c32dec7-a249-494e-b087-6d2bb3db608d",
       "name": "Build Unified Slack Alert",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [780, 0]
+      "position": [
+        976,
+        -256
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "url": "YOUR_SLACK_INBOUND_WEBHOOK_URL",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -97,34 +122,43 @@
           "timeout": 10000
         }
       },
-      "id": "ua-send-slack-01",
+      "id": "0d0e4299-d6ea-4644-8c1d-eb9544cce054",
       "name": "Send to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1020, 0]
+      "position": [
+        1216,
+        -256
+      ]
     },
     {
       "parameters": {},
-      "id": "ua-noop-01",
+      "id": "b6112b0a-4e7d-4b3f-bae0-0be50893c2d5",
       "name": "No Alerts — Skip",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [780, 200]
+      "position": [
+        976,
+        -64
+      ]
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: {\n  text: ':x: *Unified Hourly Alert failed*\\n' + ($input.first().json.error || $input.first().json.message || 'Unknown error — check n8n execution log.')\n} }];"
+        "jsCode": "return [{ json: {\n  text: ':x: *Hourly Action Alert failed*\\n' + ($input.first().json.error || $input.first().json.message || 'Unknown error — check n8n execution log.')\n} }];"
       },
-      "id": "ua-build-error-01",
+      "id": "ea4e4322-1b92-4afc-bf3b-a8e98bedd5e0",
       "name": "Build Error Alert",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [540, 340]
+      "position": [
+        736,
+        96
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "url": "YOUR_SLACK_INBOUND_WEBHOOK_URL",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -141,59 +175,104 @@
           "timeout": 10000
         }
       },
-      "id": "ua-send-error-01",
+      "id": "416b5e02-fbc3-4598-8df8-1082fc93b358",
       "name": "Alert Slack Error",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [780, 340]
+      "position": [
+        976,
+        96
+      ]
     }
   ],
   "connections": {
     "Schedule :05 past hour CST": {
       "main": [
-        [{ "node": "Fetch All Data Sources", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Fetch All Data Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Manual Trigger": {
       "main": [
-        [{ "node": "Fetch All Data Sources", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Fetch All Data Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch All Data Sources": {
       "main": [
-        [{ "node": "Run Recommender + Pace Engine", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Run Recommender + Pace Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Run Recommender + Pace Engine": {
       "main": [
-        [{ "node": "Any Alerts?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Any Alerts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Any Alerts?": {
       "main": [
-        [{ "node": "Build Unified Slack Alert", "type": "main", "index": 0 }],
-        [{ "node": "No Alerts — Skip", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Build Unified Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Alerts — Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Build Unified Slack Alert": {
       "main": [
-        [{ "node": "Send to Slack", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Build Error Alert": {
       "main": [
-        [{ "node": "Alert Slack Error", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Alert Slack Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
-  "settings": {
-    "timezone": "America/Chicago",
-    "executionOrder": "v1"
-  },
   "pinData": {},
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "roli-unified-hourly-alert"
-  },
-  "tags": []
+    "instanceId": "89ecaea7644e2fc8bb00924fa95bf8f2f321b4752bc18483de9de5a764fee65c"
+  }
 }
