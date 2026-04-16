@@ -26,7 +26,7 @@
         "url": "https://api.apify.com/v2/acts/MIlgC3KEFTXzIcnMt/runs?token=YOUR_APIFY_TOKEN",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ crmUsername: 'YOUR_CRM_USERNAME', crmPassword: 'YOUR_CRM_PASSWORD', poolReconcileDays: 5, saleMadeOutboundTypeBySite: { RMT: '' }, scrapeDate: (() => { const central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }); const [y,m,dd] = central.split('-').map(Number); const d = new Date(y, m-1, dd); const day = d.getDay(); if (day === 0) d.setDate(d.getDate() - 2); else if (day === 6) d.setDate(d.getDate() - 1); const py = d.getFullYear(); const pm = String(d.getMonth()+1).padStart(2,'0'); const pd = String(d.getDate()).padStart(2,'0'); return py+'-'+pm+'-'+pd; })() }) }}",
+        "jsonBody": "={{ JSON.stringify({ crmUsername: 'YOUR_CRM_USERNAME', crmPassword: 'YOUR_CRM_PASSWORD', poolReconcileDays: 5, scrapeDate: (() => { const central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }); const [y,m,dd] = central.split('-').map(Number); const d = new Date(y, m-1, dd); const day = d.getDay(); if (day === 0) d.setDate(d.getDate() - 2); else if (day === 6) d.setDate(d.getDate() - 1); const py = d.getFullYear(); const pm = String(d.getMonth()+1).padStart(2,'0'); const pd = String(d.getDate()).padStart(2,'0'); return py+'-'+pm+'-'+pd; })() }) }}",
         "options": {
           "timeout": 10000
         }

@@ -265,49 +265,62 @@ async function scrapeLeadTracker(
   await page.waitForSelector('table, .dataTables_wrapper', { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1000);
 
+  // Try CSV export first
   const downloadDir = path.join(process.cwd(), "downloads");
   if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
 
   const exportBtn = await findExportButton(page);
-  if (!exportBtn) {
-    log.warning(`Lead Tracker [${site}]: No Export button found — skipping`);
-    return;
-  }
+  if (exportBtn) {
+    try {
+      const downloadPromise = page.waitForEvent("download", { timeout: 30000 });
+      await exportBtn.scrollIntoViewIfNeeded().catch(() => {});
+      await exportBtn.click({ force: true });
+      log.info(`Lead Tracker [${site}]: Clicked Export, waiting for download...`);
 
-  const downloadPromise = page.waitForEvent("download", { timeout: 30000 });
-  await exportBtn.scrollIntoViewIfNeeded().catch(() => {});
-  await exportBtn.click({ force: true });
-  log.info(`Lead Tracker [${site}]: Clicked Export, waiting for download...`);
+      const download: Download = await downloadPromise;
+      const filePath = path.join(downloadDir, `lead-tracker-${site}-${Date.now()}.csv`);
+      await download.saveAs(filePath);
 
-  const download: Download = await downloadPromise;
-  const filePath = path.join(downloadDir, `lead-tracker-${site}-${Date.now()}.csv`);
-  await download.saveAs(filePath);
-  log.info(`Lead Tracker [${site}]: CSV saved to ${filePath}`);
+      const content = fs.readFileSync(filePath, "utf-8");
+      const records = parse(content, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as Record<string, string>[];
+      log.info(`Lead Tracker [${site}]: ${records.length} lead rows from CSV`);
 
-  const content = fs.readFileSync(filePath, "utf-8");
-  const records = parse(content, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as Record<string, string>[];
-  log.info(`Lead Tracker [${site}]: ${records.length} lead rows`);
+      for (const row of records) {
+        const agentName = row["Agent"]?.trim();
+        if (!agentName) continue;
+        const rec = getOrCreate(agentMap, agentName, tierLookup(agentName));
+        rec.ib_leads_delivered++;
+      }
 
-  for (const row of records) {
-    const agentName = row["Agent"]?.trim();
-    if (!agentName) continue;
-
-    const tier = tierLookup(agentName);
-    const leadType = (row["Type"] ?? "").trim().toLowerCase();
-    const rec = getOrCreate(agentMap, agentName, tier);
-
-    if (leadType.includes("call in") || leadType.includes("callin")) {
-      rec.ib_leads_delivered++;
-    } else if (leadType.includes("exclusive") || leadType.includes("outbound") || leadType.includes("fex")) {
-      rec.ob_leads_delivered++;
-    } else if (leadType.includes("custom")) {
-      rec.custom_leads++;
-    } else {
-      rec.ib_leads_delivered++;
+      try { fs.unlinkSync(filePath); } catch {}
+      return;
+    } catch (err) {
+      log.warning(`Lead Tracker [${site}]: CSV export failed, falling back to HTML table`);
     }
+  } else {
+    log.warning(`Lead Tracker [${site}]: No Export button found, falling back to HTML table`);
   }
 
-  try { fs.unlinkSync(filePath); } catch {}
+  // Fallback: scrape HTML table — count rows per agent
+  const headers = await page.$$eval('table thead th', (ths) =>
+    ths.map((th) => th.textContent?.trim().toLowerCase() ?? "")
+  );
+  const rows = await page.$$eval('table tbody tr', (trs) =>
+    trs.map((tr) => {
+      const cells = Array.from(tr.querySelectorAll('td'));
+      return cells.map((td) => td.textContent?.trim() ?? "");
+    })
+  );
+
+  const agentIdx = headers.findIndex((h) => h.includes("agent") || h.includes("name"));
+  log.info(`Lead Tracker [${site}]: ${rows.length} rows from HTML table, agent column=${agentIdx}`);
+
+  for (const cells of rows) {
+    const agentName = cells[agentIdx >= 0 ? agentIdx : 0]?.trim();
+    if (!agentName || agentName.toLowerCase() === "total" || agentName === "Agent") continue;
+    const rec = getOrCreate(agentMap, agentName, tierLookup(agentName));
+    rec.ib_leads_delivered++;
+  }
 }
 
 // ---- Sale Made Report ----
@@ -322,36 +335,13 @@ interface SaleMadePass {
 }
 
 function getSaleMadePasses(): SaleMadePass[] {
-  // Unified model: all agents are hybrid, split by CRM type filter
   return [
-    { typeFilter: "9", channel: "inbound", label: "Call In (IB)" },
-    { typeFilter: "18", channel: "inbound", label: "Web Call In (IB)" },
-    { typeFilter: "22", channel: "outbound", label: "Type 22 (OB)" },
-    { typeFilter: "1", channel: "outbound", label: "Exclusive (OB)" },
-    { typeFilter: "custom", channel: "custom", label: "Custom" },
+    { typeFilter: "all", channel: "inbound", label: "All Types" },
   ];
 }
 
-function resolveSaleMadePasses(site: string, input: ActorInput): SaleMadePass[] {
-  const custom = input.saleMadePassesBySite?.[site];
-  if (custom && Array.isArray(custom) && custom.length > 0) {
-    return custom.map((p) => {
-      const ch = p.channel;
-      const channel: SaleChannel =
-        ch === "inbound" || ch === "outbound" || ch === "custom" ? ch : "outbound";
-      return {
-        typeFilter: String(p.typeFilter ?? ""),
-        channel,
-        label: p.label ?? `${p.typeFilter} (${channel})`,
-      };
-    });
-  }
-  const base = getSaleMadePasses();
-  const rawOb = input.saleMadeOutboundTypeBySite?.[site];
-  const obOverride =
-    rawOb !== undefined && rawOb !== null && String(rawOb).trim() !== "" ? String(rawOb).trim() : null;
-  if (!obOverride) return base;
-  return base.map((p) => (p.channel === "outbound" ? { ...p, typeFilter: obOverride } : p));
+function resolveSaleMadePasses(_site: string, _input: ActorInput): SaleMadePass[] {
+  return getSaleMadePasses();
 }
 
 function applySaleMadeData(
@@ -375,6 +365,48 @@ function applySaleMadeData(
   }
 }
 
+async function extractSaleMadeTypes(page: Page): Promise<Array<{ value: string; label: string }>> {
+  try {
+    const allSelects = await page.$$eval("select", (sels) =>
+      sels.map((s) => ({
+        name: s.getAttribute("name") || "",
+        id: s.id || "",
+        optionCount: s.options.length,
+        sampleOptions: Array.from(s.options).slice(0, 5).map((o) => ({
+          value: o.value?.trim() ?? "",
+          label: o.textContent?.trim() ?? "",
+        })),
+      }))
+    );
+    log.info(`Sale Made page selects: ${JSON.stringify(allSelects.map(s => ({ name: s.name, id: s.id, opts: s.optionCount })))}`);
+
+    for (const sel of allSelects) {
+      const hasTypeKeyword =
+        sel.name.toLowerCase().includes("type") ||
+        sel.id.toLowerCase().includes("type");
+      const looksLikeTypeDropdown =
+        sel.optionCount >= 2 &&
+        sel.optionCount <= 30 &&
+        sel.sampleOptions.some((o) => o.value === "all" || o.label.toLowerCase().includes("all"));
+      if (hasTypeKeyword && looksLikeTypeDropdown) {
+        const nameOrId = sel.name || sel.id;
+        const options = await page.$$eval(
+          `select[name="${nameOrId}"] option, select#${nameOrId} option`,
+          (opts) =>
+            opts.map((o) => ({
+              value: (o as HTMLOptionElement).value?.trim() ?? "",
+              label: (o as HTMLOptionElement).textContent?.trim() ?? "",
+            })).filter((o) => o.value && o.value !== "all" && o.value !== "")
+        );
+        if (options.length > 0) return options;
+      }
+    }
+  } catch (err) {
+    log.warning(`extractSaleMadeTypes failed: ${err instanceof Error ? err.message : err}`);
+  }
+  return [];
+}
+
 async function scrapeSaleMade(
   page: Page,
   agencyId: string,
@@ -383,7 +415,8 @@ async function scrapeSaleMade(
   agentMap: Map<string, AgentRecord>,
   tierLookup: (name: string) => TierLabel,
   passes: SaleMadePass[],
-): Promise<void> {
+): Promise<Array<{ value: string; label: string }>> {
+  let discoveredTypes: Array<{ value: string; label: string }> = [];
 
   for (const pass of passes) {
     const url = buildSaleMadeUrl(agencyId, scrapeDate, pass.typeFilter);
@@ -391,6 +424,13 @@ async function scrapeSaleMade(
     await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
     await page.waitForTimeout(3000);
     await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
+
+    if (discoveredTypes.length === 0) {
+      discoveredTypes = await extractSaleMadeTypes(page);
+      if (discoveredTypes.length > 0) {
+        log.info(`Sale Made type dropdown [${site}]: ${discoveredTypes.map(t => `${t.value}="${t.label}"`).join(", ")}`);
+      }
+    }
 
     const exportBtn = await findExportButton(page);
     if (exportBtn) {
@@ -444,6 +484,8 @@ async function scrapeSaleMade(
       applySaleMadeData(agentName, salesCount, premium, tier, pass.channel, agentMap);
     }
   }
+
+  return discoveredTypes;
 }
 
 // ---- Calls Report: Scrape HTML table ----
@@ -713,6 +755,7 @@ try {
   };
 
   const agentMap = new Map<string, AgentRecord>();
+  let saleTypeOptions: Array<{ value: string; label: string }> = [];
 
   for (const { site, agencyId } of AGENCIES) {
     log.info(`\n========== ${site} (Agency ${agencyId}) ==========`);
@@ -724,7 +767,8 @@ try {
     }
 
     try {
-      await scrapeSaleMade(page, agencyId, scrapeDate, site, agentMap, tierLookup, resolveSaleMadePasses(site, input));
+      const types = await scrapeSaleMade(page, agencyId, scrapeDate, site, agentMap, tierLookup, resolveSaleMadePasses(site, input));
+      if (types.length > 0 && saleTypeOptions.length === 0) saleTypeOptions = types;
     } catch (err) {
       log.error(`Sale Made [${site}] failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -841,6 +885,16 @@ try {
       scrape_date: scrapeDate,
       agents: perfAgents,
     });
+  }
+
+  if (saleTypeOptions.length > 0) {
+    await dataset.pushData({
+      _type: "sale_type_options",
+      scrape_date: scrapeDate,
+      types: saleTypeOptions,
+      known_passes: resolveSaleMadePasses("RMT", input).map(p => ({ typeFilter: p.typeFilter, channel: p.channel, label: p.label })),
+    });
+    log.info(`  Sale type dropdown: ${saleTypeOptions.length} types discovered`);
   }
 
   // Push pool sales reconciliation items (one per past date)
