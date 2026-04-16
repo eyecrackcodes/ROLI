@@ -289,7 +289,12 @@ async function scrapeLeadTracker(
         const agentName = row["Agent"]?.trim();
         if (!agentName) continue;
         const rec = getOrCreate(agentMap, agentName, tierLookup(agentName));
-        rec.ib_leads_delivered++;
+        const leadType = (row["Type"] ?? "").trim().toLowerCase();
+        if (leadType.includes("missed") || leadType.includes("fex") || leadType.includes("exclusive") || leadType.includes("recycled")) {
+          rec.ob_leads_delivered++;
+        } else {
+          rec.ib_leads_delivered++;
+        }
       }
 
       try { fs.unlinkSync(filePath); } catch {}
@@ -301,7 +306,18 @@ async function scrapeLeadTracker(
     log.warning(`Lead Tracker [${site}]: No Export button found, falling back to HTML table`);
   }
 
-  // Fallback: scrape HTML table — count rows per agent
+  // Fallback: scrape HTML table — show all entries first (DataTables paginates by default)
+  try {
+    const showAllSel = 'select[name$="_length"], .dataTables_length select';
+    await page.waitForSelector(showAllSel, { timeout: 5000 });
+    await page.selectOption(showAllSel, { label: "All" }).catch(() =>
+      page.selectOption(showAllSel, "-1").catch(() => {})
+    );
+    await page.waitForTimeout(2000);
+  } catch {
+    log.info(`Lead Tracker [${site}]: Could not set DataTables to show all — using default page size`);
+  }
+
   const headers = await page.$$eval('table thead th', (ths) =>
     ths.map((th) => th.textContent?.trim().toLowerCase() ?? "")
   );
@@ -313,13 +329,19 @@ async function scrapeLeadTracker(
   );
 
   const agentIdx = headers.findIndex((h) => h.includes("agent") || h.includes("name"));
-  log.info(`Lead Tracker [${site}]: ${rows.length} rows from HTML table, agent column=${agentIdx}`);
+  const typeIdx = headers.findIndex((h) => h === "type" || h.includes("lead type"));
+  log.info(`Lead Tracker [${site}]: ${rows.length} rows from HTML table, agent=${agentIdx}, type=${typeIdx}`);
 
   for (const cells of rows) {
     const agentName = cells[agentIdx >= 0 ? agentIdx : 0]?.trim();
     if (!agentName || agentName.toLowerCase() === "total" || agentName === "Agent") continue;
     const rec = getOrCreate(agentMap, agentName, tierLookup(agentName));
-    rec.ib_leads_delivered++;
+    const leadType = (cells[typeIdx >= 0 ? typeIdx : -1] ?? "").toLowerCase();
+    if (leadType.includes("missed") || leadType.includes("fex") || leadType.includes("exclusive") || leadType.includes("recycled")) {
+      rec.ob_leads_delivered++;
+    } else {
+      rec.ib_leads_delivered++;
+    }
   }
 }
 
