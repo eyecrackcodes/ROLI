@@ -21,7 +21,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Eye } from "lucide-react";
+import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Eye, Users } from "lucide-react";
 import { toast } from "sonner";
 import { exportDailyPulse, fetchAndExportPulse, SORT_LABELS, type SortKey, type ExportOptions } from "@/lib/exportExcel";
 import type { Tier, DailyPulseAgent } from "@/lib/types";
