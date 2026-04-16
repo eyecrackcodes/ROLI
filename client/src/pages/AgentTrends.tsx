@@ -576,10 +576,7 @@ export default function AgentTrends() {
           <SelectContent>
             {activeAgents.map((a) => (
               <SelectItem key={a.name} value={a.name} className="font-mono">
-                <span className={cn(
-                  "inline-block w-8 text-[10px] font-bold mr-2",
-                  a.site === "RMT" ? "text-violet-400" : (a.site === "CLT" || a.site === "CHA") ? "text-emerald-400" : "text-blue-400"
-                )}>
+                <span className="inline-block w-8 text-[10px] font-bold mr-2 text-violet-400">
                   {a.site}
                 </span>
                 {a.name}
@@ -589,12 +586,7 @@ export default function AgentTrends() {
         </Select>
         {currentAgent && (
           <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
-            <span className={cn(
-              "px-2 py-0.5 rounded-full font-bold border",
-              currentAgent.site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
-              (currentAgent.site === "CLT" || currentAgent.site === "CHA") ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-              "bg-blue-500/10 text-blue-400 border-blue-500/30"
-            )}>
+            <span className="px-2 py-0.5 rounded-full font-bold border bg-violet-500/10 text-violet-400 border-violet-500/30">
               {currentAgent.site}
             </span>
             <span className="text-[10px] font-mono text-muted-foreground/60">{currentAgent.tier}</span>

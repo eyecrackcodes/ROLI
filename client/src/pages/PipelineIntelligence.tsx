@@ -25,6 +25,9 @@ import {
 type SortDir = "asc" | "desc";
 interface SortState { key: string; dir: SortDir }
 
+/** Must match `STALE_QUEUE_RATE_UNIFIED` in pipelineIntelligence.ts */
+const STALE_QUEUE_RATE_UNIFIED = 0.1;
+
 function useSort(defaultKey: string, defaultDir: SortDir = "desc") {
   const [sort, setSort] = useState<SortState>({ key: defaultKey, dir: defaultDir });
   const toggle = useCallback((key: string) => {
@@ -135,6 +138,13 @@ interface DaySummary {
   agents: number;
 }
 
+function totalStaleFromSnapshot(r: PipelineSnapshotRow): number {
+  const pd = r.past_due_follow_ups ?? 0;
+  const nl = r.new_leads ?? 0;
+  const cq = r.call_queue_count ?? 0;
+  return pd + nl + Math.round(cq * STALE_QUEUE_RATE_UNIFIED);
+}
+
 function usePipelineHistory(selectedDate: string) {
   const [history, setHistory] = useState<PipelineSnapshotRow[]>([]);
   const [dates, setDates] = useState<string[]>([]);
@@ -166,14 +176,7 @@ function usePipelineHistory(selectedDate: string) {
   return { history, dates, loading };
 }
 
-function PipelineMomentum({
-  agents, siteFilter, teamFilter, selectedDate,
-}: {
-  agents: PipelineAgent[];
-  siteFilter: string;
-  teamFilter: string;
-  selectedDate: string;
-}) {
+function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; selectedDate: string }) {
   const { history, dates, loading } = usePipelineHistory(selectedDate);
 
   const { daySummaries, agentDeltas, priorDate } = useMemo(() => {
@@ -188,7 +191,7 @@ function PipelineMomentum({
         pastDue: dayRows.reduce((s, r) => s + (r.past_due_follow_ups ?? 0), 0),
         newLeads: dayRows.reduce((s, r) => s + (r.new_leads ?? 0), 0),
         callQueue: dayRows.reduce((s, r) => s + (r.call_queue_count ?? 0), 0),
-        totalStale: dayRows.reduce((s, r) => s + (r.past_due_follow_ups ?? 0) + (r.new_leads ?? 0) + (r.call_queue_count ?? 0), 0),
+        totalStale: dayRows.reduce((s, r) => s + totalStaleFromSnapshot(r), 0),
         agents: dayRows.length,
       };
     });
@@ -215,36 +218,20 @@ function PipelineMomentum({
         const ppd = p ? (p.past_due_follow_ups ?? 0) : pd;
         const pnl = p ? (p.new_leads ?? 0) : nl;
         const pcq = p ? (p.call_queue_count ?? 0) : cq;
+        const staleNow = totalStaleFromSnapshot(t);
+        const stalePrior = p ? totalStaleFromSnapshot(p) : staleNow;
         deltas.push({
           name, tier: t.tier, site: agent?.site ?? "—", manager: agent?.manager ?? null,
           pastDue: pd, pastDueDelta: pd - ppd,
           newLeads: nl, newLeadsDelta: nl - pnl,
           callQueue: cq, callQueueDelta: cq - pcq,
-          stale: pd + nl + cq, staleDelta: (pd + nl + cq) - (ppd + pnl + pcq),
+          stale: staleNow, staleDelta: staleNow - stalePrior,
         });
       }
     }
 
     return { daySummaries: summaries, agentDeltas: deltas, priorDate: prior ?? "" };
   }, [history, dates, agents]);
-
-  const siteSummary = useMemo(() => {
-    const sites = new Map<string, typeof agentDeltas>();
-    for (const d of agentDeltas) {
-      const key = d.site ?? "Other";
-      const arr = sites.get(key) ?? [];
-      arr.push(d);
-      sites.set(key, arr);
-    }
-    return Array.from(sites).map(([site, members]) => ({
-      site,
-      count: members.length,
-      pastDue: members.reduce((s, d) => s + d.pastDue, 0),
-      pastDueDelta: members.reduce((s, d) => s + d.pastDueDelta, 0),
-      stale: members.reduce((s, d) => s + d.stale, 0),
-      staleDelta: members.reduce((s, d) => s + d.staleDelta, 0),
-    })).filter(s => s.count > 0).sort((a, b) => a.site.localeCompare(b.site));
-  }, [agentDeltas]);
 
   const teamSummary = useMemo(() => {
     const teams = new Map<string, typeof agentDeltas>();
@@ -317,30 +304,8 @@ function PipelineMomentum({
         />
       </div>
 
-      {/* Tier and Team breakdowns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* By Site */}
-        <div className="bg-card border border-border rounded-md p-4">
-          <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">By Site</h4>
-          <div className="space-y-2">
-            {siteSummary.map(s => (
-              <div key={s.site} className="flex items-center gap-3">
-                <span className={cn(
-                  "px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border w-10 text-center",
-                  s.site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30"
-                    : s.site === "CLT" || s.site === "CHA" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                    : "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                )}>{s.site}</span>
-                <span className="text-[10px] font-mono text-muted-foreground w-16">{s.count} agents</span>
-                <div className="flex-1 flex items-center gap-4">
-                  <span className="text-[10px] font-mono">Past Due: {s.pastDue} <DeltaChip value={s.pastDueDelta} /></span>
-                  <span className="text-[10px] font-mono">Stale: {s.stale} <DeltaChip value={s.staleDelta} /></span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
+      {/* Team breakdown */}
+      <div className="grid grid-cols-1 gap-4">
         {/* By Team */}
         <div className="bg-card border border-border rounded-md p-4">
           <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">By Team</h4>
@@ -478,6 +443,9 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
           </Link>
           <button onClick={onDrillDown} className="ml-1 text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3 inline" /></button>
         </td>
+        <td className="px-3 py-2 text-xs font-mono text-muted-foreground">
+          {agent.site}
+        </td>
         <td className="px-3 py-2">
           <span className={cn(
             "px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border",
@@ -508,7 +476,7 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
       </tr>
       {expanded && (
         <tr className="border-b border-border/30 bg-card/30">
-          <td colSpan={15} className="px-6 py-3">
+          <td colSpan={16} className="px-6 py-3">
             <div className="grid grid-cols-4 gap-4">
               <div className="space-y-1.5">
                 <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block">Sub-Scores</span>
@@ -620,7 +588,7 @@ function TermsDefinitions() {
               <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
                 <span className="text-blue-400 font-bold">Pipeline Freshness (0–25)</span>
                 <p className="text-muted-foreground">
-                  How much of the pipeline surface is NOT stale. Total Stale = past due + new leads + (call queue × tier stale rate).
+                  How much of the pipeline surface is NOT stale. Total Stale = past due + new leads + (call queue × 10%) under the unified model (same as Daily Pulse / metrics glossary).
                   Lower stale ratio = higher score.
                 </p>
               </div>
@@ -634,8 +602,7 @@ function TermsDefinitions() {
               <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
                 <span className="text-purple-400 font-bold">Conversion Efficiency (0–25)</span>
                 <p className="text-muted-foreground">
-                  Agent close rate vs tier average, with bonuses/penalties from presentation-to-close and contact-to-close rates
-                  when funnel data is available. Neutral 12.5 when no leads worked.
+                  Agent close rate vs segment aggregate (CRM tier rollup or floor), with bonuses/penalties from presentation-to-close and contact-to-close when funnel data exists. Neutral 12.5 when no leads worked.
                 </p>
               </div>
             </div>
@@ -677,7 +644,7 @@ function TermsDefinitions() {
                 { flag: "POOL_FARMER" as const, trigger: "Pool dials > regular dials AND call queue > 10", sev: "warning" },
                 { flag: "DEAD_WEIGHT_CARRIER" as const, trigger: "Revenue at risk > 2× total premium sold", sev: "critical" },
                 { flag: "QUEUE_BLOAT" as const, trigger: "Call queue > 150 — leads not withdrawn after 6 attempts", sev: "warning" },
-                { flag: "HIGH_PERFORMER" as const, trigger: "Health ≥ 80 AND close rate above tier avg", sev: "positive" },
+                { flag: "HIGH_PERFORMER" as const, trigger: "Health ≥ 80 AND close rate above segment aggregate", sev: "positive" },
               ]).map(f => (
                 <div key={f.flag} className="flex items-start gap-3">
                   <FlagPill flag={f.flag} />
@@ -699,14 +666,14 @@ function TermsDefinitions() {
                 ["Call Queue", "Leads in queue awaiting outbound contact"],
                 ["Today's F/U", "Follow-up appointments scheduled for today"],
                 ["Post-Sale Leads", "Leads in post-sale servicing status"],
-                ["Total Stale", "Past due + new leads + (call queue × tier stale rate)"],
-                ["Stale Rate", "T1: 15% · T2: 10% · T3: 8% of call queue counted as stale"],
-                ["Revenue at Risk", "Total stale × agent avg premium (or tier avg)"],
+                ["Total Stale", "Past due + new leads + (call queue × 10%) — unified queue stale rate"],
+                ["Stale Rate", "10% of call queue counted toward stale (unified model)"],
+                ["Revenue at Risk", "Total stale × agent avg premium (else segment / marketing / $700 floor)"],
                 ["Projected Recovery", "Total stale × close rate × avg premium"],
                 ["Waste Ratio", "Revenue at risk / (premium sold + revenue at risk) × 100"],
                 ["F/U Compliance", "(1 − past due / (past due + today's follow-ups)) × 100"],
-                ["Avg Premium", "Agent's 30-day rolling avg (needs ≥ 3 days, ≥ 2 sales), else tier avg"],
-                ["Close Rate", "Agent's 30-day rolling rate (needs ≥ 3 days, ≥ 5 leads), else tier avg"],
+                ["Avg Premium", "Agent 30-day rolling (≥ 3 days & 2 sales), else segment aggregate; marketing row improves tier estimate when synced"],
+                ["Close Rate", "Agent 30-day rolling (≥ 3 days & 5 leads), else segment aggregate; floor 10% when empty"],
               ].map(([term, def]) => (
                 <div key={term} className="flex gap-2">
                   <span className="text-foreground font-medium shrink-0 w-32">{term}</span>
@@ -716,27 +683,15 @@ function TermsDefinitions() {
             </div>
           </div>
 
-          {/* Tier Fallback Defaults */}
+          {/* Unified revenue fallbacks */}
           <div>
-            <h4 className="text-xs font-bold text-foreground mb-2">Tier Fallback Defaults</h4>
+            <h4 className="text-xs font-bold text-foreground mb-2">Unified model — revenue & stale</h4>
             <p className="text-muted-foreground mb-2">
-              When an agent has insufficient history ({"<"} 3 days or too few sales/leads), these tier-level averages are used for revenue modeling. If no tier data exists, hardcoded constants apply.
+              All agents operate under one unified capacity model. CRM <strong className="text-foreground">tier</strong> is still stored for historical rollups only.
+              Stale queue contribution is <strong className="text-foreground">10%</strong> of call queue for everyone. When an agent lacks enough 30-day history, premium and close rate fall back to
+              segment aggregates by tier label, then to <strong className="text-foreground">$700</strong> premium and <strong className="text-foreground">10%</strong> close. When{" "}
+              <span className="font-mono text-foreground/90">daily_marketing_summary</span> has a row for the selected date, marketing avg premium improves those tier estimates.
             </p>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { tier: "T1", prem: "$400", cr: "8%", stale: "15%" },
-                { tier: "T2", prem: "$300", cr: "6%", stale: "10%" },
-                { tier: "T3", prem: "$250", cr: "4%", stale: "8%" },
-              ].map(t => (
-                <div key={t.tier} className="bg-background/50 border border-border/50 rounded p-2 text-center">
-                  <span className={cn(
-                    "font-bold block",
-                    t.tier === "T1" ? "text-blue-400" : t.tier === "T2" ? "text-emerald-400" : "text-amber-400"
-                  )}>{t.tier}</span>
-                  <span className="text-muted-foreground text-[10px] block">Prem: {t.prem} · CR: {t.cr} · Stale: {t.stale}</span>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       )}
@@ -751,7 +706,6 @@ export default function PipelineIntelligence() {
   const { pipelineAgents, pipelineLoading, selectedDate, availableDates, marketingSummary } = data;
   const { sort, toggle } = useSort("healthScore");
   const [drillAgent, setDrillAgent] = useState<{ name: string; tier: string; site: string } | null>(null);
-  const [siteFilter, _setSiteFilter] = useState<string>("ALL");
   const [flagFilter, _setFlagFilter] = useState<string>("ALL");
   const [teamFilter, _setTeamFilter] = useState<string>("ALL");
   const [insightsOpen, setInsightsOpen] = useState(true);
@@ -759,44 +713,53 @@ export default function PipelineIntelligence() {
   const PAGE_SIZE = 25;
   const [activeTab, setActiveTab] = useState<PipelineTab>("health");
 
-  const setSiteFilter = useCallback((v: string) => { _setSiteFilter(v); setPage(0); }, []);
   const setFlagFilter = useCallback((v: string) => { _setFlagFilter(v); setPage(0); }, []);
   const setTeamFilter = useCallback((v: string) => { _setTeamFilter(v); setPage(0); }, []);
 
-  const allManagers = useMemo(() => {
+  const managersForSite = useMemo(() => {
     const mgrs = new Set<string>();
-    for (const a of pipelineAgents) if (a.manager) mgrs.add(a.manager);
+    for (const a of pipelineAgents) {
+      if (a.manager) mgrs.add(a.manager);
+    }
     return Array.from(mgrs).sort();
   }, [pipelineAgents]);
 
-  const summary = useMemo(() => buildPipelineSummary(pipelineAgents), [pipelineAgents]);
-
-  const allSites = useMemo(() => {
-    const s = new Set<string>();
-    for (const a of pipelineAgents) s.add(a.site);
-    return Array.from(s).sort();
-  }, [pipelineAgents]);
-
-  const filtered = useMemo(() => {
+  const teamFiltered = useMemo(() => {
     let agents = [...pipelineAgents];
-    if (siteFilter !== "ALL") agents = agents.filter(a => a.site === siteFilter);
     if (teamFilter !== "ALL") {
       if (teamFilter === "UNASSIGNED") agents = agents.filter(a => !a.manager);
       else agents = agents.filter(a => a.manager === teamFilter);
     }
+    return agents;
+  }, [pipelineAgents, teamFilter]);
+
+  const filtered = useMemo(() => {
+    let agents = [...teamFiltered];
     if (flagFilter !== "ALL") {
       if (flagFilter === "NONE") agents = agents.filter(a => a.flags.filter(f => FLAG_META[f].severity !== "positive").length === 0);
       else agents = agents.filter(a => a.flags.includes(flagFilter as BehavioralFlag));
     }
     return agents;
-  }, [pipelineAgents, siteFilter, teamFilter, flagFilter]);
+  }, [teamFiltered, flagFilter]);
+
+  const summary = useMemo(() => buildPipelineSummary(filtered), [filtered]);
 
   const sorted = useMemo(() => {
-    const key = sort.key as keyof PipelineAgent;
+    const key = sort.key;
     return [...filtered].sort((a, b) => {
-      const av = a[key] as number;
-      const bv = b[key] as number;
-      return sort.dir === "desc" ? bv - av : av - bv;
+      if (key === "name") {
+        const cmp = a.name.localeCompare(b.name);
+        return sort.dir === "desc" ? -cmp : cmp;
+      }
+      if (key === "site") {
+        const cmp = a.site.localeCompare(b.site);
+        return sort.dir === "desc" ? -cmp : cmp;
+      }
+      const av = a[key as keyof PipelineAgent] as number;
+      const bv = b[key as keyof PipelineAgent] as number;
+      const na = Number.isFinite(av) ? av : 0;
+      const nb = Number.isFinite(bv) ? bv : 0;
+      return sort.dir === "desc" ? nb - na : na - nb;
     });
   }, [filtered, sort]);
 
@@ -818,9 +781,9 @@ export default function PipelineIntelligence() {
 
   const allFlagTypes = useMemo(() => {
     const flagSet = new Set<BehavioralFlag>();
-    for (const a of pipelineAgents) for (const f of a.flags) flagSet.add(f);
+    for (const a of teamFiltered) for (const f of a.flags) flagSet.add(f);
     return Array.from(flagSet);
-  }, [pipelineAgents]);
+  }, [teamFiltered]);
 
   return (
     <div className="space-y-6">
@@ -829,7 +792,7 @@ export default function PipelineIntelligence() {
         <div>
           <h1 className="text-lg font-bold text-foreground">Pipeline Intelligence</h1>
           <p className="text-xs font-mono text-muted-foreground">
-            Combined production + pipeline compliance analysis
+            Unified pipeline health with production context — tier labels are historical CRM metadata only
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -864,14 +827,14 @@ export default function PipelineIntelligence() {
               <Zap className="h-3 w-3" /> Latest
             </button>
           )}
-          {pipelineAgents.length > 0 && (
+          {sorted.length > 0 && (
             <Button
               variant="outline"
               size="sm"
               className="h-7 text-xs font-mono gap-1"
               onClick={async () => {
                 try {
-                  await exportPipelineIntelligence(pipelineAgents, selectedDate);
+                  await exportPipelineIntelligence(sorted, selectedDate);
                   toast.success("Pipeline report exported");
                 } catch { toast.error("Export failed"); }
               }}
@@ -1035,7 +998,7 @@ export default function PipelineIntelligence() {
                 </span>
                 {!insightsOpen && (
                   <span className="text-[10px] font-mono text-amber-400">
-                    {pipelineAgents.reduce((s, a) => s + a.flags.filter(f => FLAG_META[f].severity !== "positive").length, 0)} flags detected
+                    {filtered.reduce((s, a) => s + a.flags.filter(f => FLAG_META[f].severity !== "positive").length, 0)} flags detected
                   </span>
                 )}
               </div>
@@ -1106,33 +1069,11 @@ export default function PipelineIntelligence() {
           </div>
 
           {/* Pipeline Momentum */}
-          <PipelineMomentum
-            agents={filtered}
-            siteFilter={siteFilter}
-            teamFilter={teamFilter}
-            selectedDate={selectedDate}
-          />
+          <PipelineMomentum agents={filtered} selectedDate={selectedDate} />
 
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Site:</span>
-              {["ALL", ...allSites].map(s => (
-                <button
-                  key={s}
-                  onClick={() => setSiteFilter(s)}
-                  className={cn(
-                    "px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors",
-                    siteFilter === s
-                      ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
-                      : "bg-card text-muted-foreground border-border hover:text-foreground"
-                  )}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            {allManagers.length > 0 && (
+            {managersForSite.length > 0 && (
               <div className="flex items-center gap-1.5">
                 <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Team:</span>
                 <select
@@ -1142,8 +1083,10 @@ export default function PipelineIntelligence() {
                 >
                   <option value="ALL">All Teams</option>
                   <option value="UNASSIGNED">Unassigned</option>
-                  {allManagers.map(m => (
-                    <option key={m} value={m}>{m} ({pipelineAgents.filter(a => a.manager === m).length})</option>
+                  {managersForSite.map(m => (
+                    <option key={m} value={m}>
+                      {m} ({pipelineAgents.filter(a => a.manager === m).length})
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1158,7 +1101,9 @@ export default function PipelineIntelligence() {
                 <option value="ALL">All Agents</option>
                 <option value="NONE">No Flags</option>
                 {allFlagTypes.map(f => (
-                  <option key={f} value={f}>{FLAG_META[f].label} ({summary.flagCounts[f].length})</option>
+                  <option key={f} value={f}>
+                    {FLAG_META[f].label} ({teamFiltered.filter(a => a.flags.includes(f)).length})
+                  </option>
                 ))}
               </select>
             </div>
@@ -1173,7 +1118,13 @@ export default function PipelineIntelligence() {
               <thead className="bg-card sticky top-0 z-10">
                 <tr className="border-b border-border">
                   <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
-                  <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Tier</th>
+                  <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
+                  <th
+                    className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground"
+                    title="Historical CRM tier — scoring uses unified floor + marketing averages, not tier thresholds"
+                  >
+                    Tier
+                  </th>
                   <SortHeader label="Health" sortKey="healthScore" current={sort} onToggle={toggle} />
                   <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Grade</th>
                   <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Flags</th>
@@ -1201,6 +1152,7 @@ export default function PipelineIntelligence() {
               <tfoot className="bg-card border-t border-border sticky bottom-0">
                 <tr className="font-bold text-foreground">
                   <td className="px-3 py-2">Total</td>
+                  <td className="px-3 py-2" />
                   <td className="px-3 py-2" />
                   <td className="px-3 py-2 text-right"><HealthScoreBadge score={summary.avgHealthScore} /></td>
                   <td className="px-3 py-2" />

@@ -36,11 +36,11 @@ function AgentRosterTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [reassignManager, setReassignManager] = useState("");
   const [reassignSelected, setReassignSelected] = useState<Set<string>>(new Set());
-  const [form, setForm] = useState({ name: "", site: "CHA" as "CHA" | "AUS" | "RMT", tier: "T3" as "T1" | "T2" | "T3", daily_lead_volume: 7, is_active: true, manager: "" as string, agent_status: "selling" as "selling" | "training" | "unlicensed" });
+  const [form, setForm] = useState({ name: "", site: "RMT" as "RMT", tier: "T3" as "T1" | "T2" | "T3", daily_lead_volume: 7, is_active: true, manager: "" as string, agent_status: "selling" as "selling" | "training" | "unlicensed" });
   const [csvInput, setCsvInput] = useState("");
   const [rosterFilter, setRosterFilter] = useState<"all" | string>("all");
 
-  const resetForm = () => setForm({ name: "", site: "RMT", tier: "T2", daily_lead_volume: 7, is_active: true, manager: "", agent_status: "selling" });
+  const resetForm = () => setForm({ name: "", site: "RMT" as "RMT", tier: "T2", daily_lead_volume: 7, is_active: true, manager: "", agent_status: "selling" });
 
   const managers = [...new Set(agents.map((a) => a.manager).filter(Boolean))].sort() as string[];
 
@@ -94,7 +94,7 @@ function AgentRosterTab() {
         });
       } else {
         const cols = lines[0].split(separator).map((s) => s.trim());
-        const siteValues = ["CHA", "AUS", "RMT"];
+        const siteValues = ["RMT"];
         const tierValues = ["T1", "T2", "T3"];
         if (siteValues.includes(cols[0]?.toUpperCase())) {
           colMap = { site: 0, name: 1, tier: 2, volume: 3 };
@@ -110,11 +110,11 @@ function AgentRosterTab() {
         const tier = cols[colMap.tier]?.toUpperCase();
         const volume = cols[colMap.volume];
 
-        if (!name || !["CHA", "AUS", "RMT"].includes(site) || !["T1", "T2", "T3"].includes(tier)) continue;
+        if (!name || site !== "RMT" || !["T1", "T2", "T3"].includes(tier)) continue;
 
         agents.push({
           name,
-          site: site as "CHA" | "AUS" | "RMT",
+          site: "RMT" as "RMT",
           tier: tier as "T1" | "T2" | "T3",
           daily_lead_volume: parseInt(volume) || 25,
           is_active: true,
@@ -159,7 +159,7 @@ function AgentRosterTab() {
     setEditingId(agent.id);
     setForm({
       name: agent.name,
-      site: agent.site,
+      site: "RMT" as "RMT",
       tier: agent.tier,
       daily_lead_volume: agent.daily_lead_volume,
       is_active: agent.is_active,
@@ -350,7 +350,7 @@ function AgentRosterTab() {
             <textarea
               value={csvInput}
               onChange={(e) => setCsvInput(e.target.value)}
-              placeholder={"Site\tName\tTier\tVolume\nCHA\tAlvin Fulmore\tT3\t25\nCHA\tNaimah German\tT2\t17"}
+              placeholder={"Site\tName\tTier\tVolume\nRMT\tAlvin Fulmore\tT3\t25\nRMT\tNaimah German\tT2\t17"}
               className="w-full h-40 bg-background border border-border rounded-md p-3 font-mono text-xs text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
@@ -437,7 +437,7 @@ function AgentForm({
   form,
   setForm,
 }: {
-  form: { name: string; site: "CHA" | "AUS" | "RMT"; tier: "T1" | "T2" | "T3"; daily_lead_volume: number; is_active: boolean; manager: string; agent_status: "selling" | "training" | "unlicensed" };
+  form: { name: string; site: "RMT"; tier: "T1" | "T2" | "T3"; daily_lead_volume: number; is_active: boolean; manager: string; agent_status: "selling" | "training" | "unlicensed" };
   setForm: (f: typeof form) => void;
 }) {
   return (
@@ -449,14 +449,7 @@ function AgentForm({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="font-mono text-xs uppercase tracking-widest">Site</Label>
-          <Select value={form.site} onValueChange={(v) => setForm({ ...form, site: v as "CHA" | "AUS" | "RMT" })}>
-            <SelectTrigger className="font-mono bg-background"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="RMT">RMT</SelectItem>
-              <SelectItem value="CHA">CHA</SelectItem>
-              <SelectItem value="AUS">AUS</SelectItem>
-            </SelectContent>
-          </Select>
+          <Input value="RMT" disabled className="font-mono bg-background text-muted-foreground" />
         </div>
         <div className="space-y-2">
           <Label className="font-mono text-xs uppercase tracking-widest">Tier</Label>

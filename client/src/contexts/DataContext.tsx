@@ -253,7 +253,7 @@ function buildPulseAgents(
     if (agentMap.size > 0 && !agentMap.has(name)) continue;
     processedNames.add(name);
     const agent = agentMap.get(name);
-    const site = agent?.site ?? "CHA";
+    const site = agent?.site ?? "RMT";
     const tier = (agent?.tier as Tier) ?? (agentRows[0].tier as Tier) ?? "T3";
 
     const ibLeads = agentRows.reduce((s, r) => s + r.ib_leads_delivered, 0);
@@ -314,7 +314,7 @@ function buildPulseAgents(
       const funnel = funnelMap?.get(name);
       const pulseAgent: DailyPulseAgent = {
         name,
-        site: agent.site ?? "CHA",
+        site: agent.site ?? "RMT",
         tier,
         manager: agent.manager ?? null,
         salesToday: 0,

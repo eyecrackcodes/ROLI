@@ -91,25 +91,6 @@ function SeverityDot({ severity }: { severity: ActionSeverity }) {
   return <span className={cn("inline-block w-2 h-2 rounded-full", color)} />;
 }
 
-function SiteBadge({ site }: { site: string }) {
-  const color =
-    site === "RMT"
-      ? "bg-violet-500/10 text-violet-400 border-violet-500/30"
-      : site === "CLT" || site === "CHA"
-        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-        : "bg-blue-500/10 text-blue-400 border-blue-500/30";
-  return (
-    <span
-      className={cn(
-        "px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border",
-        color,
-      )}
-    >
-      {site}
-    </span>
-  );
-}
-
 interface ActionCenterProps {
   overrideDate?: string;
 }
@@ -127,7 +108,6 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
   } = useActionCenter(overrideDate);
 
   const [sort, setSort] = useState<SortState>({ key: "severity", dir: "asc" });
-  const [siteFilter, setSiteFilter] = useState("ALL");
   const [actionFilter, setActionFilter] = useState("ALL");
   const [drillAgent, setDrillAgent] = useState<{
     name: string;
@@ -143,12 +123,6 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
     );
   }, []);
 
-  const allSites = useMemo(() => {
-    const sites = new Set<string>();
-    for (const r of recommendations) sites.add(r.site);
-    return Array.from(sites).sort();
-  }, [recommendations]);
-
   const allActions = useMemo(() => {
     const actions = new Set<ActionType>();
     for (const r of recommendations) actions.add(r.action);
@@ -157,10 +131,9 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
 
   const filtered = useMemo(() => {
     let agents = [...recommendations];
-    if (siteFilter !== "ALL") agents = agents.filter((a) => a.site === siteFilter);
     if (actionFilter !== "ALL") agents = agents.filter((a) => a.action === actionFilter);
     return agents;
-  }, [recommendations, siteFilter, actionFilter]);
+  }, [recommendations, actionFilter]);
 
   const sorted = useMemo(() => {
     const severityRank: Record<ActionSeverity, number> = {
@@ -299,10 +272,6 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                     >
                       {a.name}
                     </Link>
-                    <SiteBadge site={a.site} />
-                    <span className="text-[10px] font-mono text-muted-foreground">
-                      {a.site}
-                    </span>
                   </div>
                   <div className="flex items-center gap-3 mt-1 text-[11px] font-mono text-muted-foreground">
                     {a.metrics.weeklyCR !== null && (
@@ -363,10 +332,6 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                     >
                       {a.name}
                     </Link>
-                    <SiteBadge site={a.site} />
-                    <span className="text-[10px] font-mono text-muted-foreground">
-                      {a.site}
-                    </span>
                   </div>
                   <p className="text-[11px] font-mono text-muted-foreground/80 mt-1 italic">
                     {a.reason}
@@ -406,26 +371,6 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
 
       {/* Filters + refresh */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-            Site:
-          </span>
-          {["ALL", ...allSites].map((s) => (
-            <button
-              key={s}
-              onClick={() => setSiteFilter(s)}
-              className={cn(
-                "px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors",
-                siteFilter === s
-                  ? "bg-blue-500/20 text-blue-400 border-blue-500/40"
-                  : "bg-card text-muted-foreground border-border hover:text-foreground",
-              )}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
             Action:
@@ -564,8 +509,8 @@ export function ActionCenter({ overrideDate }: ActionCenterProps) {
                     <Eye className="h-3 w-3 inline" />
                   </button>
                 </td>
-                <td className="px-3 py-2">
-                  <SiteBadge site={agent.site} />
+                <td className="px-3 py-2 text-xs font-mono text-muted-foreground">
+                  {agent.site}
                 </td>
                 <td className="px-3 py-2">
                   <ActionBadge action={agent.action} />

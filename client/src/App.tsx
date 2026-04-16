@@ -17,6 +17,7 @@ import PipelineIntelligence from "./pages/PipelineIntelligence";
 import TeamLeaderboard from "./pages/TeamLeaderboard";
 import Settings from "./pages/Settings";
 import AgentProfile from "./pages/AgentProfile";
+import Scorecard from "./pages/Scorecard";
 
 function Router() {
   return (
@@ -28,6 +29,7 @@ function Router() {
         <Route path="/bonus" component={BonusTracker} />
         <Route path="/leads-pool" component={LeadsPool} />
         <Route path="/pipeline" component={PipelineIntelligence} />
+        <Route path="/scorecard" component={Scorecard} />
         <Route path="/teams" component={TeamLeaderboard} />
         <Route path="/gates" component={GateCalculator} />
         <Route path="/data" component={DataManager} />

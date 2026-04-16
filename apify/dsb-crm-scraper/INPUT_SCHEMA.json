@@ -39,6 +39,18 @@
       "default": 0,
       "minimum": 0,
       "maximum": 10
+    },
+    "saleMadeOutboundTypeBySite": {
+      "title": "Sale-made outbound type override by agency",
+      "type": "object",
+      "description": "Map Apify agency keys (RMT, CHA) to the CRM admin-sale-made `type=` filter id for the outbound pass only. Use when the CRM renames the remote OB line (e.g. Luminary Life remote team). Leave empty string to use the default Exclusive (OB) id.",
+      "editor": "json"
+    },
+    "saleMadePassesBySite": {
+      "title": "Full sale-made passes override by agency",
+      "type": "object",
+      "description": "Optional. Per agency key, full list of { typeFilter, channel: inbound|outbound|custom, label? } objects replacing all default sale-made passes for that agency.",
+      "editor": "json"
     }
   }
 }

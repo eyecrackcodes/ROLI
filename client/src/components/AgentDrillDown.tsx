@@ -301,16 +301,7 @@ export function AgentDrillDown({
           </div>
           <div className="flex items-center gap-2 mt-1">
             {site && (
-              <span
-                className={cn(
-                  "px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border",
-                  site === "RMT"
-                    ? "bg-violet-500/10 text-violet-400 border-violet-500/30"
-                    : site === "CLT" || site === "CHA"
-                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                      : "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                )}
-              >
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border bg-violet-500/10 text-violet-400 border-violet-500/30">
                 {site}
               </span>
             )}

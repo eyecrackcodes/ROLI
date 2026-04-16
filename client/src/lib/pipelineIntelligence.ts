@@ -23,7 +23,7 @@ export const FLAG_META: Record<BehavioralFlag, { label: string; description: str
   POOL_FARMER:        { label: "Pool Farmer",          description: "Avoiding assigned pipeline for pool",             severity: "warning" },
   DEAD_WEIGHT_CARRIER:{ label: "Dead Weight Carrier",  description: "Carrying massive unrealized revenue",             severity: "critical" },
   QUEUE_BLOAT:        { label: "Queue Bloat",          description: "Queue exceeds 150 — leads not being withdrawn after 6 attempts", severity: "warning" },
-  HIGH_PERFORMER:     { label: "High Performer",       description: "Clean pipeline AND converting well",              severity: "positive" },
+  HIGH_PERFORMER:     { label: "High Performer",       description: "Clean pipeline AND converting above segment average", severity: "positive" },
 };
 
 export interface PipelineComplianceRow {
@@ -327,7 +327,7 @@ export function buildPipelineAgents(
     const hist = historicalStats?.get(name);
 
     const tier = (roster?.tier ?? comp.tier ?? "T3") as Tier;
-    const site = roster?.site ?? "CHA";
+    const site = roster?.site ?? "RMT";
     const manager = roster?.manager ?? null;
 
     const totalDials = prod?.total_dials ?? 0;

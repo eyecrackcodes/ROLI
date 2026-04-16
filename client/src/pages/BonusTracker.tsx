@@ -125,7 +125,7 @@ export default function BonusTracker() {
 
       agents.push({
         name,
-        site: agentSiteMap.get(name) ?? "CHA",
+        site: agentSiteMap.get(name) ?? "RMT",
         tier: agentRows[0].tier,
         bonusLeads,
         bonusSales,
@@ -181,19 +181,6 @@ export default function BonusTracker() {
       cr: allBonusLeads > 0 ? ((allBonusSales / allBonusLeads) * 100).toFixed(1) + "%" : "--",
     };
   }, [rows, bonusAgents.length]);
-
-  const siteBreakdown = useMemo(() => {
-    const siteSet = new Set(rows.map(r => r.site ?? "Other"));
-    return Array.from(siteSet).sort().map((site) => {
-      const siteRows = rows.filter((r) => (r.site ?? "Other") === site);
-      const leads = siteRows.reduce((s, r) => s + (r.custom_leads ?? 0), 0);
-      const sales = siteRows.reduce((s, r) => s + (r.custom_sales ?? 0), 0);
-      const premium = siteRows.reduce((s, r) => s + Number(r.custom_premium ?? 0), 0);
-      const agentsWithActivity = new Set(siteRows.filter((r) => (r.custom_leads ?? 0) > 0 || (r.custom_sales ?? 0) > 0).map((r) => r.agent_name)).size;
-      const totalAgents = new Set(siteRows.map((r) => r.agent_name)).size;
-      return { site, leads, sales, premium, agentsWithActivity, totalAgents };
-    });
-  }, [rows]);
 
   const windowName = data.activeWindow ? (data.activeWindow as { name?: string }).name ?? "Current" : "Current";
 
@@ -283,48 +270,6 @@ export default function BonusTracker() {
             <MetricCard label="Agents Active" value={totals.agentsWithBonus} subtext={`of ${new Set(rows.map((r) => r.agent_name)).size}`} />
           </div>
 
-          {/* Site breakdown */}
-          <div className="bg-card border border-border rounded-md p-4">
-            <h3 className="text-xs font-mono font-bold uppercase tracking-widest text-muted-foreground mb-3">
-              Bonus Production by Site
-            </h3>
-            <div className={cn("grid gap-4", siteBreakdown.length === 2 ? "grid-cols-2" : siteBreakdown.length >= 3 ? "grid-cols-3" : "grid-cols-1")}>
-              {siteBreakdown.map(({ site, leads, sales, premium, agentsWithActivity, totalAgents }) => (
-                <div key={site} className="p-3 rounded-md bg-background border border-border">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={cn(
-                      "px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border",
-                      site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
-                      site === "CLT" || site === "CHA" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                      "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                    )}>
-                      {site}
-                    </span>
-                    <span className="text-[10px] font-mono text-muted-foreground">{agentsWithActivity}/{totalAgents} agents</span>
-                  </div>
-                  <div className="space-y-1 text-xs font-mono">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Leads</span>
-                      <span className="text-foreground">{leads}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Sales</span>
-                      <span className="text-purple-400 font-bold">{sales}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Premium</span>
-                      <span className="text-foreground">{formatCurrency(premium)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">CR</span>
-                      <span className="text-foreground">{leads > 0 ? ((sales / leads) * 100).toFixed(1) + "%" : "--"}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Agent-level detail table */}
           {bonusAgents.length > 0 ? (
             <div className="bg-card border border-border rounded-md p-4">
@@ -365,12 +310,7 @@ export default function BonusTracker() {
                         <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
                         <td className="px-3 py-2.5 font-semibold text-foreground">{agent.name}</td>
                         <td className="px-3 py-2.5">
-                          <span className={cn(
-                            "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border",
-                            agent.site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
-                            (agent.site === "CLT" || agent.site === "CHA") ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                            "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                          )}>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border bg-violet-500/10 text-violet-400 border-violet-500/30">
                             {agent.site}
                           </span>
                         </td>

@@ -27,12 +27,7 @@ function RankMedal({ rank }: { rank: number }) {
 
 function SiteBadge({ site }: { site: string }) {
   return (
-    <span className={cn(
-      "px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border",
-      site === "RMT" ? "bg-violet-500/10 text-violet-400 border-violet-500/30" :
-      (site === "CLT" || site === "CHA") ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-      "bg-blue-500/10 text-blue-400 border-blue-500/30"
-    )}>
+    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border bg-violet-500/10 text-violet-400 border-violet-500/30">
       {site}
     </span>
   );

@@ -452,7 +452,7 @@ function buildPulseFromRows(
   for (const [name, rows] of Array.from(scrapeGrouped)) {
     processed.add(name);
     const agent = agentMap.get(name);
-    const site = agent?.site ?? "CHA";
+    const site = agent?.site ?? "RMT";
     const tier = (agent?.tier as Tier) ?? (rows[0].tier as Tier) ?? "T3";
 
     const ibLeads = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_leads_delivered, 0);
@@ -715,8 +715,8 @@ export async function exportMonthlyStackRank(
 
 const PIPELINE_COLS = [
   { key: "name", header: "Agent", width: 22, format: "text" as const },
-  { key: "tier", header: "Tier", width: 6, format: "text" as const },
-  { key: "site", header: "Site", width: 6, format: "text" as const },
+  { key: "site", header: "Site", width: 10, format: "text" as const },
+  { key: "tier", header: "Tier (hist.)", width: 10, format: "text" as const },
   { key: "healthScore", header: "Health Score", width: 14, format: "number" as const, gradient: true },
   { key: "healthGrade", header: "Grade", width: 8, format: "text" as const },
   { key: "flags", header: "Flags", width: 30, format: "text" as const },
@@ -750,7 +750,7 @@ function flattenPipelineAgent(agent: PipelineAgent): ExportableRow {
   return {
     name: agent.name,
     tier: agent.tier,
-    site: agent.site === "AUS" ? "ATX" : agent.site === "CHA" ? "CLT" : agent.site === "RMT" ? "RMT" : agent.site,
+    site: agent.site === "RMT" ? "Remote" : agent.site,
     healthScore: agent.healthScore,
     healthGrade: agent.healthGrade,
     flags: agent.flags.map((f: BehavioralFlag) => FLAG_META[f].label).join(", ") || "--",

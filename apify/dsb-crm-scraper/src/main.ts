@@ -11,6 +11,14 @@ import * as path from "path";
 // Sale Made and Calls Report are scraped from the HTML table.
 // ============================================================
 
+type SaleChannel = "inbound" | "outbound" | "custom";
+
+interface SaleMadePassInput {
+  typeFilter: string;
+  channel: SaleChannel;
+  label?: string;
+}
+
 interface ActorInput {
   crmUsername: string;
   crmPassword: string;
@@ -18,6 +26,17 @@ interface ActorInput {
   loginUrl?: string;
   poolReconcileDays?: number;
   agentTiers?: Record<string, string>;
+  /**
+   * Per Apify agency key (`RMT`, `CHA`), override the CRM `type` query param on the **outbound**
+   * sale-made pass only (replaces the default "Exclusive (OB)" filter). Use when CRM renames the
+   * remote OB tag (e.g. Luminary Life remote team) — value is the `type=` id from the report URL.
+   */
+  saleMadeOutboundTypeBySite?: Record<string, string>;
+  /**
+   * Full replacement of sale-made passes for a given agency key. When set for a site, overrides
+   * defaults and `saleMadeOutboundTypeBySite` for that site.
+   */
+  saleMadePassesBySite?: Record<string, SaleMadePassInput[]>;
 }
 
 type TierLabel = "T1" | "T2" | "T3";
@@ -73,7 +92,6 @@ const CRM_BASE = "https://crm.digitalseniorbenefits.com";
 
 const AGENCIES: Array<{ site: string; agencyId: string }> = [
   { site: "RMT", agencyId: "12912" },
-  { site: "CHA", agencyId: "4798" },
 ];
 
 function todayISO(): string {
@@ -109,7 +127,8 @@ function buildLeadTrackerUrl(agencyId: string, scrapeDate: string): string {
 
 function buildSaleMadeUrl(agencyId: string, scrapeDate: string, typeFilter: string = "all"): string {
   const d = encodeDate(scrapeDate);
-  return `${CRM_BASE}/admin-sale-made/?period=custom&start_date=${d}&end_date=${d}&agent_id=all&coach=&type=${typeFilter}&carrier_id=all&agency_id=${agencyId}&sort=count_desc`;
+  const typeEnc = encodeURIComponent(typeFilter);
+  return `${CRM_BASE}/admin-sale-made/?period=custom&start_date=${d}&end_date=${d}&agent_id=all&coach=&type=${typeEnc}&carrier_id=all&tier=all&agency_id=${agencyId}&sort=count_desc`;
 }
 
 function buildCallsReportUrl(agencyId: string, scrapeDate: string): string {
@@ -296,8 +315,6 @@ async function scrapeLeadTracker(
 // Each row = one agent with aggregated count + total premium
 // For T2, we run separate passes per type filter to split IB/OB/Custom
 
-type SaleChannel = "inbound" | "outbound" | "custom";
-
 interface SaleMadePass {
   typeFilter: string;
   channel: SaleChannel;
@@ -309,9 +326,32 @@ function getSaleMadePasses(): SaleMadePass[] {
   return [
     { typeFilter: "9", channel: "inbound", label: "Call In (IB)" },
     { typeFilter: "18", channel: "inbound", label: "Web Call In (IB)" },
+    { typeFilter: "22", channel: "outbound", label: "Type 22 (OB)" },
     { typeFilter: "1", channel: "outbound", label: "Exclusive (OB)" },
     { typeFilter: "custom", channel: "custom", label: "Custom" },
   ];
+}
+
+function resolveSaleMadePasses(site: string, input: ActorInput): SaleMadePass[] {
+  const custom = input.saleMadePassesBySite?.[site];
+  if (custom && Array.isArray(custom) && custom.length > 0) {
+    return custom.map((p) => {
+      const ch = p.channel;
+      const channel: SaleChannel =
+        ch === "inbound" || ch === "outbound" || ch === "custom" ? ch : "outbound";
+      return {
+        typeFilter: String(p.typeFilter ?? ""),
+        channel,
+        label: p.label ?? `${p.typeFilter} (${channel})`,
+      };
+    });
+  }
+  const base = getSaleMadePasses();
+  const rawOb = input.saleMadeOutboundTypeBySite?.[site];
+  const obOverride =
+    rawOb !== undefined && rawOb !== null && String(rawOb).trim() !== "" ? String(rawOb).trim() : null;
+  if (!obOverride) return base;
+  return base.map((p) => (p.channel === "outbound" ? { ...p, typeFilter: obOverride } : p));
 }
 
 function applySaleMadeData(
@@ -342,8 +382,8 @@ async function scrapeSaleMade(
   site: string,
   agentMap: Map<string, AgentRecord>,
   tierLookup: (name: string) => TierLabel,
+  passes: SaleMadePass[],
 ): Promise<void> {
-  const passes = getSaleMadePasses();
 
   for (const pass of passes) {
     const url = buildSaleMadeUrl(agencyId, scrapeDate, pass.typeFilter);
@@ -684,7 +724,7 @@ try {
     }
 
     try {
-      await scrapeSaleMade(page, agencyId, scrapeDate, site, agentMap, tierLookup);
+      await scrapeSaleMade(page, agencyId, scrapeDate, site, agentMap, tierLookup, resolveSaleMadePasses(site, input));
     } catch (err) {
       log.error(`Sale Made [${site}] failed: ${err instanceof Error ? err.message : err}`);
     }

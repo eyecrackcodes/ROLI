@@ -6,6 +6,12 @@ Workflow: [`n8n/hourly-action-alert.json`](../n8n/hourly-action-alert.json).
 
 Each run (weekdays 9:00–17:00 CST) fetches **Marketing AAR** `company_daily_metrics` for the current Central date (or latest row), **upserts** into ROLI **`daily_marketing_summary`**, and uses live **CPC** as lead cost in Slack copy and the recommender. Configure ROLI + Marketing URLs and anon keys in the **Fetch All Data Sources** code node (see [`n8n/snippets/README.md`](../n8n/snippets/README.md)).
 
+### Hourly digest scope vs other Slack automations
+
+- **This hourly workflow** includes agents on sites **RMT** and **AUS** only (`selling` / `training`; `operations` excluded). Slack copy stays focused on that group.
+- **DSB daily scrape** ([`n8n/dsb-daily-scrape-v5-pool.json`](../n8n/dsb-daily-scrape-v5-pool.json) or your LIVE copy) **ingests all agents** into Supabase; the **Slack “production digest”** in repo is scoped to **RMT + AUS** only (see `n8n/snippets/dsb-build-slack-production-digest.js` and `merge-dsb-daily-slack.mjs`). Point Charlotte-only summaries at a different webhook if you still need them.
+- **If you see two hourly-style posts** in one channel (e.g. a legacy digest **and** “ROLI — Hourly coaching”), a **second n8n workflow** or duplicate schedule is still posting—deactivate it or use a **different Slack webhook** for one of them.
+
 ## Overview
 
 The CRM scraper (Apify actor) runs daily and sends data to the DSB Tier Calculator via an N8N webhook. The data flows through:

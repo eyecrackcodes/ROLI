@@ -1,6 +1,11 @@
 /**
- * Safe template (committed). Copy to `hourly-fetch-with-marketing.js` (gitignored), fill YOUR_*.
- * Merge into workflow JSON: `node n8n/snippets/merge-hourly-fetch.mjs` (prefers local gitignored file).
+ * Safe template (committed). Replace every YOUR_* below, then merge into workflow:
+ *   node n8n/snippets/merge-hourly-fetch.mjs --example
+ * Or copy to `hourly-fetch-with-marketing.js` (gitignored): merge prefers that file.
+ *
+ * Remote hourly scope: RMT + AUS, selling or training. Operations excluded.
+ * Intraday: cumulative MTD from latest snapshot + rolling deltas vs prior snapshot (≈ hourly scrape cadence).
+ * Marketing blend: calendar week-to-date (Mon–last completed day) when AAR rows exist; else trailing 7 days.
  */
 const apikey = "YOUR_ROLI_ANON_KEY";
 let base = "YOUR_ROLI_SUPABASE_URL";
@@ -33,18 +38,44 @@ const centralHour = Number(
   })
 );
 
-const centralNow = new Date(
-  now.toLocaleString("en-US", { timeZone: "America/Chicago" })
-);
-const dayOfWeek = centralNow.getDay();
-const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-const monday = new Date(centralNow);
-monday.setDate(monday.getDate() - mondayOffset);
-const mondayStr = monday.toISOString().slice(0, 10);
+/** Weekday index Sun=0..Sat=6 in America/Chicago (never parse locale strings into Date — breaks on n8n servers). */
+function chicagoWeekdayShort(ms) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "short",
+  }).format(new Date(ms));
+}
+
+function chicagoDateString(ms) {
+  return new Date(ms).toLocaleDateString("en-CA", {
+    timeZone: "America/Chicago",
+  });
+}
+
+/** Monday YYYY-MM-DD (Chicago) for the week containing `now`. */
+let mondayStr = centralStr;
+let tScan = now.getTime();
+for (let i = 0; i < 8; i++) {
+  if (chicagoWeekdayShort(tScan) === "Mon") {
+    mondayStr = chicagoDateString(tScan);
+    break;
+  }
+  tScan -= 24 * 60 * 60 * 1000;
+}
+
+const dowOrder = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const dayOfWeek = dowOrder[chicagoWeekdayShort(now.getTime())] ?? 1;
 const daysThisWeek = Math.min(dayOfWeek === 0 ? 5 : dayOfWeek, 5);
 
+function inCoachingScope(a) {
+  const st = String(a.agent_status || "selling").toLowerCase();
+  return st === "selling" || st === "training";
+}
+
 function isPlaceholder(v) {
-  return !v || String(v).startsWith("YOUR_");
+  if (v == null) return true;
+  const s = String(v).trim();
+  return s === "" || s.startsWith("YOUR_");
 }
 
 const mktConfigured = !isPlaceholder(mktApikey) && !isPlaceholder(mktBase);
@@ -91,33 +122,33 @@ function rowFromMkt(r) {
   };
 }
 
-/** Mean of up to 7 completed AAR days (report_date < centralStr) for intraday CPC / org premium. */
-function averageMarketingRows(rows, anchorDate) {
+/** Mean of marketing rows; `summaryMode` documents blend (week resets Monday CST). */
+function averageMarketingRows(rows, anchorDate, summaryMode) {
   if (!rows || rows.length === 0) return null;
-  const norm = rows.map(r => rowFromMkt(r));
+  const norm = rows.map((r) => rowFromMkt(r));
   const dates = [
-    ...new Set(norm.map(r => String(r.report_date).slice(0, 10))),
+    ...new Set(norm.map((r) => String(r.report_date).slice(0, 10))),
   ].sort();
   const from = dates[0] || anchorDate;
   const to = dates[dates.length - 1] || anchorDate;
   const n = norm.length;
-  const mean = pick => norm.reduce((s, r) => s + pick(r), 0) / n;
+  const mean = (pick) => norm.reduce((s, r) => s + pick(r), 0) / n;
   const sumCost = norm.reduce((s, r) => s + r.total_cost, 0);
   const sumSales = norm.reduce((s, r) => s + r.total_sales, 0);
   const costPerSale = sumSales > 0 ? Math.round(sumCost / sumSales) : 0;
   return {
     report_date: anchorDate,
-    total_cost: mean(r => r.total_cost),
-    cpc: mean(r => r.cpc),
-    total_calls: Math.round(mean(r => r.total_calls)),
-    total_sales: Math.round(mean(r => r.total_sales)),
-    total_premium: mean(r => r.total_premium),
-    avg_premium: mean(r => r.avg_premium),
-    roas: mean(r => r.roas),
-    marketing_acq_pct: mean(r => r.marketing_acq_pct),
+    total_cost: mean((r) => r.total_cost),
+    cpc: mean((r) => r.cpc),
+    total_calls: Math.round(mean((r) => r.total_calls)),
+    total_sales: Math.round(mean((r) => r.total_sales)),
+    total_premium: mean((r) => r.total_premium),
+    avg_premium: mean((r) => r.avg_premium),
+    roas: mean((r) => r.roas),
+    marketing_acq_pct: mean((r) => r.marketing_acq_pct),
     cost_per_sale: costPerSale,
-    summary_mode: "rolling_7d_intraday",
-    rolling_window: { from, to, days: n },
+    summary_mode: summaryMode || "rolling_7d_intraday",
+    rolling_window: { from, to, days: n, resets_monday_cst: true },
   };
 }
 
@@ -129,23 +160,24 @@ const [
   poolData,
   weeklyPoolData,
   mktExact,
+  mktWeekWtd,
   mktLast7,
 ] = await Promise.all([
   this.helpers.httpRequest({
     method: "GET",
-    url: `${base}/agents?select=name,site,tier,manager&is_active=eq.true`,
+    url: `${base}/agents?select=name,site,tier,manager,agent_status&is_active=eq.true`,
     headers: hdr,
     json: true,
   }),
   this.helpers.httpRequest({
     method: "GET",
-    url: `${base}/daily_scrape_data?select=agent_name,scrape_date,ib_leads_delivered,ob_leads_delivered,ib_sales,ob_sales,custom_sales&scrape_date=gte.${mondayStr}&scrape_date=lte.${centralStr}&order=scrape_date.asc`,
+    url: `${base}/daily_scrape_data?select=agent_name,scrape_date,ib_leads_delivered,ob_leads_delivered,ib_sales,ob_sales,custom_sales&scrape_date=gte.${mondayStr}&scrape_date=lte.${centralStr}&order=scrape_date.asc&limit=5000`,
     headers: hdr,
     json: true,
   }),
   this.helpers.httpRequest({
     method: "GET",
-    url: `${base}/intraday_snapshots?select=agent_name,scrape_hour,total_dials,talk_time_minutes,ib_leads_delivered,ib_sales,ob_leads_delivered,ob_sales,ib_premium,ob_premium,custom_premium,pool_dials,pool_talk_minutes,pool_self_assigned,pool_answered,pool_long_calls&scrape_date=eq.${centralStr}&order=scrape_hour.desc`,
+    url: `${base}/intraday_snapshots?select=agent_name,scrape_hour,total_dials,talk_time_minutes,ib_leads_delivered,ib_sales,ob_leads_delivered,ob_sales,ib_premium,ob_premium,custom_premium,pool_dials,pool_talk_minutes,pool_self_assigned,pool_answered,pool_long_calls&scrape_date=eq.${centralStr}&limit=5000`,
     headers: hdr,
     json: true,
   }),
@@ -168,6 +200,9 @@ const [
     json: true,
   }),
   mktGet(`report_date=eq.${centralStr}&limit=1`),
+  mktGet(
+    `report_date=gte.${mondayStr}&report_date=lt.${centralStr}&order=report_date.asc`
+  ),
   mktGet(`report_date=lt.${centralStr}&order=report_date.desc&limit=7`),
 ]);
 
@@ -178,8 +213,14 @@ if (!mktRow && mktConfigured) {
   mktRow = mktLatest[0] || null;
 }
 
+const weekRows = Array.isArray(mktWeekWtd) ? mktWeekWtd : [];
 const last7 = Array.isArray(mktLast7) ? mktLast7 : [];
-const blended = averageMarketingRows(last7, centralStr);
+const useWeekBlend = weekRows.length > 0;
+const blended = averageMarketingRows(
+  useWeekBlend ? weekRows : last7,
+  centralStr,
+  useWeekBlend ? "week_to_date_cst" : "rolling_7d_fallback"
+);
 
 let marketingDaily = null;
 let leadCostOverride = DEFAULT_LEAD_COST;
@@ -242,11 +283,69 @@ for (const r of weeklyPoolData || []) {
     (weeklyPoolSales[r.agent_name] || 0) + (r.sales_made || 0);
 }
 
-const intradayMap = {};
+function num(x) {
+  return Number(x) || 0;
+}
+
+/** Latest snapshot at or before `maxHour`, vs prior snapshot — rolling production between scrapes (~1h). */
+function buildIntradayRolling(rows, maxHour) {
+  const sorted = [...rows].sort(
+    (a, b) => Number(a.scrape_hour) - Number(b.scrape_hour)
+  );
+  const upTo = sorted.filter((r) => Number(r.scrape_hour) <= maxHour);
+  const latest =
+    upTo.length > 0 ? upTo[upTo.length - 1] : sorted[sorted.length - 1];
+  if (!latest) return null;
+  const prior = upTo.length >= 2 ? upTo[upTo.length - 2] : null;
+  /** Only defined when two snapshots exist — otherwise cumulative would fake a "rolling hour". */
+  const roll = (k) =>
+    prior ? Math.max(0, num(latest[k]) - num(prior[k])) : null;
+  return {
+    scrape_hour: latest.scrape_hour,
+    total_dials: num(latest.total_dials),
+    talk_time_minutes: num(latest.talk_time_minutes),
+    ib_leads_delivered: num(latest.ib_leads_delivered),
+    ob_leads_delivered: num(latest.ob_leads_delivered),
+    ib_sales: num(latest.ib_sales),
+    ob_sales: num(latest.ob_sales),
+    custom_sales: num(latest.custom_sales),
+    ib_premium: num(latest.ib_premium),
+    ob_premium: num(latest.ob_premium),
+    custom_premium: num(latest.custom_premium),
+    pool_dials: num(latest.pool_dials),
+    pool_talk_minutes: num(latest.pool_talk_minutes),
+    pool_self_assigned: num(latest.pool_self_assigned),
+    pool_answered: num(latest.pool_answered),
+    pool_long_calls: num(latest.pool_long_calls),
+    rolling_anchor_hour: maxHour,
+    rolling_prior_hour: prior ? prior.scrape_hour : null,
+    rolling_hour_dials: roll("total_dials"),
+    rolling_hour_talk_min: roll("talk_time_minutes"),
+    rolling_hour_pool_dials: roll("pool_dials"),
+    rolling_hour_pool_talk_min: roll("pool_talk_minutes"),
+    rolling_hour_pool_self: roll("pool_self_assigned"),
+    rolling_hour_pool_answered: roll("pool_answered"),
+    rolling_hour_pool_long: roll("pool_long_calls"),
+    rolling_hour_ib_leads: roll("ib_leads_delivered"),
+    rolling_hour_ob_leads: roll("ob_leads_delivered"),
+    rolling_hour_ib_sales: roll("ib_sales"),
+    rolling_hour_ob_sales: roll("ob_sales"),
+    rolling_hour_custom_sales: roll("custom_sales"),
+  };
+}
+
+const intradayByAgent = {};
 for (const r of intradayData || []) {
-  if (!intradayMap[r.agent_name] && rosterMap[r.agent_name]) {
-    intradayMap[r.agent_name] = r;
-  }
+  if (!rosterMap[r.agent_name]) continue;
+  if (!intradayByAgent[r.agent_name]) intradayByAgent[r.agent_name] = [];
+  intradayByAgent[r.agent_name].push(r);
+}
+
+const intradayMap = {};
+for (const name of Object.keys(rosterMap)) {
+  const rows = intradayByAgent[name];
+  intradayMap[name] =
+    rows && rows.length ? buildIntradayRolling(rows, centralHour) : null;
 }
 
 const pipeMap = {};
@@ -258,6 +357,8 @@ const poolMapData = {};
 for (const r of poolData || []) {
   if (rosterMap[r.agent_name]) poolMapData[r.agent_name] = r;
 }
+
+const coachingFiltered = roster.filter(inCoachingScope);
 
 return [
   {
@@ -272,7 +373,8 @@ return [
       intradayMap,
       pipeMap,
       poolMapData,
-      agentCount: roster.length,
+      orgAgentCount: roster.length,
+      agentCount: coachingFiltered.length,
       marketingDaily,
       leadCostOverride,
       avgPremiumOverride,

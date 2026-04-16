@@ -8,7 +8,7 @@ import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
-import { SiteSummary } from "@/components/SiteSummary";
+
 import { MonthlyAgent, AgentStatus, GATE_THRESHOLDS } from "@/lib/types";
 import type { Tier } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -308,10 +308,6 @@ export default function MonthlyStackRank() {
           EXPORT
         </Button>
       </div>
-
-      {allAgents.length > 0 && (
-        <SiteSummary agents={allAgents} showProfit />
-      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <MetricCard label="Window" value={`${windowStart} → ${windowEnd}`} subtext={`${workingDays} working days`} />

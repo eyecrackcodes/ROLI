@@ -37,32 +37,44 @@ export type Database = {
       }
       agents: {
         Row: {
+          agent_status: string | null
           created_at: string | null
+          crm_agent_id: string | null
           daily_lead_volume: number
           id: string
           is_active: boolean | null
+          manager: string | null
           name: string
           site: string
+          terminated_date: string | null
           tier: string
           updated_at: string | null
         }
         Insert: {
+          agent_status?: string | null
           created_at?: string | null
+          crm_agent_id?: string | null
           daily_lead_volume?: number
           id?: string
           is_active?: boolean | null
+          manager?: string | null
           name: string
           site: string
+          terminated_date?: string | null
           tier: string
           updated_at?: string | null
         }
         Update: {
+          agent_status?: string | null
           created_at?: string | null
+          crm_agent_id?: string | null
           daily_lead_volume?: number
           id?: string
           is_active?: boolean | null
+          manager?: string | null
           name?: string
           site?: string
+          terminated_date?: string | null
           tier?: string
           updated_at?: string | null
         }

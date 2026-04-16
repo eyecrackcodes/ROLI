@@ -42,19 +42,9 @@ const CRM_BASE = "https://crm.digitalseniorbenefits.com";
 const DASHBOARD_URL = (agentId: string) =>
   `${CRM_BASE}/agent-advanced-dashboard-stats/?agent_id=${agentId}`;
 
-// SLA stringency: % of call queue estimated stale per tier
-const STALE_QUEUE_RATE: Record<string, number> = {
-  T1: 0.15,
-  T2: 0.10,
-  T3: 0.08,
-};
-
-// Conservative avg premium-per-sale by tier (can be overridden in n8n)
-const DEFAULT_PSL: Record<string, number> = {
-  T1: 400,
-  T2: 300,
-  T3: 250,
-};
+// Unified model: single stale-queue rate and avg premium for all agents
+const STALE_QUEUE_RATE = 0.10;
+const AVG_PREMIUM = 700;
 
 const RECYCLED_CONVERSION_RATE = 0.12;
 
@@ -233,10 +223,8 @@ async function scrapeDashboard(
 
   log.info(`  → ${agentName}: PastDue=${pastDue} New=${newLeads} Queue=${callQueue} F/U=${todaysFollowUps} PostSale=${postSale}`);
 
-  // Financial modeling
-  const staleRate = STALE_QUEUE_RATE[tier] ?? 0.10;
-  const psl = pslOverride ?? DEFAULT_PSL[tier] ?? 300;
-  const staleCallQueue = Math.round(callQueue * staleRate);
+  const psl = pslOverride ?? AVG_PREMIUM;
+  const staleCallQueue = Math.round(callQueue * STALE_QUEUE_RATE);
   const totalStale = pastDue + newLeads + staleCallQueue;
   const revenueAtRisk = totalStale * psl;
   const projectedRecovery = Math.round(totalStale * RECYCLED_CONVERSION_RATE * psl);

@@ -120,8 +120,12 @@ apify/dsb-crm-scraper/downloads/
 # Temp files
 tmp_payload.json
 
-# n8n live workflows (contain secrets)
+# n8n live workflows (contain secrets) — copy-paste into n8n; never commit
+# e.g. dsb-daily-scrape-v5-pool-LIVE.json, hourly-action-alert-LIVE.json
 n8n/*-LIVE.json
+
+# Optional Apify + CRM for generate-dsb-daily-LIVE.mjs (see dsb-daily-n8n-secrets.example.json)
+n8n/dsb-daily-n8n-secrets.json
 
 # n8n fetch snippet with local Supabase / Marketing keys (tracked template: hourly-fetch-with-marketing.example.js)
 n8n/snippets/hourly-fetch-with-marketing.js

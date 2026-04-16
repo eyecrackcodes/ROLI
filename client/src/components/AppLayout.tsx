@@ -15,6 +15,7 @@ import {
   X,
   ChevronRight,
   Radar,
+  ClipboardCheck,
 } from "lucide-react";
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { path: "/bonus", label: "Bonus Tracker", icon: Gift, description: "Referral & spouse sales" },
   { path: "/leads-pool", label: "Leads Pool", icon: Users, description: "Shared pool activity" },
   { path: "/pipeline", label: "Pipeline Intel", icon: Radar, description: "Health scores & compliance" },
+  { path: "/scorecard", label: "Scorecard", icon: ClipboardCheck, description: "Agent vs floor targets" },
   { path: "/teams", label: "Team Leaderboard", icon: UsersRound, description: "Manager stack rank" },
   { path: "/gates", label: "Gate Calculator", icon: Shield, description: "Elastic swap engine" },
   { path: "/data", label: "Data Manager", icon: Database, description: "Import & configure" },

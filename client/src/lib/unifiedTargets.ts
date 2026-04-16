@@ -4,7 +4,7 @@ import type { TierConfig } from "./tierTargets";
 // Unified Flat Model — Target Configuration
 // Effective: 2026-04-10 (Org Restructure)
 //
-// All active agents (RMT + CHA) operate under the same model:
+// All active agents (RMT) operate under the same model:
 // 7 IB leads/day, pool access, pipeline discipline.
 // ============================================================
 
@@ -12,9 +12,9 @@ export const UNIFIED_CONFIG: TierConfig = {
   tier: "T2",
   label: "Unified",
   hasPool: true,
-  CR_TARGET: 15,
-  CR_FLOOR: 10,
-  CR_CRISIS: 7,
+  CR_TARGET: 22,
+  CR_FLOOR: 20,
+  CR_CRISIS: 15,
   CR_CRISIS_DAYS: 3,
   MAX_PIPELINE: 30,
   MAX_PAST_DUE: 0,

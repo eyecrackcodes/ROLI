@@ -2,11 +2,20 @@
 
 - **`hourly-fetch-with-marketing.example.js`** — safe template (committed). Copy to **`hourly-fetch-with-marketing.js`** (gitignored) and paste real keys; that local file is **not** committed.
 - **`merge-hourly-fetch.mjs`** — writes the Fetch node into `../hourly-action-alert.json`. Uses the gitignored local file if it exists, else the `.example.js`. Pass **`--example`** to always merge the template (for clean exports / PRs).
-- **`hourly-recommender-with-marketing.js`** — merged into **Run Recommender + Pace Engine**. Uses live **CPC** as `LEAD_COST` when marketing data exists.
+- **`hourly-recommender-with-marketing.js`** — source for **Run Recommender + Pace Engine** (merge with script below). Uses live **CPC** as `LEAD_COST` when marketing data exists; compares each agent’s **rolling-hour dial delta** to the **team median** for pace coaching.
+- **`merge-hourly-recommender.mjs`** — writes the Recommender node into `../hourly-action-alert.json` from `hourly-recommender-with-marketing.js`.
+- **`build-hourly-slack-alert.js`** — Slack Block Kit copy for **Build Unified Slack Alert** (clear, low-emoji; merge with script below).
+- **`merge-hourly-slack.mjs`** — writes Slack node into a workflow JSON (default `../hourly-action-alert.json`). Optional path: `node n8n/snippets/merge-hourly-slack.mjs n8n/hourly-action-alert-LIVE.json`
+- **`merge-hourly-action-LIVE.mjs`** — one-shot refresh of gitignored **`hourly-action-alert-LIVE.json`**: injects **local** `hourly-fetch-with-marketing.js` (keys), plus recommender + Slack snippets. Run after editing any of those three files.
+- **`dsb-build-slack-production-digest.js`** — **DSB daily scrape** Slack body (RMT + AUS digest only; Charlotte not shown). Merge with **`merge-dsb-daily-slack.mjs`** into `../dsb-daily-scrape-v5-pool.json`. Ingestion still sends **all** agents to Supabase; only Slack is filtered.
 
 ```bash
 node n8n/snippets/merge-hourly-fetch.mjs
 node n8n/snippets/merge-hourly-fetch.mjs --example
+node n8n/snippets/merge-hourly-recommender.mjs
+node n8n/snippets/merge-hourly-slack.mjs
+node n8n/snippets/merge-hourly-action-LIVE.mjs
+node n8n/snippets/merge-dsb-daily-slack.mjs
 ```
 
 ## Placeholders (in `.example.js` or your local copy)
@@ -21,3 +30,7 @@ node n8n/snippets/merge-hourly-fetch.mjs --example
 If marketing placeholders are left as `YOUR_*`, the workflow skips the marketing fetch and uses **LEAD_COST 60** (fallback).
 
 Or re-copy `jsCode` from the snippet files into the n8n UI.
+
+### Duplicate hourly posts in Slack
+
+The repo workflow posts **ROLI — Hourly coaching** (RMT + AUS only). If you also see a second, different hourly digest in the same channel, another n8n workflow is still active—deactivate it or use a different webhook. See [`docs/N8N-Integration.md`](../docs/N8N-Integration.md).

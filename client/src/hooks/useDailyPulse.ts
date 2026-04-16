@@ -105,7 +105,7 @@ export function useDailyPulse(windowStartDate?: string): UseDailyPulseReturn {
 
       for (const row of typedRows) {
         const agent = agentMap.get(row.agent_name);
-        const site = agent?.site ?? "CHA";
+        const site = agent?.site ?? "RMT";
         const tier = (row.tier as Tier) ?? (agent?.tier as Tier) ?? "T3";
         const totalSales = row.ib_sales + row.ob_sales + row.custom_sales;
         const totalPremium = row.ib_premium + row.ob_premium + row.custom_premium;

@@ -4,7 +4,7 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 export interface Agent {
   id: string;
   name: string;
-  site: "CHA" | "AUS" | "RMT";
+  site: string;
   tier: "T1" | "T2" | "T3";
   daily_lead_volume: number;
   is_active: boolean;
