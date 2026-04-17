@@ -1,6 +1,5 @@
 // ============================================================
-// Daily Pulse Report — Command Center
-// T3: Sort by Talk Time DESC | T2: Sort by Total Premium DESC | T1: Sort by Total Premium DESC
+// Production — Daily Pulse + Scorecard gates
 // ============================================================
 
 import { useState, useMemo, useCallback } from "react";
@@ -8,6 +7,7 @@ import { Link } from "wouter";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
+import { UNIFIED_CONFIG, UNIFIED_POOL } from "@/lib/unifiedTargets";
 
 import { getPaceColor } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -179,6 +179,33 @@ function PoolOriginTag({ agent }: { agent: DailyPulseAgent }) {
   );
 }
 
+const CFG = UNIFIED_CONFIG;
+const POOL_CFG = UNIFIED_POOL;
+
+type GateStatus = "pass" | "warn" | "fail";
+function gateColor(s: GateStatus) {
+  return s === "pass" ? "bg-emerald-400" : s === "warn" ? "bg-amber-400" : "bg-red-400";
+}
+
+function agentGates(agent: DailyPulseAgent) {
+  const ibCR = (agent.ibCalls ?? 0) > 0 ? ((agent.ibSales ?? 0) / (agent.ibCalls ?? 1)) * 100 : null;
+  const poolAssigns = agent.pool?.selfAssignedLeads ?? 0;
+  const cr: GateStatus = ibCR === null ? "warn" : ibCR >= CFG.CR_FLOOR ? "pass" : ibCR >= CFG.CR_FLOOR * 0.8 ? "warn" : "fail";
+  const pool: GateStatus = poolAssigns >= POOL_CFG.FOLLOWUPS_PER_DAY ? "pass" : poolAssigns >= POOL_CFG.FOLLOWUPS_PER_DAY * 0.6 ? "warn" : "fail";
+  const passing = cr !== "fail" && pool !== "fail";
+  return { cr, pool, passing };
+}
+
+function GateDots({ agent }: { agent: DailyPulseAgent }) {
+  const g = agentGates(agent);
+  return (
+    <span className="inline-flex items-center gap-0.5" title={`CR: ${g.cr} · Pool: ${g.pool}`}>
+      <span className={cn("w-1.5 h-1.5 rounded-full", gateColor(g.cr))} />
+      <span className={cn("w-1.5 h-1.5 rounded-full", gateColor(g.pool))} />
+    </span>
+  );
+}
+
 function UnifiedTable({ agents, onAgentClick }: {
   agents: DailyPulseAgent[];
   onAgentClick?: (agent: DailyPulseAgent) => void;
@@ -197,6 +224,7 @@ function UnifiedTable({ agents, onAgentClick }: {
   const totalOBSales = agents.reduce((s, a) => s + (a.obSales ?? 0), 0);
   const totalPoolSales = agents.reduce((s, a) => s + (a.pool?.salesMade ?? 0), 0);
   const totalPoolAssigned = agents.reduce((s, a) => s + (a.pool?.selfAssignedLeads ?? 0), 0);
+  const passingCount = agents.filter(a => agentGates(a).passing).length;
 
   return (
     <div className="space-y-4">
@@ -204,7 +232,7 @@ function UnifiedTable({ agents, onAgentClick }: {
       <div className={cn("grid grid-cols-2 gap-3", hasPool ? "sm:grid-cols-6" : "sm:grid-cols-5")}>
         <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
         <MetricCard label="Total Sales" value={totalSales} color="green" />
-        <MetricCard label="IB CR" value={formatCR(totalIBSales, totalIB)} color="yellow" />
+        <MetricCard label="IB CR" value={formatCR(totalIBSales, totalIB)} color="yellow" subtext={`Floor: ${CFG.CR_FLOOR}%`} />
         <MetricCard label="OB CR" value={formatCR(totalOBSales, totalOB)} color="yellow" />
         {hasPool && (
           <MetricCard
@@ -214,16 +242,19 @@ function UnifiedTable({ agents, onAgentClick }: {
             subtext={`${totalPoolSales} sales / ${totalPoolAssigned} assigned`}
           />
         )}
-        <MetricCard label="Agents" value={agents.length} />
+        <MetricCard
+          label="Passing Gates"
+          value={`${passingCount}/${agents.length}`}
+          color={passingCount === agents.length ? "green" : passingCount >= agents.length * 0.7 ? "amber" : "red"}
+        />
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left">
-              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-12">#</th>
+              <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground w-8">#</th>
               <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggle} align="left" />
-              <SortHeader label="Site" sortKey="site" current={sort} onToggle={toggle} align="left" />
               <SortHeader label="IB Calls" sortKey="ibCalls" current={sort} onToggle={toggle} />
               <SortHeader label="IB Sales" sortKey="ibSales" current={sort} onToggle={toggle} />
               <SortHeader label="IB CR" sortKey="ibCR" current={sort} onToggle={toggle} />
@@ -249,15 +280,15 @@ function UnifiedTable({ agents, onAgentClick }: {
                   i % 2 === 0 ? "bg-transparent" : "bg-card/30"
                 )}
               >
-                <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums">{i + 1}</td>
+                <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums text-xs">{i + 1}</td>
                 <td className="px-3 py-2.5 font-semibold text-foreground">
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-1.5">
+                    <GateDots agent={agent} />
                     <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
                     <button onClick={(e) => { e.stopPropagation(); onAgentClick?.(agent); }} className="text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3" /></button>
                     <PoolBadge pool={agent.pool} />
                   </span>
                 </td>
-                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{agent.site}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibSales ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.ibSales ?? 0} leads={agent.ibCalls ?? 0} /></td>
@@ -294,7 +325,6 @@ function UnifiedTable({ agents, onAgentClick }: {
             <tr className="border-t-2 border-border bg-card/60 font-bold text-foreground">
               <td className="px-3 py-2.5" />
               <td className="px-3 py-2.5 text-xs uppercase tracking-widest text-muted-foreground">Total ({agents.length})</td>
-              <td className="px-3 py-2.5" />
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalIB}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalIBSales}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalIBSales} leads={totalIB} /></td>

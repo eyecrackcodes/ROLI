@@ -3,33 +3,21 @@ import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import {
   Activity,
-  BarChart3,
-  Shield,
-  Database,
   Settings,
   TrendingUp,
-  Gift,
   Users,
-  UsersRound,
   Menu,
   X,
   ChevronRight,
   Radar,
-  ClipboardCheck,
 } from "lucide-react";
 
 const navItems = [
-  { path: "/", label: "Daily Pulse", icon: Activity, description: "EOD effort tracking" },
-  { path: "/stack-rank", label: "Stack Rank", icon: BarChart3, description: "Monthly ROLI ranking" },
-  { path: "/trends", label: "Trends", icon: TrendingUp, description: "Agent analytics" },
-  { path: "/bonus", label: "Bonus Tracker", icon: Gift, description: "Referral & spouse sales" },
-  { path: "/leads-pool", label: "Leads Pool", icon: Users, description: "Shared pool activity" },
-  { path: "/pipeline", label: "Pipeline Intel", icon: Radar, description: "Health scores & compliance" },
-  { path: "/scorecard", label: "Scorecard", icon: ClipboardCheck, description: "Agent vs floor targets" },
-  { path: "/teams", label: "Team Leaderboard", icon: UsersRound, description: "Manager stack rank" },
-  { path: "/gates", label: "Gate Calculator", icon: Shield, description: "Elastic swap engine" },
-  { path: "/data", label: "Data Manager", icon: Database, description: "Import & configure" },
-  { path: "/settings", label: "Settings", icon: Settings, description: "Roster & config" },
+  { path: "/", label: "Production", icon: Activity, description: "Daily sales, CR, and gate status" },
+  { path: "/pipeline", label: "Pipeline", icon: Radar, description: "Health scores and coaching actions" },
+  { path: "/leads-pool", label: "Leads Pool", icon: Users, description: "Pool activity and self-assigns" },
+  { path: "/trends", label: "Trends", icon: TrendingUp, description: "Agent analytics and stack rank" },
+  { path: "/settings", label: "Settings", icon: Settings, description: "Roster, aliases, and data import" },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {

@@ -7,32 +7,20 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { DataProvider } from "./contexts/DataContext";
 import { AppLayout } from "./components/AppLayout";
 import DailyPulse from "./pages/DailyPulse";
-import MonthlyStackRank from "./pages/MonthlyStackRank";
-import GateCalculator from "./pages/GateCalculator";
-import DataManager from "./pages/DataManager";
 import AgentTrends from "./pages/AgentTrends";
-import BonusTracker from "./pages/BonusTracker";
 import LeadsPool from "./pages/LeadsPool";
 import PipelineIntelligence from "./pages/PipelineIntelligence";
-import TeamLeaderboard from "./pages/TeamLeaderboard";
 import Settings from "./pages/Settings";
 import AgentProfile from "./pages/AgentProfile";
-import Scorecard from "./pages/Scorecard";
 
 function Router() {
   return (
     <AppLayout>
       <Switch>
         <Route path="/" component={DailyPulse} />
-        <Route path="/stack-rank" component={MonthlyStackRank} />
         <Route path="/trends" component={AgentTrends} />
-        <Route path="/bonus" component={BonusTracker} />
         <Route path="/leads-pool" component={LeadsPool} />
         <Route path="/pipeline" component={PipelineIntelligence} />
-        <Route path="/scorecard" component={Scorecard} />
-        <Route path="/teams" component={TeamLeaderboard} />
-        <Route path="/gates" component={GateCalculator} />
-        <Route path="/data" component={DataManager} />
         <Route path="/agent-profile/:name" component={AgentProfile} />
         <Route path="/settings" component={Settings} />
         <Route path="/404" component={NotFound} />

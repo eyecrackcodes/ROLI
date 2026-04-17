@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { useAgentTrends, type IntradayPoint, type PipelineTrend } from "@/hooks/useAgentTrends";
 import { useAgents, type Agent } from "@/hooks/useAgents";
+
+const MonthlyStackRank = lazy(() => import("./MonthlyStackRank"));
 import { TrendLineChart, TrendBarChart, DeltaBadge, Sparkline } from "@/components/TrendChart";
 import { MetricCard } from "@/components/MetricCard";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -613,6 +615,9 @@ export default function AgentTrends() {
             <TabsTrigger value="pipeline" className="font-mono text-xs data-[state=active]:bg-accent">
               PIPELINE
             </TabsTrigger>
+            <TabsTrigger value="stackrank" className="font-mono text-xs data-[state=active]:bg-accent">
+              STACK RANK
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="intraday" className="mt-4">
             <IntradayTab agentName={selectedAgent} />
@@ -628,6 +633,11 @@ export default function AgentTrends() {
           </TabsContent>
           <TabsContent value="pipeline" className="mt-4">
             <PipelineTab agentName={selectedAgent} />
+          </TabsContent>
+          <TabsContent value="stackrank" className="mt-4">
+            <Suspense fallback={<div className="text-sm font-mono text-muted-foreground animate-pulse p-8">Loading stack rank...</div>}>
+              <MonthlyStackRank />
+            </Suspense>
           </TabsContent>
         </Tabs>
       ) : (

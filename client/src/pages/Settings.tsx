@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { useAgents, type Agent } from "@/hooks/useAgents";
+
+const DataManager = lazy(() => import("./DataManager"));
 import { useEvaluationWindows, type EvaluationWindow } from "@/hooks/useEvaluationWindows";
 import { useSystemConfig, type GateThresholds } from "@/hooks/useSystemConfig";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -986,6 +988,9 @@ export default function Settings() {
           <TabsTrigger value="aliases" className="font-mono text-xs data-[state=active]:bg-accent">
             NAME ALIASES
           </TabsTrigger>
+          <TabsTrigger value="data" className="font-mono text-xs data-[state=active]:bg-accent">
+            DATA IMPORT
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="roster" className="mt-4">
@@ -999,6 +1004,11 @@ export default function Settings() {
         </TabsContent>
         <TabsContent value="aliases" className="mt-4">
           <NameAliasesTab />
+        </TabsContent>
+        <TabsContent value="data" className="mt-4">
+          <Suspense fallback={<div className="text-sm font-mono text-muted-foreground animate-pulse p-8">Loading data manager...</div>}>
+            <DataManager />
+          </Suspense>
         </TabsContent>
       </Tabs>
     </div>
