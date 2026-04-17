@@ -13,18 +13,26 @@ const base = "https://YOUR_SUPABASE_PROJECT_REF.supabase.co/rest/v1";
 const hdr = { apikey: apikey };
 
 const rosterNames = new Set();
+const aliasToCanonical = {};
 try {
-  const roster = await this.helpers.httpRequest({
-    method: "GET",
-    url: base + "/agents?select=name&is_active=eq.true",
-    headers: hdr,
-    json: true,
-  });
+  const [roster, aliases] = await Promise.all([
+    this.helpers.httpRequest({ method: "GET", url: base + "/agents?select=name&is_active=eq.true", headers: hdr, json: true }),
+    this.helpers.httpRequest({ method: "GET", url: base + "/agent_name_aliases?select=crm_name,canonical_name", headers: hdr, json: true }),
+  ]);
   for (const r of roster) rosterNames.add(r.name);
+  for (const a of (aliases || [])) aliasToCanonical[a.crm_name] = a.canonical_name;
 } catch (e) {}
 
+function resolveAgent(crmName) {
+  if (rosterNames.has(crmName)) return crmName;
+  const canonical = aliasToCanonical[crmName];
+  if (canonical && rosterNames.has(canonical)) return canonical;
+  return null;
+}
+
 function inRoster(agentName) {
-  return rosterNames.size === 0 || rosterNames.has(agentName);
+  if (rosterNames.size === 0) return true;
+  return resolveAgent(agentName) !== null;
 }
 
 const yd = new Date(scrapeDate);
