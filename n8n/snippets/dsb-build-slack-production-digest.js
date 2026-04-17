@@ -80,11 +80,11 @@ const arrow = (curr, prev) => {
 };
 
 const now = new Date();
-const h = now.getUTCHours() - 6;
-const ampm = h >= 12 ? "PM" : "AM";
-const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
-const mm = String(now.getUTCMinutes()).padStart(2, "0");
-const time = h12 + ":" + mm + " " + ampm;
+const centralHour = Number(now.toLocaleString("en-US", { timeZone: "America/Chicago", hour: "numeric", hour12: false }));
+const centralMin = String(now.toLocaleString("en-US", { timeZone: "America/Chicago", minute: "2-digit" })).padStart(2, "0");
+const ampm = centralHour >= 12 ? "PM" : "AM";
+const h12 = centralHour > 12 ? centralHour - 12 : centralHour === 0 ? 12 : centralHour;
+const time = h12 + ":" + centralMin + " " + ampm;
 
 const totalIBCR = totalIBL > 0 ? ((totalIBS / totalIBL) * 100).toFixed(1) + "%" : "--";
 const totalOBCR = totalOBL > 0 ? ((totalOBS / totalOBL) * 100).toFixed(1) + "%" : "--";
