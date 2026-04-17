@@ -5,6 +5,7 @@ import { UNIFIED_CONFIG, UNIFIED_POOL } from "@/lib/unifiedTargets";
 import { cn } from "@/lib/utils";
 import { MetricCard } from "@/components/MetricCard";
 import { RefreshCw } from "lucide-react";
+import { getActionLabel } from "@/lib/actionRecommender";
 
 const CFG = UNIFIED_CONFIG;
 const POOL = UNIFIED_POOL;
@@ -56,22 +57,22 @@ export default function Scorecard() {
       const sa = sevOrder[a.severity] ?? 2;
       const sb = sevOrder[b.severity] ?? 2;
       if (sa !== sb) return sa - sb;
-      return (a.weeklyCR ?? 999) - (b.weeklyCR ?? 999);
+      const crA = a.metrics.weeklyCR ?? 999;
+      const crB = b.metrics.weeklyCR ?? 999;
+      return crA - crB;
     });
   }, [recommendations]);
 
   const teamCR = useMemo(() => {
-    const withCR = agents.filter(a => a.weeklyCR !== null && a.weeklyCR !== undefined);
-    if (withCR.length === 0) return null;
-    const totalLeads = withCR.reduce((s, a) => s + (a.weeklyLeads ?? 0), 0);
-    const totalSales = withCR.reduce((s, a) => s + (a.weeklySales ?? 0), 0);
+    const totalLeads = agents.reduce((s, a) => s + a.metrics.todaysLeads, 0);
+    const totalSales = agents.reduce((s, a) => s + a.metrics.todaysSales, 0);
     return totalLeads > 0 ? (totalSales / totalLeads) * 100 : null;
   }, [agents]);
 
   const passing = agents.filter(a => {
-    const cr = a.weeklyCR ?? 0;
-    const pd = a.pastDue ?? 0;
-    const pipe = a.pipelineSize ?? 0;
+    const cr = a.metrics.weeklyCR ?? 0;
+    const pd = a.metrics.pastDue ?? 0;
+    const pipe = a.metrics.pipelineSize ?? 0;
     return cr >= CFG.CR_FLOOR && pd === 0 && pipe <= CFG.MAX_PIPELINE;
   }).length;
 
@@ -109,12 +110,12 @@ export default function Scorecard() {
         <MetricCard
           label="Critical"
           value={summary?.critical ?? 0}
-          color={summary?.critical ? "red" : "default"}
+          color={(summary?.critical ?? 0) > 0 ? "red" : "default"}
         />
         <MetricCard
           label="Warnings"
           value={summary?.warning ?? 0}
-          color={summary?.warning ? "amber" : "default"}
+          color={(summary?.warning ?? 0) > 0 ? "amber" : "default"}
         />
         <MetricCard
           label="On Track"
@@ -134,40 +135,26 @@ export default function Scorecard() {
               <tr className="border-b border-border text-left">
                 <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground w-8">#</th>
                 <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-left">Agent</th>
-                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">
-                  <span title={`Floor: ${CFG.CR_FLOOR}% · Target: ${CFG.CR_TARGET}%`}>Week CR</span>
-                </th>
-                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">
-                  <span title={`Max: ${CFG.MAX_PIPELINE}`}>Pipeline</span>
-                </th>
-                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">
-                  <span title="Target: 0">Past Due</span>
-                </th>
-                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">
-                  <span title={`Target: ${POOL.FOLLOWUPS_PER_DAY}/day`}>Pool Assigns</span>
-                </th>
-                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">
-                  <span title={`Target: ${POOL.SALES_PER_WEEK}/wk`}>Pool Sales</span>
-                </th>
-                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Cost/Sale</th>
+                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right" title={`Floor: ${CFG.CR_FLOOR}% · Target: ${CFG.CR_TARGET}%`}>Week CR</th>
+                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right" title={`Max: ${CFG.MAX_PIPELINE}`}>Pipeline</th>
+                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right" title="Target: 0">Past Due</th>
+                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right" title={`Target: ${POOL.FOLLOWUPS_PER_DAY}/day`}>Pool Assigns</th>
+                <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-right">Today</th>
                 <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground text-left">Next Action</th>
               </tr>
             </thead>
             <tbody>
               {agents.map((a, i) => {
-                const cr = a.weeklyCR ?? null;
-                const pipe = a.pipelineSize ?? null;
-                const pd = a.pastDue ?? 0;
-                const poolAssigns = a.poolSelfAssigned ?? 0;
-                const poolWkSales = a.poolWeekSales ?? 0;
-                const leads = a.weeklyLeads ?? 0;
-                const sales = a.weeklySales ?? 0;
-                const costPerSale = sales > 0 ? Math.round((leads * CFG.LEAD_COST) / sales) : null;
-                const actionLabel = a.action?.replace(/_/g, " ") ?? "";
+                const m = a.metrics;
+                const cr = m.weeklyCR !== null ? Math.round(m.weeklyCR * 10) / 10 : null;
+                const pipe = m.pipelineSize;
+                const pd = m.pastDue ?? 0;
+                const poolAssigns = m.poolSelfAssigned ?? 0;
+                const label = getActionLabel(a.action);
 
                 return (
                   <tr
-                    key={a.agentName}
+                    key={a.name}
                     className={cn(
                       "border-b border-border/50 transition-colors hover:bg-accent/30",
                       i % 2 === 0 ? "bg-transparent" : "bg-card/30"
@@ -175,20 +162,19 @@ export default function Scorecard() {
                   >
                     <td className="px-3 py-2.5 font-mono text-muted-foreground tabular-nums text-xs">{i + 1}</td>
                     <td className="px-3 py-2.5 font-semibold">
-                      <Link href={`/agent-profile/${encodeURIComponent(a.agentName)}`} className="hover:text-blue-400 hover:underline transition-colors">
-                        {a.agentName}
+                      <Link href={`/agent-profile/${encodeURIComponent(a.name)}`} className="hover:text-blue-400 hover:underline transition-colors">
+                        {a.name}
                       </Link>
                     </td>
-                    <GateCell value={cr !== null ? Math.round(cr * 10) / 10 : null} target={CFG.CR_FLOOR} unit="%" />
+                    <GateCell value={cr} target={CFG.CR_FLOOR} unit="%" />
                     <GateCell value={pipe} target={CFG.MAX_PIPELINE} direction="lte" />
                     <GateCell value={pd} target={0} direction="lte" />
                     <GateCell value={poolAssigns} target={POOL.FOLLOWUPS_PER_DAY} />
-                    <GateCell value={poolWkSales} target={POOL.SALES_PER_WEEK} />
-                    <td className="px-3 py-2.5 font-mono text-right tabular-nums text-sm">
-                      {costPerSale !== null ? (
-                        <span className={cn(costPerSale <= 300 ? "text-emerald-400" : costPerSale <= 500 ? "text-amber-400" : "text-red-400")}>
-                          ${costPerSale}
-                        </span>
+                    <td className="px-3 py-2.5 font-mono text-right tabular-nums text-sm text-muted-foreground">
+                      {m.todaysSales > 0 ? (
+                        <span className="text-emerald-400">{m.todaysSales}s / {m.todaysLeads}l</span>
+                      ) : m.todaysLeads > 0 ? (
+                        <span>{m.todaysSales}s / {m.todaysLeads}l</span>
                       ) : (
                         <span className="text-muted-foreground/40">--</span>
                       )}
@@ -200,7 +186,7 @@ export default function Scorecard() {
                         a.severity === "warning" ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
                         "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
                       )}>
-                        {actionLabel}
+                        {label}
                       </span>
                     </td>
                   </tr>
@@ -212,9 +198,8 @@ export default function Scorecard() {
       )}
 
       <div className="text-[10px] font-mono text-muted-foreground/60 space-y-0.5">
-        <p>Floor targets: CR {CFG.CR_FLOOR}%+ · Pipeline ≤{CFG.MAX_PIPELINE} · Past due 0 · Pool {POOL.FOLLOWUPS_PER_DAY} assigns/day · Pool {POOL.SALES_PER_WEEK} sale/wk</p>
+        <p>Floor targets: CR {CFG.CR_FLOOR}%+ · Pipeline ≤{CFG.MAX_PIPELINE} · Past due 0 · Pool {POOL.FOLLOWUPS_PER_DAY} assigns/day</p>
         <p>Bonus eligibility: CR {CFG.CR_TARGET}%+ with clean pipeline</p>
-        <p>Lead cost: ${CFG.LEAD_COST}/lead · Cost/sale = (leads × ${CFG.LEAD_COST}) ÷ sales</p>
       </div>
     </div>
   );
