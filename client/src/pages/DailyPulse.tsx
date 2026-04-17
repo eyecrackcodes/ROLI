@@ -229,19 +229,22 @@ function UnifiedTable({ agents, onAgentClick }: {
   return (
     <div className="space-y-4">
       {/* Summary metrics */}
-      <div className={cn("grid grid-cols-2 gap-3", hasPool ? "sm:grid-cols-6" : "sm:grid-cols-5")}>
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
-        <MetricCard label="Total Sales" value={totalSales} color="green" />
-        <MetricCard label="IB CR" value={formatCR(totalIBSales, totalIB)} color="yellow" subtext={`Floor: ${CFG.CR_FLOOR}%`} />
-        <MetricCard label="OB CR" value={formatCR(totalOBSales, totalOB)} color="yellow" />
-        {hasPool && (
-          <MetricCard
-            label="Pool CR"
-            value={totalPoolAssigned > 0 ? `${((totalPoolSales / totalPoolAssigned) * 100).toFixed(1)}%` : "--"}
-            color={totalPoolAssigned > 0 && (totalPoolSales / totalPoolAssigned) >= 0.10 ? "green" : totalPoolSales > 0 ? "amber" : "default"}
-            subtext={`${totalPoolSales} sales / ${totalPoolAssigned} assigned`}
-          />
-        )}
+        <MetricCard label="Total Sales" value={totalSales} color="green" subtext={`${totalIBSales} IB · ${totalPoolSales} pool`} />
+        <MetricCard label="IB CR" value={formatCR(totalIBSales, totalIB)} color="yellow" subtext={`${totalIBSales}/${totalIB} leads · Floor ${CFG.CR_FLOOR}%`} />
+        <MetricCard
+          label="Pool CR"
+          value={totalPoolAssigned > 0 ? `${((totalPoolSales / totalPoolAssigned) * 100).toFixed(1)}%` : "--"}
+          color={totalPoolSales > 0 ? "green" : "default"}
+          subtext={`${totalPoolSales} sales / ${totalPoolAssigned} assigned`}
+        />
+        <MetricCard
+          label="Overall CR"
+          value={formatCR(totalSales, totalIB + totalOB)}
+          color="yellow"
+          subtext={`${totalSales}/${totalIB + totalOB} all leads`}
+        />
         <MetricCard
           label="Passing Gates"
           value={`${passingCount}/${agents.length}`}
@@ -258,11 +261,8 @@ function UnifiedTable({ agents, onAgentClick }: {
               <SortHeader label="IB Calls" sortKey="ibCalls" current={sort} onToggle={toggle} />
               <SortHeader label="IB Sales" sortKey="ibSales" current={sort} onToggle={toggle} />
               <SortHeader label="IB CR" sortKey="ibCR" current={sort} onToggle={toggle} />
-              <SortHeader label="OB Leads" sortKey="obLeads" current={sort} onToggle={toggle} />
-              <SortHeader label="OB Sales" sortKey="obSales" current={sort} onToggle={toggle} />
-              <SortHeader label="OB CR" sortKey="obCR" current={sort} onToggle={toggle} />
-              {hasPool && <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-cyan-400/70 text-right">Pool Sales</th>}
-              {hasPool && <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-cyan-400/70 text-right">Pool CR</th>}
+              <SortHeader label="Pool Assigns" sortKey="obLeads" current={sort} onToggle={toggle} />
+              <SortHeader label="Pool Sales" sortKey="obSales" current={sort} onToggle={toggle} />
               {hasFunnel && <SortHeader label="Contacts" sortKey="contacts" current={sort} onToggle={toggle} />}
               {hasFunnel && <SortHeader label="Convos" sortKey="conversations" current={sort} onToggle={toggle} />}
               {hasFunnel && <SortHeader label="Pres" sortKey="presentations" current={sort} onToggle={toggle} />}
@@ -292,13 +292,8 @@ function UnifiedTable({ agents, onAgentClick }: {
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibSales ?? 0}</td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.ibSales ?? 0} leads={agent.ibCalls ?? 0} /></td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.obLeads ?? 0}</td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums">
-                  <span className="inline-flex items-center justify-end">{agent.obSales ?? 0}<PoolOriginTag agent={agent} /></span>
-                </td>
-                <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.obSales ?? 0} leads={agent.obLeads ?? 0} /></td>
-                {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{agent.pool?.salesMade ? agent.pool.salesMade : <span className="text-muted-foreground/40">--</span>}</td>}
-                {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={agent.pool?.salesMade ?? 0} leads={agent.pool?.selfAssignedLeads ?? 0} /></td>}
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{agent.pool?.selfAssignedLeads ?? 0}</td>
+                <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{agent.pool?.salesMade ? agent.pool.salesMade : <span className="text-muted-foreground/40">0</span>}</td>
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.contactsMade ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.conversations ?? <span className="text-muted-foreground/40">--</span>}</td>}
                 {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agent.funnel?.presentations ?? <span className="text-muted-foreground/40">--</span>}</td>}
@@ -328,11 +323,8 @@ function UnifiedTable({ agents, onAgentClick }: {
               <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalIB}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalIBSales}</td>
               <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalIBSales} leads={totalIB} /></td>
-              <td className="px-3 py-2.5 font-mono text-right tabular-nums">{totalOB}</td>
-              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-emerald-400">{totalOBSales}</td>
-              <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalOBSales} leads={totalOB} /></td>
-              {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{totalPoolSales || "--"}</td>}
-              {hasPool && <td className="px-3 py-2.5 font-mono text-right tabular-nums"><CRBadge sales={totalPoolSales} leads={totalPoolAssigned} /></td>}
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{totalPoolAssigned}</td>
+              <td className="px-3 py-2.5 font-mono text-right tabular-nums text-cyan-400">{totalPoolSales}</td>
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agents.reduce((s, a) => s + (a.funnel?.contactsMade ?? 0), 0)}</td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agents.reduce((s, a) => s + (a.funnel?.conversations ?? 0), 0)}</td>}
               {hasFunnel && <td className="px-3 py-2.5 font-mono text-right tabular-nums text-orange-400">{agents.reduce((s, a) => s + (a.funnel?.presentations ?? 0), 0)}</td>}

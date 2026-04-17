@@ -60,21 +60,27 @@ for (const a of yData) {
   yPremium += (a.ib_premium || 0) + (a.ob_premium || 0) + (a.custom_premium || 0);
 }
 
-let totalS = 0, totalP = 0, totalIBL = 0, totalOBL = 0, totalIBS = 0, totalOBS = 0, totalBonS = 0, totalBonP = 0, agentCount = 0;
+let totalS = 0, totalP = 0, totalIBL = 0, totalOBL = 0, totalAllSales = 0, totalBonS = 0, totalBonP = 0, agentCount = 0;
 
 for (const a of agents) {
   const name = a.agent_name || a.name;
   if (!inRoster(name)) continue;
   agentCount++;
-  totalIBS += a.ib_sales || 0;
-  totalOBS += a.ob_sales || 0;
+  totalAllSales += (a.ib_sales || 0) + (a.ob_sales || 0);
   totalBonS += a.custom_sales || 0;
   totalP += (a.ib_premium || 0) + (a.ob_premium || 0);
   totalBonP += a.custom_premium || 0;
   totalIBL += a.ib_leads_delivered || 0;
   totalOBL += a.ob_leads_delivered || 0;
 }
-totalS = totalIBS + totalOBS + totalBonS;
+
+const poolAgentsData = payload.pool_agents || [];
+const inRosterPool = poolAgentsData.filter((a) => inRoster(a.agent_name));
+const totalPoolSalesMade = inRosterPool.reduce((s, a) => s + (a.sales_made || 0), 0);
+const totalPoolAssigns = inRosterPool.reduce((s, a) => s + (a.self_assigned_leads || 0), 0);
+
+const totalIBS = Math.max(0, totalAllSales - totalPoolSalesMade);
+totalS = totalAllSales + totalBonS;
 totalP += totalBonP;
 
 const fmt = (n) => "$" + Math.round(n).toLocaleString();
@@ -95,34 +101,27 @@ const h12 = centralHour > 12 ? centralHour - 12 : centralHour === 0 ? 12 : centr
 const time = h12 + ":" + centralMin + " " + ampm;
 
 const totalIBCR = totalIBL > 0 ? ((totalIBS / totalIBL) * 100).toFixed(1) + "%" : "--";
-const totalOBCR = totalOBL > 0 ? ((totalOBS / totalOBL) * 100).toFixed(1) + "%" : "--";
+const poolCR = totalPoolAssigns > 0 ? ((totalPoolSalesMade / totalPoolAssigns) * 100).toFixed(1) + "%" : "--";
 const totalLeads = totalIBL + totalOBL;
-const overallCR = totalLeads > 0 ? (((totalIBS + totalOBS) / totalLeads) * 100).toFixed(1) + "%" : "--";
+const overallCR = totalLeads > 0 ? ((totalS / totalLeads) * 100).toFixed(1) + "%" : "--";
 
 const hasYesterday = yData.length > 0;
 const vsYesterday = hasYesterday
   ? "\n_vs yesterday:_ Sales" + arrow(totalS, ySales) + "  |  Premium" + arrow(totalP, yPremium)
   : "";
 
-const poolAgents = payload.pool_agents || [];
 const poolInventory = payload.pool_inventory || [];
+const poolCalls = inRosterPool.reduce((s, a) => s + (a.calls_made || 0), 0);
+const poolAnswered = inRosterPool.reduce((s, a) => s + (a.answered_calls || 0), 0);
+const poolLong = inRosterPool.reduce((s, a) => s + (a.long_calls || 0), 0);
+const contactRate = poolCalls > 0 ? ((poolAnswered / poolCalls) * 100).toFixed(0) : "--";
+const totalPoolLeads = poolInventory.reduce((s, i) => s + (i.total_leads || 0), 0);
+const poolAgentsActive = inRosterPool.filter(a => (a.calls_made || 0) > 0).length;
 let poolSection = "";
-if (poolAgents.length > 0) {
-  const inRosterPool = poolAgents.filter((a) => inRoster(a.agent_name));
-  const poolCalls = inRosterPool.reduce((s, a) => s + (a.calls_made || 0), 0);
-  const poolLong = inRosterPool.reduce((s, a) => s + (a.long_calls || 0), 0);
-  const poolAssigned = inRosterPool.reduce((s, a) => s + (a.self_assigned_leads || 0), 0);
-  const poolSales = inRosterPool.reduce((s, a) => s + (a.sales_made || 0), 0);
-  const poolPrem = inRosterPool.reduce((s, a) => s + (a.premium || 0), 0);
-  const poolAnswered = inRosterPool.reduce((s, a) => s + (a.answered_calls || 0), 0);
-  const contactRate = poolCalls > 0 ? ((poolAnswered / poolCalls) * 100).toFixed(0) : "--";
-  const totalPoolLeads = poolInventory.reduce((s, i) => s + (i.total_leads || 0), 0);
-  poolSection =
-    "\n\n:busts_in_silhouette: *Leads pool:*  " + inRosterPool.length + " agents  |  " +
-    poolCalls + " calls  |  " + contactRate + "% contact rate\n" +
-    poolLong + " long calls  |  " + poolAssigned + " self-assigned  |  " +
-    poolSales + " sales  |  " + fmt(poolPrem) +
-    (totalPoolLeads > 0 ? "\n:package: Pool inventory: " + totalPoolLeads + " contactable leads" : "");
+if (poolCalls > 0) {
+  poolSection = "\n\n:busts_in_silhouette: *Pool activity:*  " + poolAgentsActive + " agents  |  " +
+    poolCalls + " dials  |  " + contactRate + "% contact  |  " + poolLong + " long calls" +
+    (totalPoolLeads > 0 ? "\n:package: " + totalPoolLeads + " contactable leads in pool" : "");
 }
 
 const message = {
@@ -133,7 +132,9 @@ const message = {
     { type: "divider" },
     { type: "section", text: { type: "mrkdwn", text:
       "*" + totalS + " sales  |  " + fmt(totalP) + " premium*\n" +
-      "IB CR: *" + totalIBCR + "*  |  OB CR: *" + totalOBCR + "*  |  Overall: *" + overallCR + "*" +
+      "IB: *" + totalIBS + "* sales / *" + totalIBL + "* leads → *" + totalIBCR + "* CR\n" +
+      "Pool: *" + totalPoolSalesMade + "* sales / *" + totalPoolAssigns + "* assigns → *" + poolCR + "* CR\n" +
+      "Overall: *" + overallCR + "* (" + totalS + "/" + totalLeads + " leads)" +
       (totalBonS > 0 ? "\n:star: *Bonus / custom:*  " + totalBonS + " sales  |  " + fmt(totalBonP) + " premium" : "") +
       vsYesterday + poolSection
     }},

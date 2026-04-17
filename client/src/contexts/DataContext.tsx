@@ -273,19 +273,24 @@ function buildPulseAgents(
     const pool = poolMap?.get(name);
     const funnel = funnelMap?.get(name);
 
+    const poolSalesMade = pool?.salesMade ?? 0;
+    const poolPremiumMade = pool?.premium ?? 0;
+    const trueIBSales = Math.max(0, totalSales - poolSalesMade);
+    const trueIBPrem = Math.max(0, totalPremium - poolPremiumMade);
+
     const pulseAgent: DailyPulseAgent = {
       name,
       site,
       tier,
       manager: agent?.manager ?? null,
       ibCalls: ibLeads || undefined,
-      ibSales: ibSales || undefined,
+      ibSales: trueIBSales || undefined,
       obLeads: obLeads || undefined,
-      obSales: obSales || undefined,
+      obSales: poolSalesMade || undefined,
       dials: dials || undefined,
       talkTimeMin: talkTime || undefined,
       salesToday: totalSales,
-      premiumToday: totalPremium - customPrem,
+      premiumToday: trueIBPrem - customPrem,
       bonusSales: customSales || undefined,
       bonusLeads: agentRows.reduce((s, r) => s + (r.custom_leads ?? 0), 0) || undefined,
       bonusPremium: customPrem || undefined,
