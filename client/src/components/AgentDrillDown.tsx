@@ -278,7 +278,7 @@ export function AgentDrillDown({
   }, [data.dailyT1, data.dailyT2, data.dailyT3, tier, agentName]);
 
   const channelMax = latestDay
-    ? Math.max(latestDay.ibSales, latestDay.obSales, latestDay.customSales, 1)
+    ? Math.max(latestDay.ibSales + latestDay.obSales, latestDay.customSales, 1)
     : 1;
 
   return (
@@ -369,10 +369,9 @@ export function AgentDrillDown({
               </div>
             </div>
 
-            {/* Channel Breakdown */}
+            {/* Channel Breakdown — Inbound (incl. legacy ob_* misc-inbound) vs Bonus */}
             {latestDay &&
-              (latestDay.ibSales > 0 ||
-                latestDay.obSales > 0 ||
+              (latestDay.ibSales + latestDay.obSales > 0 ||
                 latestDay.customSales > 0) && (
                 <div>
                   <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">
@@ -380,16 +379,10 @@ export function AgentDrillDown({
                   </h3>
                   <div className="p-3 bg-card rounded-md border border-border space-y-2">
                     <ChannelBar
-                      label="IB"
-                      value={latestDay.ibSales}
+                      label="Inbound"
+                      value={latestDay.ibSales + latestDay.obSales}
                       max={channelMax}
                       color="#60a5fa"
-                    />
-                    <ChannelBar
-                      label="OB"
-                      value={latestDay.obSales}
-                      max={channelMax}
-                      color="#34d399"
                     />
                     <ChannelBar
                       label="Bonus"
@@ -399,15 +392,9 @@ export function AgentDrillDown({
                     />
                     <div className="flex gap-3 pt-1 border-t border-border/50 text-[10px] font-mono text-muted-foreground">
                       <span>
-                        IB Prem:{" "}
+                        Inbound Prem:{" "}
                         <span className="text-foreground">
-                          {fmt(latestDay.ibPremium)}
-                        </span>
-                      </span>
-                      <span>
-                        OB Prem:{" "}
-                        <span className="text-foreground">
-                          {fmt(latestDay.obPremium)}
+                          {fmt(latestDay.ibPremium + latestDay.obPremium)}
                         </span>
                       </span>
                       <span>
@@ -483,9 +470,8 @@ export function AgentDrillDown({
                 </h3>
                 <div className="grid grid-cols-3 gap-2">
                   <StatCard
-                    label="Leads"
+                    label="Inbound Leads"
                     value={latestDay.ibLeads + latestDay.obLeads}
-                    sub={`IB:${latestDay.ibLeads} OB:${latestDay.obLeads}`}
                   />
                   <StatCard
                     label="Dials"

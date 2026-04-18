@@ -504,8 +504,7 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
                   <div className="flex justify-between"><span className="text-muted-foreground">Pool Dials</span><span className="text-cyan-400">{agent.poolDials}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Queue Dials</span><span>{Math.max(0, agent.totalDials - agent.poolDials)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Talk Time</span><span>{Math.round(agent.talkTimeMin)}m</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">IB Sales</span><span>{agent.ibSales}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">OB Sales</span><span>{agent.obSales}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Inbound Sales</span><span>{agent.ibSales + agent.obSales}</span></div>
                 </div>
               </div>
               <div className="space-y-1">

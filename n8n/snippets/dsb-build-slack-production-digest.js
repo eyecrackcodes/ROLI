@@ -100,10 +100,13 @@ const ampm = centralHour >= 12 ? "PM" : "AM";
 const h12 = centralHour > 12 ? centralHour - 12 : centralHour === 0 ? 12 : centralHour;
 const time = h12 + ":" + centralMin + " " + ampm;
 
-const totalIBCR = totalIBL > 0 ? ((totalIBS / totalIBL) * 100).toFixed(1) + "%" : "--";
+// Under the unified all-remote model the legacy `ob_*` bucket holds
+// non-standard inbound types (missed inbound, FEX, exclusive, recycled).
+// Combine with IB so the digest reports a single honest "Inbound" line.
+const totalInboundLeads = totalIBL + totalOBL;
+const totalInboundCR = totalInboundLeads > 0 ? ((totalIBS / totalInboundLeads) * 100).toFixed(1) + "%" : "--";
 const poolCR = totalPoolAssigns > 0 ? ((totalPoolSalesMade / totalPoolAssigns) * 100).toFixed(1) + "%" : "--";
-const totalLeads = totalIBL + totalOBL;
-const overallCR = totalLeads > 0 ? ((totalS / totalLeads) * 100).toFixed(1) + "%" : "--";
+const overallCR = totalInboundLeads > 0 ? ((totalS / totalInboundLeads) * 100).toFixed(1) + "%" : "--";
 
 const hasYesterday = yData.length > 0;
 const vsYesterday = hasYesterday
@@ -132,9 +135,9 @@ const message = {
     { type: "divider" },
     { type: "section", text: { type: "mrkdwn", text:
       "*" + totalS + " sales  |  " + fmt(totalP) + " premium*\n" +
-      "IB: *" + totalIBS + "* sales / *" + totalIBL + "* leads → *" + totalIBCR + "* CR\n" +
+      "Inbound: *" + totalIBS + "* sales / *" + totalInboundLeads + "* leads → *" + totalInboundCR + "* CR\n" +
       "Pool: *" + totalPoolSalesMade + "* sales / *" + totalPoolAssigns + "* assigns → *" + poolCR + "* CR\n" +
-      "Overall: *" + overallCR + "* (" + totalS + "/" + totalLeads + " leads)" +
+      "Overall: *" + overallCR + "* (" + totalS + "/" + totalInboundLeads + " leads)" +
       (totalBonS > 0 ? "\n:star: *Bonus / custom:*  " + totalBonS + " sales  |  " + fmt(totalBonP) + " premium" : "") +
       vsYesterday + poolSection
     }},

@@ -205,10 +205,8 @@ const PULSE_COLS = {
   name: { key: "name", header: "Agent", width: 22, format: "text" as const },
   site: { key: "site", header: "Site", width: 6, format: "text" as const },
   daysActive: { key: "daysActive", header: "Days", width: 5, format: "number" as const },
-  ibCalls: { key: "ibCalls", header: "IB Calls", format: "number" as const },
-  ibSales: { key: "ibSales", header: "IB Sales", format: "number" as const, gradient: true },
-  obLeads: { key: "obLeads", header: "OB Leads", format: "number" as const },
-  obSales: { key: "obSales", header: "OB Sales", format: "number" as const, gradient: true },
+  ibCalls: { key: "ibCalls", header: "Inbound Leads", format: "number" as const },
+  ibSales: { key: "ibSales", header: "Inbound Sales", format: "number" as const, gradient: true },
   dials: { key: "dials", header: "CRM Dials", format: "number" as const, gradient: true },
   talkTimeMin: { key: "talkTimeMin", header: "CRM Talk", format: "number" as const, gradient: true },
   poolDials: { key: "poolDials", header: "Pool Dials", format: "number" as const, gradient: true },
@@ -229,8 +227,7 @@ const PULSE_COLS = {
   poolPct: { key: "poolPct", header: "Pool %", format: "decimal" as const },
   totalPremium: { key: "totalPremium", header: "Total Premium", format: "currency" as const, gradient: true },
   closeRate: { key: "closeRate", header: "Close Rate %", format: "decimal" as const, gradient: true },
-  ibCR: { key: "ibCR", header: "IB CR%", format: "decimal" as const, gradient: true },
-  obCR: { key: "obCR", header: "OB CR%", format: "decimal" as const, gradient: true },
+  ibCR: { key: "ibCR", header: "Inbound CR%", format: "decimal" as const, gradient: true },
   // ---- Per-row totals (unified all-remote model) ----
   totalLeads: { key: "totalLeads", header: "Total Leads", format: "number" as const, gradient: true },
   totalSales: { key: "totalSales", header: "Total Sales", format: "number" as const, gradient: true },
@@ -248,28 +245,27 @@ function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
   const poolSales = agent.pool?.salesMade ?? 0;
   const poolPremium = agent.pool?.premium ?? 0;
 
-  const ibLeads = agent.ibCalls ?? 0;
-  const obLeads = agent.obLeads ?? 0;
-  const ibSales = agent.ibSales ?? 0;
-  const obSales = agent.obSales ?? 0;
+  // Under the unified all-remote model the legacy `ob_*` bucket holds
+  // non-standard inbound types (missed inbound, FEX, exclusive, recycled).
+  // Fold it into IB so every report shows a single honest "Inbound" channel.
+  const ibLeads = (agent.ibCalls ?? 0) + (agent.obLeads ?? 0);
+  const ibSales = (agent.ibSales ?? 0) + (agent.obSales ?? 0);
   const bonusSales = agent.bonusSales ?? 0;
 
   // Unified all-remote totals: every conversion-eligible touch counts toward
   // overall conversion. Pool self-assigned leads are the "leads" denominator
   // for pool work; bonus/custom sales count in the numerator but have no
   // separate lead denominator.
-  const totalLeads = ibLeads + obLeads + selfAssigned;
-  const totalSales = ibSales + obSales + poolSales + bonusSales;
+  const totalLeads = ibLeads + selfAssigned;
+  const totalSales = ibSales + poolSales + bonusSales;
   const overallCR = totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0;
 
   return {
     name: agent.name,
     site: agent.site,
     tier: agent.tier,
-    ibCalls: agent.ibCalls,
-    ibSales: agent.ibSales,
-    obLeads: agent.obLeads,
-    obSales: agent.obSales,
+    ibCalls: ibLeads,
+    ibSales,
     dials: agent.dials,
     talkTimeMin: agent.talkTimeMin ? Math.round(agent.talkTimeMin) : undefined,
     salesToday: agent.salesToday,
@@ -294,9 +290,8 @@ function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
     poolSelfAssigned: selfAssigned,
     poolGhostAssigns: Math.max(0, selfAssigned - longCalls),
     // Channel-scoped CRs for context
-    closeRate: ibLeads + obLeads > 0 ? ((ibSales + obSales) / (ibLeads + obLeads)) * 100 : 0,
+    closeRate: ibLeads > 0 ? (ibSales / ibLeads) * 100 : 0,
     ibCR: ibLeads > 0 ? (ibSales / ibLeads) * 100 : 0,
-    obCR: obLeads > 0 ? (obSales / obLeads) * 100 : 0,
     // Per-row aggregates (the "totals on each row" the unified model needs)
     totalLeads,
     totalSales,
@@ -318,17 +313,14 @@ function sortAgents(agents: DailyPulseAgent[], sortBy: SortKey): DailyPulseAgent
 // in that channel — keeps the sheet narrow when not needed.
 function buildUnifiedColumns(agents: DailyPulseAgent[], isRange: boolean): string[] {
   const hasPool = agents.some((a) => a.pool && a.pool.callsMade > 0);
-  const hasOB = agents.some((a) => (a.obLeads ?? 0) > 0 || (a.obSales ?? 0) > 0);
   const hasBonus = agents.some((a) => (a.bonusSales ?? 0) > 0 || (a.bonusPremium ?? 0) > 0);
 
   const cols: string[] = ["rank", "name"];
   if (isRange) cols.push("daysActive");
 
-  // Inbound block (always present in unified model)
+  // Inbound block (always present in unified model — folds the legacy
+  // `ob_*` misc-inbound bucket into a single Inbound channel).
   cols.push("ibCalls", "ibSales", "ibCR");
-
-  // Outbound block (legacy / opportunistic)
-  if (hasOB) cols.push("obLeads", "obSales", "obCR");
 
   // Pool block
   if (hasPool) {
@@ -490,27 +482,25 @@ function buildPulseFromRows(
     const site = agent?.site ?? "RMT";
     const tier = (agent?.tier as Tier) ?? (rows[0].tier as Tier) ?? "T3";
 
-    const ibLeads = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_leads_delivered, 0);
-    const obLeads = rows.reduce((s: number, r: ScrapeRow) => s + r.ob_leads_delivered, 0);
-    const ibSales = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_sales, 0);
-    const obSales = rows.reduce((s: number, r: ScrapeRow) => s + r.ob_sales, 0);
+    // Fold the legacy `ob_*` misc-inbound bucket into IB. Under the unified
+    // all-remote model there is no outbound team — `ob_*` columns hold
+    // missed/FEX/exclusive/recycled inbound leads.
+    const ibLeads = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_leads_delivered + r.ob_leads_delivered, 0);
+    const ibSales = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_sales + r.ob_sales, 0);
     const customSales = rows.reduce((s: number, r: ScrapeRow) => s + r.custom_sales, 0);
-    const ibPrem = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_premium, 0);
-    const obPrem = rows.reduce((s: number, r: ScrapeRow) => s + r.ob_premium, 0);
+    const ibPrem = rows.reduce((s: number, r: ScrapeRow) => s + r.ib_premium + r.ob_premium, 0);
     const customPrem = rows.reduce((s: number, r: ScrapeRow) => s + r.custom_premium, 0);
     const dials = rows.reduce((s: number, r: ScrapeRow) => s + r.total_dials, 0);
     const talkTime = rows.reduce((s: number, r: ScrapeRow) => s + r.talk_time_minutes, 0);
-    const totalPremium = ibPrem + obPrem + customPrem;
+    const totalPremium = ibPrem + customPrem;
 
     const pulse: DailyPulseAgent = {
       name, site, tier,
       ibCalls: ibLeads || undefined,
       ibSales: ibSales || undefined,
-      obLeads: obLeads || undefined,
-      obSales: obSales || undefined,
       dials: dials || undefined,
       talkTimeMin: talkTime || undefined,
-      salesToday: ibSales + obSales + customSales,
+      salesToday: ibSales + customSales,
       premiumToday: totalPremium - customPrem,
       bonusSales: customSales || undefined,
       bonusPremium: customPrem || undefined,
@@ -645,12 +635,10 @@ export async function exportMonthlyStackRank(
     site: { key: "site", header: "Site", width: 6, format: "text" as const },
     leadsDelivered: { key: "leadsDelivered", header: "Leads", format: "number" as const },
     sales: { key: "sales", header: "Sales", format: "number" as const, gradient: true },
-    ibSales: { key: "ibSales", header: "IB Sales", format: "number" as const, gradient: true },
-    obSales: { key: "obSales", header: "OB Sales", format: "number" as const, gradient: true },
+    ibSales: { key: "ibSales", header: "Inbound Sales", format: "number" as const, gradient: true },
     bonusSales: { key: "bonusSales", header: "Bonus", format: "number" as const },
     closeRate: { key: "closeRate", header: "CR%", format: "decimal" as const, gradient: true },
-    ibCR: { key: "ibCR", header: "IB CR%", format: "decimal" as const, gradient: true },
-    obCR: { key: "obCR", header: "OB CR%", format: "decimal" as const, gradient: true },
+    ibCR: { key: "ibCR", header: "Inbound CR%", format: "decimal" as const, gradient: true },
     leadCost: { key: "leadCost", header: "Lead Cost", format: "currency" as const },
     totalPremium: { key: "totalPremium", header: "Premium", format: "currency" as const, gradient: true },
     profit: { key: "profit", header: "Profit", format: "currency" as const, gradient: true },
@@ -682,7 +670,7 @@ export async function exportMonthlyStackRank(
       title: "Tier 2 — Proving Ground",
       subtitle: `${windowName} | Sorted by ROLI DESC`,
       tier: "T2",
-      columns: filterCols(["rank", "name", "ibCR", "obCR", "leadCost", "totalPremium", "profit", "roli", "status"]),
+      columns: filterCols(["rank", "name", "ibCR", "leadCost", "totalPremium", "profit", "roli", "status"]),
       rows: sorted.map((a, i) => ({ rank: i + 1, ...a })),
     });
   }
