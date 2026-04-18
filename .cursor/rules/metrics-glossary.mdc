@@ -95,23 +95,41 @@ All agents share the same pipeline limits under the unified model.
 
 ## Pipeline Metrics (from pipeline_compliance_daily)
 
+ROLI mirrors the CRM's own buckets — no synthetic "stale" composite. Every pipeline
+number lines up 1:1 with what the agent sees in their CRM dashboard.
+
 | Metric | Formula | Notes |
 |---|---|---|
-| Total Stale | `past_due + new_leads + (call_queue * staleRate)` | Default staleRate: 10% |
-| Revenue at Risk | `total_stale * avgPremium` | Uses agent's 30-day rolling avg premium (falls back to floor avg) |
-| Projected Recovery | `total_stale * closeRate * avgPremium` | Uses agent's 30-day rolling close rate (falls back to floor avg) |
-| Pipeline Health Score | Composite of 4 sub-scores (0-25 each) | See pipelineIntelligence.ts |
+| Past Due | CRM "past due follow-ups" widget | Missed-appointment count, taken as-is |
+| Untouched | CRM "user new leads" widget | Leads that have never been worked |
+| Call Queue | CRM "call queue count" widget | Active dialer cadence — already being worked |
+| Today's F/U | CRM "today's follow-ups" widget | Scheduled appointments not yet fired |
+| **Actionable Leads** | `past_due + untouched` | The only backlog that needs hand-work today |
+| **Premium @ Stake** | `actionable_leads × avg_premium` | Theoretical max premium if every actionable lead closed |
+| Pipeline Health Score | Composite of 4 sub-scores (0-25 each) | See `pipelineIntelligence.ts` |
 | Past Due Delta (d/d) | `today_past_due - yesterday_past_due` | Negative = improving, positive = deteriorating |
 
-### Revenue Model Data Sources
+> **Why no `Projected Recovery`?** The old metric multiplied actionable × close-rate × premium
+> to imply "this is what you'll recover." That implied false precision. We now publish only
+> the *theoretical max* (Premium @ Stake) and let coaching conversations apply realistic
+> conversion in context.
 
-Agent-level stats require minimum 3 days of data and 2+ sales (premium) or 5+ leads (close rate).
-Below threshold, falls back to floor-level averages computed from same 30-day window.
-Fallback constants when no data: $700 avg premium / 10% close rate.
+### Storage Note (DB columns)
 
-> **Code note:** `pipelineIntelligence.ts` uses a unified **10%** stale-queue rate and **$700 / 10%**
-> tier fallbacks; when `daily_marketing_summary` has a row for the selected date (synced from
-> Marketing AAR via n8n), **avg premium** from that row is used to improve tier-level premium estimates.
+The legacy DB columns `total_stale` and `revenue_at_risk` are kept for backward
+compatibility, but the Apify scraper now writes the new math into them:
+
+- `total_stale`     ← Actionable Leads (`past_due + untouched`)
+- `revenue_at_risk` ← Premium @ Stake (`actionable × avg_premium`)
+- `projected_recovery` is deprecated and always written as `0`
+
+### Avg Premium Source
+
+`avg_premium` per agent comes from a 30-day rolling window in `daily_scrape_data`,
+requiring ≥ 3 days of history and ≥ 2 sales. Below threshold, falls back to org-level
+average from the same window. When `daily_marketing_summary` has a row for the date
+(synced from Marketing AAR by n8n), that org `avg_premium` is preferred over the
+hard-coded fallback. Final fallback constant: **$700**.
 
 ## Follow-Up Compliance
 

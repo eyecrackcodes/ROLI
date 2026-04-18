@@ -11,6 +11,14 @@ export interface Agent {
   terminated_date: string | null;
   manager: string | null;
   agent_status: "selling" | "training" | "unlicensed";
+  // Org-chart fields (migration 014). Optional in TS because the DB has defaults
+  // and bulk-import / legacy creators don't supply them.
+  email?: string | null;
+  phone?: string | null;
+  slack_user_id?: string | null;
+  manager_id?: string | null;
+  role?: "agent" | "manager" | "director" | "admin";
+  hired_date?: string | null;
   created_at: string;
   updated_at: string;
 }

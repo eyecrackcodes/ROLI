@@ -543,7 +543,7 @@ export function AgentDrillDown({
                     <StatCard
                       label="Waste Ratio"
                       value={pa.wasteRatio > 0 ? pa.wasteRatio.toFixed(0) + "%" : "--"}
-                      sub={`${fmt(pa.revenueAtRisk)} risk · ${(pa.closeRate * 100).toFixed(1)}% CR (${pa.closeRateSource})`}
+                      sub={`${fmt(pa.premiumAtStake)} @ stake · ${(pa.closeRate * 100).toFixed(1)}% CR (${pa.closeRateSource})`}
                       color={pa.wasteRatio > 50 ? "text-red-400" : pa.wasteRatio > 25 ? "text-amber-400" : "text-emerald-400"}
                     />
                   </div>
@@ -570,18 +570,14 @@ export function AgentDrillDown({
                     <div className="p-3 bg-card rounded-md border border-border">
                       <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block mb-2">Pipeline State</span>
                       <div className="text-[11px] font-mono space-y-1">
-                        <div className="flex justify-between"><span className="text-muted-foreground">New Leads</span><span>{pa.newLeads}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Past Due</span><span className={pa.pastDue > 10 ? "text-red-400 font-bold" : pa.pastDue > 0 ? "text-amber-400" : ""}>{pa.pastDue}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Untouched</span><span className={pa.newLeads > 10 ? "text-amber-400" : ""}>{pa.newLeads}</span></div>
+                        <div className="flex justify-between border-t border-border/30 pt-1 mt-1"><span className="text-muted-foreground font-bold">Actionable</span><span className="font-bold">{pa.actionableLeads}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Call Queue</span><span>{pa.callQueue}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">Past Due</span><span className={pa.pastDue > 10 ? "text-red-400 font-bold" : ""}>{pa.pastDue}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">Stale</span><span className={pa.totalStale > 10 ? "text-amber-400" : ""}>{pa.totalStale}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Post-Sale</span><span>{pa.postSaleLeads}</span></div>
                         <div className="flex justify-between border-t border-border/30 pt-1 mt-1">
-                          <span className="text-muted-foreground">Rev at Risk</span>
-                          <span className="text-red-400">{fmt(pa.revenueAtRisk)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Proj. Recovery</span>
-                          <span className="text-emerald-400" title={`${pa.totalStale} stale × ${(pa.closeRate * 100).toFixed(1)}% CR × ${fmt(pa.avgPremium)} premium`}>{fmt(pa.projectedRecovery)}</span>
+                          <span className="text-muted-foreground">Premium @ Stake</span>
+                          <span className="text-red-400" title={`${pa.actionableLeads} actionable × ${fmt(pa.avgPremium)} avg premium`}>{fmt(pa.premiumAtStake)}</span>
                         </div>
                         <div className="flex justify-between text-[9px] text-muted-foreground/60 pt-0.5">
                           <span>Avg Prem: {fmt(pa.avgPremium)} ({pa.premiumSource})</span>
@@ -642,9 +638,9 @@ export function AgentDrillDown({
                         />
                         <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
                         <Bar dataKey="pastDue" name="Past Due" fill="#ef4444" stackId="pipeline" />
+                        <Bar dataKey="newLeads" name="Untouched" fill="#22c55e" stackId="pipeline" />
                         <Bar dataKey="callQueue" name="Call Queue" fill="#f59e0b" stackId="pipeline" />
-                        <Bar dataKey="newLeads" name="New Leads" fill="#22c55e" stackId="pipeline" />
-                        <Line type="monotone" dataKey="totalStale" name="Stale" stroke="#a78bfa" strokeWidth={2} dot={{ r: 3, fill: "#a78bfa" }} />
+                        <Line type="monotone" dataKey="actionableLeads" name="Actionable" stroke="#a78bfa" strokeWidth={2} dot={{ r: 3, fill: "#a78bfa" }} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
@@ -673,8 +669,7 @@ export function AgentDrillDown({
                           formatter={(value: number, name: string) => ["$" + Math.round(value).toLocaleString(), name]}
                         />
                         <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
-                        <Bar dataKey="revenueAtRisk" name="Rev at Risk" fill="#ef444480" />
-                        <Bar dataKey="projectedRecovery" name="Proj. Recovery" fill="#22c55e80" />
+                        <Bar dataKey="premiumAtStake" name="Premium @ Stake" fill="#ef444480" />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>

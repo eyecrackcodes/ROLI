@@ -25,8 +25,9 @@ import {
 type SortDir = "asc" | "desc";
 interface SortState { key: string; dir: SortDir }
 
-/** Must match `STALE_QUEUE_RATE_UNIFIED` in pipelineIntelligence.ts */
-const STALE_QUEUE_RATE_UNIFIED = 0.1;
+// Simplified pipeline model: Actionable Leads = Past Dues + Untouched (new) leads.
+// These are the two CRM buckets the agent sees and must act on now. Active call
+// queue is shown for context but not penalised — the cadence engine works it.
 
 function useSort(defaultKey: string, defaultDir: SortDir = "desc") {
   const [sort, setSort] = useState<SortState>({ key: defaultKey, dir: defaultDir });
@@ -134,15 +135,14 @@ interface DaySummary {
   pastDue: number;
   newLeads: number;
   callQueue: number;
-  totalStale: number;
+  actionable: number;  // pastDue + newLeads
   agents: number;
 }
 
-function totalStaleFromSnapshot(r: PipelineSnapshotRow): number {
+function actionableFromSnapshot(r: PipelineSnapshotRow): number {
   const pd = r.past_due_follow_ups ?? 0;
   const nl = r.new_leads ?? 0;
-  const cq = r.call_queue_count ?? 0;
-  return pd + nl + Math.round(cq * STALE_QUEUE_RATE_UNIFIED);
+  return pd + nl;
 }
 
 function usePipelineHistory(selectedDate: string) {
@@ -180,7 +180,8 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
   const { history, dates, loading } = usePipelineHistory(selectedDate);
 
   const { daySummaries, agentDeltas, priorDate } = useMemo(() => {
-    if (dates.length === 0) return { daySummaries: [] as DaySummary[], agentDeltas: [] as Array<{ name: string; tier: string; site: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }>, priorDate: "" };
+    type AgentDelta = { name: string; tier: string; site: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; actionable: number; actionableDelta: number };
+    if (dates.length === 0) return { daySummaries: [] as DaySummary[], agentDeltas: [] as AgentDelta[], priorDate: "" };
 
     const agentSet = new Set(agents.map(a => a.name));
 
@@ -191,7 +192,7 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
         pastDue: dayRows.reduce((s, r) => s + (r.past_due_follow_ups ?? 0), 0),
         newLeads: dayRows.reduce((s, r) => s + (r.new_leads ?? 0), 0),
         callQueue: dayRows.reduce((s, r) => s + (r.call_queue_count ?? 0), 0),
-        totalStale: dayRows.reduce((s, r) => s + totalStaleFromSnapshot(r), 0),
+        actionable: dayRows.reduce((s, r) => s + actionableFromSnapshot(r), 0),
         agents: dayRows.length,
       };
     });
@@ -199,7 +200,7 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
     const today = dates[dates.length - 1];
     const prior = dates.length >= 2 ? dates[dates.length - 2] : null;
 
-    const deltas: Array<{ name: string; tier: string; site: string; manager: string | null; pastDue: number; pastDueDelta: number; newLeads: number; newLeadsDelta: number; callQueue: number; callQueueDelta: number; stale: number; staleDelta: number }> = [];
+    const deltas: AgentDelta[] = [];
 
     if (prior) {
       const todayByAgent = new Map<string, PipelineSnapshotRow>();
@@ -218,14 +219,14 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
         const ppd = p ? (p.past_due_follow_ups ?? 0) : pd;
         const pnl = p ? (p.new_leads ?? 0) : nl;
         const pcq = p ? (p.call_queue_count ?? 0) : cq;
-        const staleNow = totalStaleFromSnapshot(t);
-        const stalePrior = p ? totalStaleFromSnapshot(p) : staleNow;
+        const actNow = actionableFromSnapshot(t);
+        const actPrior = p ? actionableFromSnapshot(p) : actNow;
         deltas.push({
           name, tier: t.tier, site: agent?.site ?? "—", manager: agent?.manager ?? null,
           pastDue: pd, pastDueDelta: pd - ppd,
           newLeads: nl, newLeadsDelta: nl - pnl,
           callQueue: cq, callQueueDelta: cq - pcq,
-          stale: staleNow, staleDelta: staleNow - stalePrior,
+          actionable: actNow, actionableDelta: actNow - actPrior,
         });
       }
     }
@@ -246,8 +247,8 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
       count: members.length,
       pastDue: members.reduce((s, d) => s + d.pastDue, 0),
       pastDueDelta: members.reduce((s, d) => s + d.pastDueDelta, 0),
-      stale: members.reduce((s, d) => s + d.stale, 0),
-      staleDelta: members.reduce((s, d) => s + d.staleDelta, 0),
+      actionable: members.reduce((s, d) => s + d.actionable, 0),
+      actionableDelta: members.reduce((s, d) => s + d.actionableDelta, 0),
     })).sort((a, b) => a.pastDueDelta - b.pastDueDelta);
   }, [agentDeltas]);
 
@@ -255,10 +256,10 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
 
   const improving = agentDeltas.filter(d => d.pastDueDelta < 0).sort((a, b) => a.pastDueDelta - b.pastDueDelta);
   const deteriorating = agentDeltas.filter(d => d.pastDueDelta > 0).sort((a, b) => b.pastDueDelta - a.pastDueDelta);
-  const staleDeflators = agentDeltas.filter(d => d.staleDelta < 0).sort((a, b) => a.staleDelta - b.staleDelta);
+  const actionableDeflators = agentDeltas.filter(d => d.actionableDelta < 0).sort((a, b) => a.actionableDelta - b.actionableDelta);
 
   const orgTotalDelta = agentDeltas.reduce((s, d) => s + d.pastDueDelta, 0);
-  const orgStaleDelta = agentDeltas.reduce((s, d) => s + d.staleDelta, 0);
+  const orgActionableDelta = agentDeltas.reduce((s, d) => s + d.actionableDelta, 0);
 
   return (
     <div className="space-y-4">
@@ -282,18 +283,18 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
           tooltip="Net change in total past due follow-ups across all visible agents compared to previous pipeline snapshot."
         />
         <MetricCard
-          label="Org Stale Δ"
-          value={<DeltaChip value={orgStaleDelta} />}
-          subtext="past due + new leads + call queue"
-          color={orgStaleDelta < 0 ? "green" : orgStaleDelta > 0 ? "red" : "default"}
-          tooltip="Net change in total stale pipeline items (past due + new leads + call queue) across all visible agents."
+          label="Org Actionable Δ"
+          value={<DeltaChip value={orgActionableDelta} />}
+          subtext="past dues + untouched"
+          color={orgActionableDelta < 0 ? "green" : orgActionableDelta > 0 ? "red" : "default"}
+          tooltip="Net change in actionable leads (past dues + untouched) across all visible agents vs the previous snapshot."
         />
         <MetricCard
           label="Deflators"
-          value={staleDeflators.length}
-          subtext={`of ${agentDeltas.length} agents reducing stale`}
-          color={staleDeflators.length > agentDeltas.length / 2 ? "green" : "amber"}
-          tooltip="Agents whose total stale count (past due + new leads + call queue) decreased since last snapshot."
+          value={actionableDeflators.length}
+          subtext={`of ${agentDeltas.length} agents shrinking backlog`}
+          color={actionableDeflators.length > agentDeltas.length / 2 ? "green" : "amber"}
+          tooltip="Agents whose actionable lead count (past dues + untouched) decreased since the last snapshot."
         />
         <MetricCard
           label="Biggest Win"
@@ -316,7 +317,7 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
                 <span className="text-[10px] font-mono text-muted-foreground w-16">{t.count} agents</span>
                 <div className="flex-1 flex items-center gap-4">
                   <span className="text-[10px] font-mono">Past Due: {t.pastDue} <DeltaChip value={t.pastDueDelta} /></span>
-                  <span className="text-[10px] font-mono">Stale: {t.stale} <DeltaChip value={t.staleDelta} /></span>
+                  <span className="text-[10px] font-mono">Actionable: {t.actionable} <DeltaChip value={t.actionableDelta} /></span>
                 </div>
               </div>
             ))}
@@ -336,9 +337,9 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
                   <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Agents</th>
                   <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Past Due</th>
                   <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Δ</th>
-                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">New Leads</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Untouched</th>
                   <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Call Queue</th>
-                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Total Stale</th>
+                  <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest" title="Past dues + Untouched leads — what the agent must work right now.">Actionable</th>
                   <th className="px-3 py-1.5 text-right text-[10px] uppercase tracking-widest">Δ</th>
                 </tr>
               </thead>
@@ -346,7 +347,7 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
                 {[...daySummaries].reverse().map((d, i, arr) => {
                   const prev = i < arr.length - 1 ? arr[i + 1] : null;
                   const pdDelta = prev ? d.pastDue - prev.pastDue : 0;
-                  const staleDelta = prev ? d.totalStale - prev.totalStale : 0;
+                  const actDelta = prev ? d.actionable - prev.actionable : 0;
                   return (
                     <tr key={d.date} className={cn("border-b border-border/30", d.date === selectedDate ? "bg-blue-500/5" : "")}>
                       <td className="px-3 py-1.5 font-medium">{d.date}</td>
@@ -355,8 +356,8 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
                       <td className="px-3 py-1.5 text-right">{prev ? <DeltaChip value={pdDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{d.newLeads}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{d.callQueue}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums font-bold">{d.totalStale}</td>
-                      <td className="px-3 py-1.5 text-right">{prev ? <DeltaChip value={staleDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums font-bold">{d.actionable}</td>
+                      <td className="px-3 py-1.5 text-right">{prev ? <DeltaChip value={actDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
                     </tr>
                   );
                 })}
@@ -408,17 +409,17 @@ function PipelineMomentum({ agents, selectedDate }: { agents: PipelineAgent[]; s
 
         <div className="bg-card border border-blue-500/20 rounded-md p-4">
           <h4 className="text-[10px] font-mono uppercase tracking-widest text-blue-400 mb-3 flex items-center gap-1.5">
-            <TrendingDown className="h-3 w-3" /> Total Stale Deflation ({staleDeflators.length})
+            <TrendingDown className="h-3 w-3" /> Backlog Shrinkers ({actionableDeflators.length})
           </h4>
-          {staleDeflators.length === 0 ? (
-            <p className="text-[10px] font-mono text-muted-foreground/50">No stale count reductions</p>
+          {actionableDeflators.length === 0 ? (
+            <p className="text-[10px] font-mono text-muted-foreground/50">No agents shrunk their actionable backlog</p>
           ) : (
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
-              {staleDeflators.slice(0, 10).map(d => (
+              {actionableDeflators.slice(0, 10).map(d => (
                 <div key={d.name} className="flex items-center gap-2 text-[11px]">
                   <span className="font-medium flex-1 truncate">{d.name}</span>
-                  <span className="font-mono text-muted-foreground tabular-nums">{d.stale}</span>
-                  <DeltaChip value={d.staleDelta} />
+                  <span className="font-mono text-muted-foreground tabular-nums">{d.actionable}</span>
+                  <DeltaChip value={d.actionableDelta} />
                 </div>
               ))}
             </div>
@@ -463,13 +464,13 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
         </td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.pastDue}</td>
         <td className="px-3 py-2 text-right">{agent.pastDueDelta != null ? <DeltaChip value={agent.pastDueDelta} /> : <span className="text-muted-foreground/30">--</span>}</td>
+        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.newLeads}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.callQueue}</td>
-        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalStale}</td>
+        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums font-bold">{agent.actionableLeads}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalDials}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{agent.totalSales}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">{fmt(agent.totalPremium)}</td>
-        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums text-red-400">{fmt(agent.revenueAtRisk)}</td>
-        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums text-emerald-400">{fmt(agent.projectedRecovery)}</td>
+        <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums text-red-400">{fmt(agent.premiumAtStake)}</td>
         <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums">
           {agent.wasteRatio > 0 ? agent.wasteRatio.toFixed(0) + "%" : "--"}
         </td>
@@ -488,9 +489,10 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
               <div className="space-y-1">
                 <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block">Pipeline Detail</span>
                 <div className="text-[11px] font-mono space-y-0.5">
-                  <div className="flex justify-between"><span className="text-muted-foreground">New Leads</span><span>{agent.newLeads}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Past Due</span><span className={agent.pastDue > 10 ? "text-red-400 font-bold" : agent.pastDue > 0 ? "text-amber-400" : ""}>{agent.pastDue}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Untouched</span><span className={agent.newLeads > 10 ? "text-amber-400" : ""}>{agent.newLeads}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Actionable</span><span className="font-bold">{agent.actionableLeads}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Call Queue</span><span>{agent.callQueue}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Past Due</span><span className={agent.pastDue > 10 ? "text-red-400" : ""}>{agent.pastDue}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Today's F/U</span><span>{agent.todaysFollowUps}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Post-Sale</span><span>{agent.postSaleLeads}</span></div>
                 </div>
@@ -509,9 +511,8 @@ function AgentExpandRow({ agent, onDrillDown }: { agent: PipelineAgent; onDrillD
               <div className="space-y-1">
                 <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground block">Revenue Impact</span>
                 <div className="text-[11px] font-mono space-y-0.5">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Total Stale</span><span className="text-amber-400">{agent.totalStale}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Rev at Risk</span><span className="text-red-400">{fmt(agent.revenueAtRisk)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Proj. Recovery</span><span className="text-emerald-400">{fmt(agent.projectedRecovery)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Actionable</span><span className="text-amber-400">{agent.actionableLeads}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Premium @ Stake</span><span className="text-red-400">{fmt(agent.premiumAtStake)}</span></div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Avg Premium</span>
                     <span>
@@ -588,8 +589,7 @@ function TermsDefinitions() {
               <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
                 <span className="text-blue-400 font-bold">Pipeline Freshness (0–25)</span>
                 <p className="text-muted-foreground">
-                  How much of the pipeline surface is NOT stale. Total Stale = past due + new leads + (call queue × 10%) under the unified model (same as Daily Pulse / metrics glossary).
-                  Lower stale ratio = higher score.
+                  What share of the agent's visible pipeline is in the active call queue (being worked by cadence) vs the actionable backlog (past dues + untouched). More queue / less actionable = higher score.
                 </p>
               </div>
               <div className="bg-background/50 border border-border/50 rounded p-3 space-y-1">
@@ -642,7 +642,7 @@ function TermsDefinitions() {
                 { flag: "PIPELINE_HOARDER" as const, trigger: "Call queue > 2× total dials", sev: "critical" },
                 { flag: "FOLLOWUP_AVOIDER" as const, trigger: "Past due > 3× today's follow-ups", sev: "critical" },
                 { flag: "POOL_FARMER" as const, trigger: "Pool dials > regular dials AND call queue > 10", sev: "warning" },
-                { flag: "DEAD_WEIGHT_CARRIER" as const, trigger: "Revenue at risk > 2× total premium sold", sev: "critical" },
+                { flag: "DEAD_WEIGHT_CARRIER" as const, trigger: "Premium at stake > 2× total premium sold", sev: "critical" },
                 { flag: "QUEUE_BLOAT" as const, trigger: "Call queue > 150 — leads not withdrawn after 6 attempts", sev: "warning" },
                 { flag: "HIGH_PERFORMER" as const, trigger: "Health ≥ 80 AND close rate above segment aggregate", sev: "positive" },
               ]).map(f => (
@@ -660,17 +660,15 @@ function TermsDefinitions() {
             <h4 className="text-xs font-bold text-foreground mb-2">Key Metrics</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
               {[
-                ["Past Due", "Follow-up appointments that are overdue"],
+                ["Past Due", "Follow-up appointments that are past their scheduled callback time. Highest-priority CRM bucket."],
                 ["Δ d/d", "Day-over-day change in past due count (negative = improving)"],
-                ["New Leads", "Freshly assigned leads not yet worked"],
-                ["Call Queue", "Leads in queue awaiting outbound contact"],
+                ["Untouched", "Freshly assigned leads that have never been dialed (CRM `new leads`)."],
+                ["Call Queue", "Active leads cycling through the dialer cadence. Workload, not backlog."],
                 ["Today's F/U", "Follow-up appointments scheduled for today"],
                 ["Post-Sale Leads", "Leads in post-sale servicing status"],
-                ["Total Stale", "Past due + new leads + (call queue × 10%) — unified queue stale rate"],
-                ["Stale Rate", "10% of call queue counted toward stale (unified model)"],
-                ["Revenue at Risk", "Total stale × agent avg premium (else segment / marketing / $700 floor)"],
-                ["Projected Recovery", "Total stale × close rate × avg premium"],
-                ["Waste Ratio", "Revenue at risk / (premium sold + revenue at risk) × 100"],
+                ["Actionable", "Past Due + Untouched. The two buckets the agent must work right now. Replaces the old `Total Stale` composite."],
+                ["Premium @ Stake", "Actionable × agent avg premium (else segment / marketing / $700 floor). Theoretical max premium sitting on the shelf."],
+                ["Waste Ratio", "Premium at stake / (premium sold + premium at stake) × 100"],
                 ["F/U Compliance", "(1 − past due / (past due + today's follow-ups)) × 100"],
                 ["Avg Premium", "Agent 30-day rolling (≥ 3 days & 2 sales), else segment aggregate; marketing row improves tier estimate when synced"],
                 ["Close Rate", "Agent 30-day rolling (≥ 3 days & 5 leads), else segment aggregate; floor 10% when empty"],
@@ -685,12 +683,13 @@ function TermsDefinitions() {
 
           {/* Unified revenue fallbacks */}
           <div>
-            <h4 className="text-xs font-bold text-foreground mb-2">Unified model — revenue & stale</h4>
+            <h4 className="text-xs font-bold text-foreground mb-2">Unified model — revenue & actionable backlog</h4>
             <p className="text-muted-foreground mb-2">
               All agents operate under one unified capacity model. CRM <strong className="text-foreground">tier</strong> is still stored for historical rollups only.
-              Stale queue contribution is <strong className="text-foreground">10%</strong> of call queue for everyone. When an agent lacks enough 30-day history, premium and close rate fall back to
-              segment aggregates by tier label, then to <strong className="text-foreground">$700</strong> premium and <strong className="text-foreground">10%</strong> close. When{" "}
-              <span className="font-mono text-foreground/90">daily_marketing_summary</span> has a row for the selected date, marketing avg premium improves those tier estimates.
+              Pipeline backlog is the honest CRM math: <strong className="text-foreground">Actionable = Past Due + Untouched</strong>. Active call queue is shown as workload context but does not contribute,
+              because the cadence engine is working it. When an agent lacks enough 30-day history, premium and close rate fall back to segment aggregates,
+              then to <strong className="text-foreground">$700</strong> premium and <strong className="text-foreground">10%</strong> close. When{" "}
+              <span className="font-mono text-foreground/90">daily_marketing_summary</span> has a row for the selected date, marketing avg premium improves those estimates.
             </p>
           </div>
         </div>
@@ -944,16 +943,16 @@ export default function PipelineIntelligence() {
               color={getHealthColor(summary.avgHealthScore)}
             />
             <MetricCard
-              label="Total Revenue at Risk"
-              value={fmt(summary.totalRevenueAtRisk)}
-              subtext="Stale × agent avg premium"
+              label="Total Premium @ Stake"
+              value={fmt(summary.totalPremiumAtStake)}
+              subtext="(Past Due + Untouched) × avg premium"
               color="red"
             />
             <MetricCard
-              label="Projected Recovery"
-              value={fmt(summary.totalProjectedRecovery)}
-              subtext="Stale × agent close rate × premium"
-              color="green"
+              label="Total Actionable Leads"
+              value={summary.totalActionableLeads.toLocaleString()}
+              subtext="Past dues + untouched, org-wide"
+              color="amber"
             />
             <MetricCard
               label="Follow-up Compliance"
@@ -1035,32 +1034,32 @@ export default function PipelineIntelligence() {
                   )}
                 </div>
 
-                {/* Top Revenue at Risk */}
+                {/* Top Premium at Stake */}
                 <div className="space-y-2">
                   <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                    <DollarSign className="h-3 w-3" /> Top Revenue at Risk
+                    <DollarSign className="h-3 w-3" /> Top Premium @ Stake
                   </span>
                   {summary.topRiskAgents.map((a, i) => (
                     <div key={a.name} className="flex items-center justify-between text-[11px] font-mono">
                       <span className="text-muted-foreground">
                         <span className="text-foreground/40 mr-1">{i + 1}.</span> {a.name}
                       </span>
-                      <span className="text-red-400 tabular-nums">{fmt(a.revenueAtRisk)}</span>
+                      <span className="text-red-400 tabular-nums">{fmt(a.premiumAtStake)}</span>
                     </div>
                   ))}
                 </div>
 
-                {/* Top Recovery Potential */}
+                {/* Top Actionable Backlog */}
                 <div className="space-y-2">
                   <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                    <TrendingUp className="h-3 w-3" /> Top Projected Recovery
+                    <AlertTriangle className="h-3 w-3" /> Largest Actionable Backlog
                   </span>
-                  {summary.topRecoveryAgents.map((a, i) => (
+                  {[...summary.topRiskAgents].sort((a, b) => b.actionableLeads - a.actionableLeads).map((a, i) => (
                     <div key={a.name} className="flex items-center justify-between text-[11px] font-mono">
                       <span className="text-muted-foreground">
                         <span className="text-foreground/40 mr-1">{i + 1}.</span> {a.name}
                       </span>
-                      <span className="text-emerald-400 tabular-nums">{fmt(a.projectedRecovery)}</span>
+                      <span className="text-amber-400 tabular-nums">{a.actionableLeads}</span>
                     </div>
                   ))}
                 </div>
@@ -1130,13 +1129,13 @@ export default function PipelineIntelligence() {
                   <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Flags</th>
                   <SortHeader label="Past Due" sortKey="pastDue" current={sort} onToggle={toggle} />
                   <th className="px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground text-right">Δ d/d</th>
+                  <SortHeader label="Untouched" sortKey="newLeads" current={sort} onToggle={toggle} />
                   <SortHeader label="Queue" sortKey="callQueue" current={sort} onToggle={toggle} />
-                  <SortHeader label="Stale" sortKey="totalStale" current={sort} onToggle={toggle} />
+                  <SortHeader label="Actionable" sortKey="actionableLeads" current={sort} onToggle={toggle} />
                   <SortHeader label="Dials" sortKey="totalDials" current={sort} onToggle={toggle} />
                   <SortHeader label="Sales" sortKey="totalSales" current={sort} onToggle={toggle} />
                   <SortHeader label="Premium" sortKey="totalPremium" current={sort} onToggle={toggle} />
-                  <SortHeader label="Rev Risk" sortKey="revenueAtRisk" current={sort} onToggle={toggle} />
-                  <SortHeader label="Proj. Recovery" sortKey="projectedRecovery" current={sort} onToggle={toggle} />
+                  <SortHeader label="Premium @ Stake" sortKey="premiumAtStake" current={sort} onToggle={toggle} />
                   <SortHeader label="Waste" sortKey="wasteRatio" current={sort} onToggle={toggle} />
                 </tr>
               </thead>
@@ -1159,17 +1158,17 @@ export default function PipelineIntelligence() {
                   <td className="px-3 py-2" />
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.pastDue, 0)}</td>
                   <td className="px-3 py-2 text-right"><DeltaChip value={sorted.reduce((s, a) => s + (a.pastDueDelta ?? 0), 0)} /></td>
+                  <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.newLeads, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.callQueue, 0)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalStale, 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-bold">{sorted.reduce((s, a) => s + a.actionableLeads, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalDials, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{sorted.reduce((s, a) => s + a.totalSales, 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(sorted.reduce((s, a) => s + a.totalPremium, 0))}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-red-400">{fmt(sorted.reduce((s, a) => s + a.revenueAtRisk, 0))}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-emerald-400">{fmt(sorted.reduce((s, a) => s + a.projectedRecovery, 0))}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-red-400">{fmt(sorted.reduce((s, a) => s + a.premiumAtStake, 0))}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {(() => {
                       const totPrem = sorted.reduce((s, a) => s + a.totalPremium, 0);
-                      const totRisk = sorted.reduce((s, a) => s + a.revenueAtRisk, 0);
+                      const totRisk = sorted.reduce((s, a) => s + a.premiumAtStake, 0);
                       return (totPrem + totRisk) > 0 ? (totRisk / (totPrem + totRisk) * 100).toFixed(0) + "%" : "--";
                     })()}
                   </td>

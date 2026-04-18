@@ -19,11 +19,12 @@ export interface TeamAgentStats {
   ibLeads: number;
   obLeads: number;
   avgDailySales: number;
-  // Pipeline
+  // Pipeline (unified model)
   healthScore: number | null;
   pastDue: number;
-  totalStale: number;
-  revenueAtRisk: number;
+  /** Past Due + Untouched. Replaces the old `totalStale` composite. */
+  actionableLeads: number;
+  premiumAtStake: number;
   followUpCompliance: number;
 }
 
@@ -41,10 +42,10 @@ export interface TeamSummary {
   topPerformer: string;
   bottomPerformer: string;
   rank: number;
-  // Pipeline
+  // Pipeline (unified model)
   avgHealthScore: number;
-  totalRevenueAtRisk: number;
-  totalStale: number;
+  totalPremiumAtStake: number;
+  totalActionableLeads: number;
   avgFollowUpCompliance: number;
   totalPastDue: number;
   pipelineAgentCount: number;
@@ -193,16 +194,17 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
         const callQueue = pl?.callQueue ?? 0;
         const todaysFollowUps = pl?.todaysFollowUps ?? 0;
         const postSale = pl?.postSale ?? 0;
-        const totalStale = newLeadsP + callQueue + pastDue;
+        const actionableLeads = pastDue + newLeadsP;
         const fuTotal = pastDue + todaysFollowUps;
         const followUpCompliance = fuTotal > 0 ? (1 - pastDue / fuTotal) * 100 : 100;
 
-        // Simplified health score (follow-up discipline + pipeline freshness, 0–50 scaled to 0–100)
+        // Simplified health score (follow-up discipline + pipeline freshness, 0–50 scaled to 0–100).
+        // Freshness: how much of visible pipeline is in active queue vs actionable backlog.
         let healthScore: number | null = null;
         if (pl) {
           const fuDiscipline = fuTotal === 0 ? 25 : Math.max(0, 25 * (1 - pastDue / fuTotal));
-          const freshTotal = newLeadsP + callQueue + pastDue;
-          const freshness = freshTotal === 0 ? 25 : Math.max(0, 25 * (1 - totalStale / (freshTotal + postSale + todaysFollowUps + 1)));
+          const visible = actionableLeads + callQueue;
+          const freshness = visible === 0 ? 25 : Math.max(0, 25 * (1 - actionableLeads / (visible + postSale + todaysFollowUps + 1)));
           healthScore = Math.round(((fuDiscipline + freshness) / 50) * 100);
         }
 
@@ -213,7 +215,7 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
           ibSales: agg.ibSales, obSales: agg.obSales,
           ibLeads: agg.ibLeads, obLeads: agg.obLeads,
           avgDailySales: daysActive > 0 ? totalSales / daysActive : 0,
-          healthScore, pastDue, totalStale, revenueAtRisk: 0,
+          healthScore, pastDue, actionableLeads, premiumAtStake: 0,
           followUpCompliance,
         };
 
@@ -240,8 +242,8 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
         const avgHealthScore = pipelineAgentCount > 0
           ? pipelineAgents.reduce((s, a) => s + (a.healthScore ?? 0), 0) / pipelineAgentCount
           : 0;
-        const totalRevenueAtRisk = agents.reduce((s, a) => s + a.revenueAtRisk, 0);
-        const teamTotalStale = agents.reduce((s, a) => s + a.totalStale, 0);
+        const totalPremiumAtStake = agents.reduce((s, a) => s + a.premiumAtStake, 0);
+        const totalActionableLeads = agents.reduce((s, a) => s + a.actionableLeads, 0);
         const avgFollowUpCompliance = pipelineAgentCount > 0
           ? pipelineAgents.reduce((s, a) => s + a.followUpCompliance, 0) / pipelineAgentCount
           : 0;
@@ -262,8 +264,8 @@ export function useTeamPerformance(): UseTeamPerformanceReturn {
           bottomPerformer: sorted[sorted.length - 1]?.name ?? "—",
           rank: 0,
           avgHealthScore,
-          totalRevenueAtRisk,
-          totalStale: teamTotalStale,
+          totalPremiumAtStake,
+          totalActionableLeads,
           avgFollowUpCompliance,
           totalPastDue: teamTotalPastDue,
           pipelineAgentCount,

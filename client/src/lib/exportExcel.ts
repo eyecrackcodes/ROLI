@@ -191,7 +191,9 @@ const SORT_LABELS: Record<SortKey, string> = {
 export { SORT_LABELS };
 
 export interface ExportOptions {
-  tiers: Tier[];
+  /** Legacy: retained for backwards-compatibility with callers. Ignored under
+   *  the unified all-remote model — all agents export to a single sheet. */
+  tiers?: Tier[];
   sortBy?: SortKey;
   startDate: string;
   endDate: string;
@@ -229,22 +231,36 @@ const PULSE_COLS = {
   closeRate: { key: "closeRate", header: "Close Rate %", format: "decimal" as const, gradient: true },
   ibCR: { key: "ibCR", header: "IB CR%", format: "decimal" as const, gradient: true },
   obCR: { key: "obCR", header: "OB CR%", format: "decimal" as const, gradient: true },
+  // ---- Per-row totals (unified all-remote model) ----
+  totalLeads: { key: "totalLeads", header: "Total Leads", format: "number" as const, gradient: true },
+  totalSales: { key: "totalSales", header: "Total Sales", format: "number" as const, gradient: true },
+  overallCR: { key: "overallCR", header: "Overall CR%", format: "decimal" as const, gradient: true },
   mtdSales: { key: "mtdSales", header: "MTD Sales", format: "number" as const, gradient: true },
   mtdPace: { key: "mtdPace", header: "MTD Pace", format: "decimal" as const, gradient: true },
   mtdROLI: { key: "mtdROLI", header: "MTD ROLI", format: "decimal" as const, gradient: true },
 };
 
 function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
-  const poolDials = agent.pool?.callsMade ?? 0;
+  const poolCalls = agent.pool?.callsMade ?? 0;
   const longCalls = agent.pool?.longCalls ?? 0;
   const selfAssigned = agent.pool?.selfAssignedLeads ?? 0;
   const answered = agent.pool?.answeredCalls ?? 0;
+  const poolSales = agent.pool?.salesMade ?? 0;
+  const poolPremium = agent.pool?.premium ?? 0;
+
   const ibLeads = agent.ibCalls ?? 0;
   const obLeads = agent.obLeads ?? 0;
   const ibSales = agent.ibSales ?? 0;
   const obSales = agent.obSales ?? 0;
-  const totalLeads = ibLeads + obLeads;
-  const totalSales = ibSales + obSales;
+  const bonusSales = agent.bonusSales ?? 0;
+
+  // Unified all-remote totals: every conversion-eligible touch counts toward
+  // overall conversion. Pool self-assigned leads are the "leads" denominator
+  // for pool work; bonus/custom sales count in the numerator but have no
+  // separate lead denominator.
+  const totalLeads = ibLeads + obLeads + selfAssigned;
+  const totalSales = ibSales + obSales + poolSales + bonusSales;
+  const overallCR = totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0;
 
   return {
     name: agent.name,
@@ -260,26 +276,31 @@ function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
     premiumToday: agent.premiumToday,
     bonusSales: agent.bonusSales,
     bonusPremium: agent.bonusPremium,
-    poolPct: (agent.dials ?? 0) > 0 && poolDials > 0 ? Math.min((poolDials / (agent.dials ?? 1)) * 100, 100) : 0,
+    poolPct: (agent.dials ?? 0) > 0 && poolCalls > 0 ? Math.min((poolCalls / (agent.dials ?? 1)) * 100, 100) : 0,
     totalPremium: agent.totalPremium,
     mtdSales: agent.mtdSales,
     mtdPace: agent.mtdPace,
     mtdROLI: agent.mtdROLI,
     daysActive: agent.daysActive,
-    poolDials,
+    poolDials: poolCalls,
     poolTalk: Math.round(agent.pool?.talkTimeMin ?? 0),
-    totalDials: agent.dials ?? 0,
-    totalTalk: Math.round(agent.talkTimeMin ?? 0),
+    totalDials: (agent.dials ?? 0) + poolCalls,
+    totalTalk: Math.round((agent.talkTimeMin ?? 0) + (agent.pool?.talkTimeMin ?? 0)),
     poolContactRate: agent.pool?.contactRate ?? 0,
     poolAssignRate: answered > 0 ? (selfAssigned / answered) * 100 : 0,
     poolCloseRate: agent.pool?.closeRate ?? 0,
-    poolSales: agent.pool?.salesMade ?? 0,
-    poolPremium: agent.pool?.premium ?? 0,
+    poolSales,
+    poolPremium,
     poolSelfAssigned: selfAssigned,
     poolGhostAssigns: Math.max(0, selfAssigned - longCalls),
-    closeRate: totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0,
+    // Channel-scoped CRs for context
+    closeRate: ibLeads + obLeads > 0 ? ((ibSales + obSales) / (ibLeads + obLeads)) * 100 : 0,
     ibCR: ibLeads > 0 ? (ibSales / ibLeads) * 100 : 0,
     obCR: obLeads > 0 ? (obSales / obLeads) * 100 : 0,
+    // Per-row aggregates (the "totals on each row" the unified model needs)
+    totalLeads,
+    totalSales,
+    overallCR,
   };
 }
 
@@ -292,73 +313,87 @@ function sortAgents(agents: DailyPulseAgent[], sortBy: SortKey): DailyPulseAgent
   return [...agents].sort((a, b) => getSortValue(b, sortBy) - getSortValue(a, sortBy));
 }
 
+// Build the unified column list used by the Production sheet. Pool/OB
+// blocks are auto-included only when at least one agent has activity
+// in that channel — keeps the sheet narrow when not needed.
+function buildUnifiedColumns(agents: DailyPulseAgent[], isRange: boolean): string[] {
+  const hasPool = agents.some((a) => a.pool && a.pool.callsMade > 0);
+  const hasOB = agents.some((a) => (a.obLeads ?? 0) > 0 || (a.obSales ?? 0) > 0);
+  const hasBonus = agents.some((a) => (a.bonusSales ?? 0) > 0 || (a.bonusPremium ?? 0) > 0);
+
+  const cols: string[] = ["rank", "name"];
+  if (isRange) cols.push("daysActive");
+
+  // Inbound block (always present in unified model)
+  cols.push("ibCalls", "ibSales", "ibCR");
+
+  // Outbound block (legacy / opportunistic)
+  if (hasOB) cols.push("obLeads", "obSales", "obCR");
+
+  // Pool block
+  if (hasPool) {
+    cols.push(
+      "poolDials",
+      "poolSelfAssigned",
+      "poolSales",
+      "poolPremium",
+      "poolCloseRate",
+      "poolContactRate",
+      "poolAssignRate",
+    );
+  }
+
+  // Bonus
+  if (hasBonus) cols.push("bonusSales", "bonusPremium");
+
+  // Effort
+  cols.push("dials", "talkTimeMin");
+  if (hasPool) cols.push("totalDials", "totalTalk");
+
+  // Per-row totals + premium (the headline aggregates)
+  cols.push("totalLeads", "totalSales", "overallCR", "totalPremium");
+
+  // MTD context
+  cols.push("mtdSales", "mtdROLI");
+
+  return cols;
+}
+
+/**
+ * Export Daily Pulse — unified all-remote model.
+ *
+ * Signature accepts up to three agent arrays for backwards compatibility
+ * (callers historically split by tier). Internally they are merged into a
+ * single "Production" sheet. Each row has Total Leads / Total Sales /
+ * Overall CR% so per-agent conversion is visible without aggregation.
+ */
 export async function exportDailyPulse(
   t1: DailyPulseAgent[],
   t2: DailyPulseAgent[],
   t3: DailyPulseAgent[],
   opts: ExportOptions,
 ): Promise<void> {
-  const { tiers, sortBy, startDate, endDate } = opts;
+  const { sortBy, startDate, endDate } = opts;
   const isRange = startDate !== endDate;
   const dateLabel = isRange ? `${startDate} to ${endDate}` : startDate;
   const sortLabel = SORT_LABELS[sortBy ?? "totalPremium"];
-  const configs: ExportConfig[] = [];
 
-  const filterCols = (keys: string[]) =>
-    keys.map((k) => PULSE_COLS[k as keyof typeof PULSE_COLS]).filter(Boolean);
-
-  if (tiers.includes("T1") && t1.length > 0) {
-    const sorted = sortAgents(t1, sortBy ?? "totalPremium");
-    const cols = ["rank", "name", "site", ...(isRange ? ["daysActive"] : []),
-      "ibCalls", "ibSales", "ibCR", "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium", "mtdSales", "mtdROLI"];
-    configs.push({
-      title: "Tier 1 — Inbound",
-      subtitle: `Sorted by ${sortLabel} DESC`,
-      date: dateLabel,
-      tier: "T1",
-      columns: filterCols(cols),
-      rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
-    });
+  const allAgents = [...t1, ...t2, ...t3];
+  if (allAgents.length === 0) {
+    throw new Error("No agents to export.");
   }
 
-  if (tiers.includes("T2") && t2.length > 0) {
-    const sorted = sortAgents(t2, sortBy ?? "totalPremium");
-    const hasPool = t2.some(a => a.pool && a.pool.callsMade > 0);
-    const cols = ["rank", "name", "site", ...(isRange ? ["daysActive"] : []),
-      "ibCalls", "ibSales", "ibCR", "obLeads", "obSales", "obCR",
-      ...(hasPool
-        ? ["dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk"]
-        : ["dials", "talkTimeMin"]),
-      "closeRate", "premiumToday", "bonusSales", "bonusPremium", "totalPremium", "mtdSales", "mtdROLI"];
-    configs.push({
-      title: "Tier 2 — Hybrid",
-      subtitle: `Sorted by ${sortLabel} DESC${hasPool ? " · Includes Leads Pool" : ""}`,
-      date: dateLabel,
-      tier: "T2",
-      columns: filterCols(cols),
-      rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
-    });
-  }
+  const sorted = sortAgents(allAgents, sortBy ?? "totalPremium");
+  const colKeys = buildUnifiedColumns(sorted, isRange);
+  const columns = colKeys.map((k) => PULSE_COLS[k as keyof typeof PULSE_COLS]).filter(Boolean);
 
-  if (tiers.includes("T3") && t3.length > 0) {
-    const sorted = sortAgents(t3, sortBy ?? "totalTalk");
-    const hasPool = t3.some(a => a.pool && a.pool.callsMade > 0);
-    const cols = ["rank", "name", "site", ...(isRange ? ["daysActive"] : []),
-      "obLeads", "obSales", "obCR",
-      ...(hasPool
-        ? ["dials", "poolDials", "poolPct", "totalDials", "talkTimeMin", "poolTalk", "totalTalk",
-           "poolContactRate", "poolAssignRate", "poolCloseRate", "poolSales", "poolPremium", "poolSelfAssigned", "poolGhostAssigns"]
-        : ["dials", "talkTimeMin"]),
-      "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium", "mtdSales", "mtdPace"];
-    configs.push({
-      title: "Tier 3 — Outbound",
-      subtitle: `Sorted by ${sortLabel} DESC${hasPool ? " · Includes Leads Pool" : ""}`,
-      date: dateLabel,
-      tier: "T3",
-      columns: filterCols(cols),
-      rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
-    });
-  }
+  const configs: ExportConfig[] = [{
+    title: "Production",
+    subtitle: `${sorted.length} agents · Sorted by ${sortLabel} DESC`,
+    date: dateLabel,
+    columns,
+    rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
+  }];
 
   const workbook = await buildWorkbook(configs);
   const buffer = await workbook.xlsx.writeBuffer();
@@ -366,7 +401,7 @@ export async function exportDailyPulse(
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = isRange ? `DSB-Daily-Pulse-${startDate}-to-${endDate}.xlsx` : `DSB-Daily-Pulse-${startDate}.xlsx`;
+  a.download = isRange ? `DSB-Production-${startDate}-to-${endDate}.xlsx` : `DSB-Production-${startDate}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -538,67 +573,30 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
     if (a.terminated_date && startDate < a.terminated_date) agentMap.set(a.name, a);
   }
 
-  // Daily breakdown: one sheet per date
+  // Daily breakdown: one unified sheet per date (no tier split).
   if (opts.dailyBreakdown && isRange) {
-    const dates = [...new Set(typedDaily.map(r => r.scrape_date))].sort();
+    const dates = [...new Set(typedDaily.map((r) => r.scrape_date))].sort();
     const configs: ExportConfig[] = [];
-    const singleTier = opts.tiers.length === 1;
+    const sortLabel = SORT_LABELS[opts.sortBy ?? "totalPremium"];
 
     for (const date of dates) {
-      const dayDaily = typedDaily.filter(r => r.scrape_date === date);
-      const dayPool = typedPool.filter(r => r.scrape_date === date);
+      const dayDaily = typedDaily.filter((r) => r.scrape_date === date);
+      const dayPool = typedPool.filter((r) => r.scrape_date === date);
       const { t1, t2, t3 } = buildPulseFromRows(dayDaily, dayPool, agentMap);
-      const mmdd = date.slice(5);
-      const sortLabel = SORT_LABELS[opts.sortBy ?? "totalPremium"];
+      const day = [...t1, ...t2, ...t3];
+      if (day.length === 0) continue;
 
-      const filterCols = (keys: string[]) =>
-        keys.map((k) => PULSE_COLS[k as keyof typeof PULSE_COLS]).filter(Boolean);
+      const sorted = sortAgents(day, opts.sortBy ?? "totalPremium");
+      const colKeys = buildUnifiedColumns(sorted, false);
+      const columns = colKeys.map((k) => PULSE_COLS[k as keyof typeof PULSE_COLS]).filter(Boolean);
 
-      if (opts.tiers.includes("T3") && t3.length > 0) {
-        const sorted = sortAgents(t3, opts.sortBy ?? "totalTalk");
-        const hasPool = t3.some(a => a.pool && a.pool.callsMade > 0);
-        const cols = ["rank", "name", "site", "obLeads", "obSales", "obCR",
-          ...(hasPool
-            ? ["dials", "poolDials", "poolPct", "totalDials", "talkTimeMin", "poolTalk", "totalTalk",
-               "poolContactRate", "poolAssignRate", "poolCloseRate", "poolSales", "poolPremium", "poolSelfAssigned"]
-            : ["dials", "talkTimeMin"]),
-          "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium"];
-        configs.push({
-          title: `${singleTier ? "" : "T3 "}${mmdd}`,
-          subtitle: `Tier 3 — Outbound · ${date} · Sorted by ${sortLabel} DESC`,
-          date, tier: "T3",
-          columns: filterCols(cols),
-          rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
-        });
-      }
-
-      if (opts.tiers.includes("T2") && t2.length > 0) {
-        const sorted = sortAgents(t2, opts.sortBy ?? "totalPremium");
-        const hasPool = t2.some(a => a.pool && a.pool.callsMade > 0);
-        const cols = ["rank", "name", "site", "ibCalls", "ibSales", "ibCR", "obLeads", "obSales", "obCR",
-          ...(hasPool ? ["dials", "poolDials", "totalDials", "talkTimeMin", "poolTalk", "totalTalk"] : ["dials", "talkTimeMin"]),
-          "closeRate", "premiumToday", "bonusSales", "bonusPremium", "totalPremium"];
-        configs.push({
-          title: `${singleTier ? "" : "T2 "}${mmdd}`,
-          subtitle: `Tier 2 — Hybrid · ${date} · Sorted by ${sortLabel} DESC`,
-          date, tier: "T2",
-          columns: filterCols(cols),
-          rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
-        });
-      }
-
-      if (opts.tiers.includes("T1") && t1.length > 0) {
-        const sorted = sortAgents(t1, opts.sortBy ?? "totalPremium");
-        const cols = ["rank", "name", "site", "ibCalls", "ibSales", "ibCR",
-          "salesToday", "premiumToday", "bonusSales", "bonusPremium", "closeRate", "totalPremium"];
-        configs.push({
-          title: `${singleTier ? "" : "T1 "}${mmdd}`,
-          subtitle: `Tier 1 — Inbound · ${date} · Sorted by ${sortLabel} DESC`,
-          date, tier: "T1",
-          columns: filterCols(cols),
-          rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
-        });
-      }
+      configs.push({
+        title: date.slice(5),
+        subtitle: `Production · ${date} · ${sorted.length} agents · Sorted by ${sortLabel} DESC`,
+        date,
+        columns,
+        rows: sorted.map((a, i) => ({ rank: i + 1, ...flattenWithPool(a) })),
+      });
     }
 
     const workbook = await buildWorkbook(configs);
@@ -607,7 +605,7 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `DSB-Daily-Snapshots-${startDate}-to-${endDate}.xlsx`;
+    a.download = `DSB-Production-Daily-${startDate}-to-${endDate}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
     return;
@@ -725,10 +723,10 @@ const PIPELINE_COLS = [
   { key: "workRate", header: "Work Rate", width: 12, format: "decimal" as const },
   { key: "conversionEfficiency", header: "Conversion", width: 12, format: "decimal" as const },
   { key: "pastDue", header: "Past Due", width: 10, format: "number" as const },
-  { key: "newLeads", header: "New Leads", width: 10, format: "number" as const },
+  { key: "newLeads", header: "Untouched", width: 10, format: "number" as const },
+  { key: "actionableLeads", header: "Actionable", width: 11, format: "number" as const },
   { key: "callQueue", header: "Call Queue", width: 10, format: "number" as const },
   { key: "todaysFollowUps", header: "Today F/U", width: 10, format: "number" as const },
-  { key: "totalStale", header: "Stale", width: 8, format: "number" as const },
   { key: "postSaleLeads", header: "Post-Sale", width: 10, format: "number" as const },
   { key: "totalDials", header: "CRM Dials", width: 10, format: "number" as const },
   { key: "poolDials", header: "Pool Dials", width: 10, format: "number" as const },
@@ -739,8 +737,7 @@ const PIPELINE_COLS = [
   { key: "premiumSource", header: "Prem Source", width: 12, format: "text" as const },
   { key: "closeRatePct", header: "Close Rate %", width: 12, format: "decimal" as const },
   { key: "closeRateSource", header: "CR Source", width: 12, format: "text" as const },
-  { key: "revenueAtRisk", header: "Rev at Risk", width: 12, format: "currency" as const, gradient: true },
-  { key: "projectedRecovery", header: "Proj. Recovery $", width: 14, format: "currency" as const, gradient: true },
+  { key: "premiumAtStake", header: "Premium @ Stake", width: 14, format: "currency" as const, gradient: true },
   { key: "wasteRatio", header: "Waste %", width: 10, format: "decimal" as const },
   { key: "followUpCompliance", header: "F/U Compl %", width: 12, format: "decimal" as const },
   { key: "pastDueDelta", header: "PD Delta d/d", width: 12, format: "number" as const },
@@ -760,9 +757,9 @@ function flattenPipelineAgent(agent: PipelineAgent): ExportableRow {
     conversionEfficiency: agent.conversionEfficiency,
     pastDue: agent.pastDue,
     newLeads: agent.newLeads,
+    actionableLeads: agent.actionableLeads,
     callQueue: agent.callQueue,
     todaysFollowUps: agent.todaysFollowUps,
-    totalStale: agent.totalStale,
     postSaleLeads: agent.postSaleLeads,
     totalDials: agent.totalDials,
     poolDials: agent.poolDials,
@@ -773,8 +770,7 @@ function flattenPipelineAgent(agent: PipelineAgent): ExportableRow {
     premiumSource: agent.premiumSource,
     closeRatePct: agent.closeRate * 100,
     closeRateSource: agent.closeRateSource,
-    revenueAtRisk: agent.revenueAtRisk,
-    projectedRecovery: agent.projectedRecovery,
+    premiumAtStake: agent.premiumAtStake,
     wasteRatio: agent.wasteRatio,
     followUpCompliance: agent.followUpCompliance,
     pastDueDelta: agent.pastDueDelta ?? "",
@@ -788,13 +784,13 @@ export async function exportPipelineIntelligence(
   const sorted = [...agents].sort((a, b) => b.healthScore - a.healthScore);
   const rows = sorted.map(flattenPipelineAgent);
 
-  const totalRisk = agents.reduce((s, a) => s + a.revenueAtRisk, 0);
-  const totalRecovery = agents.reduce((s, a) => s + a.projectedRecovery, 0);
+  const totalStake = agents.reduce((s, a) => s + a.premiumAtStake, 0);
+  const totalActionable = agents.reduce((s, a) => s + a.actionableLeads, 0);
   const avgHealth = agents.length > 0 ? Math.round(agents.reduce((s, a) => s + a.healthScore, 0) / agents.length) : 0;
 
   const configs: ExportConfig[] = [{
     title: "Pipeline Intelligence Report",
-    subtitle: `${date} | ${agents.length} agents | Avg Health: ${avgHealth} | Rev at Risk: $${Math.round(totalRisk).toLocaleString()} | Proj Recovery: $${Math.round(totalRecovery).toLocaleString()}`,
+    subtitle: `${date} | ${agents.length} agents | Avg Health: ${avgHealth} | Actionable: ${totalActionable} | Premium @ Stake: $${Math.round(totalStake).toLocaleString()}`,
     date,
     columns: PIPELINE_COLS,
     rows,

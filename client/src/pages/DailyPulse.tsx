@@ -24,7 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { Download, Calendar, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ToggleLeft, ToggleRight, CalendarRange, Zap, Eye, Users } from "lucide-react";
 import { toast } from "sonner";
 import { exportDailyPulse, fetchAndExportPulse, SORT_LABELS, type SortKey, type ExportOptions } from "@/lib/exportExcel";
-import type { Tier, DailyPulseAgent } from "@/lib/types";
+import type { DailyPulseAgent } from "@/lib/types";
 
 type SortDir = "asc" | "desc";
 interface SortState { key: string; dir: SortDir }
@@ -356,16 +356,11 @@ function ExportDialog({
   availableDates: string[];
   currentDate: string;
 }) {
-  const [tiers, setTiers] = useState<Tier[]>(["T1", "T2", "T3"]);
   const [sortBy, setSortBy] = useState<SortKey>("totalPremium");
   const [startDate, setStartDate] = useState(currentDate);
   const [endDate, setEndDate] = useState(currentDate);
   const [dailyBreakdown, setDailyBreakdown] = useState(false);
   const isRange = startDate !== endDate;
-
-  const toggleTier = (tier: Tier) => {
-    setTiers((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -405,30 +400,6 @@ function ExportDialog({
           </div>
 
           <div>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground block mb-1.5">Tiers</span>
-            <div className="flex gap-2">
-              {(["T1", "T2", "T3"] as Tier[]).map((tier) => (
-                <Button
-                  key={tier}
-                  variant={tiers.includes(tier) ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => toggleTier(tier)}
-                  className={cn(
-                    "font-mono text-xs",
-                    tiers.includes(tier) && (
-                      tier === "T1" ? "bg-blue-600 hover:bg-blue-700" :
-                      tier === "T2" ? "bg-emerald-600 hover:bg-emerald-700" :
-                      "bg-amber-600 hover:bg-amber-700"
-                    )
-                  )}
-                >
-                  {tier} — {tier === "T1" ? "Inbound" : tier === "T2" ? "Hybrid" : "Outbound"}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div>
             <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground block mb-1.5">Sort By</span>
             <select
               value={sortBy}
@@ -452,8 +423,8 @@ function ExportDialog({
           )}
 
           <div className="bg-card/50 border border-border rounded-md p-2.5 text-[10px] font-mono text-muted-foreground space-y-0.5">
-            <p>Each tier exports to its own sheet with conversion metrics (Close Rate, IB CR%, OB CR%).</p>
-            <p>Pool activity columns auto-included when pool data exists.</p>
+            <p>Single Production sheet with per-row Total Leads, Total Sales, and Overall CR%.</p>
+            <p>Pool, OB, and Bonus columns auto-included when activity exists.</p>
           </div>
         </div>
         <DialogFooter>
@@ -461,8 +432,8 @@ function ExportDialog({
             CANCEL
           </Button>
           <Button
-            onClick={() => { onExport({ tiers, sortBy, startDate, endDate, dailyBreakdown: isRange && dailyBreakdown }); onOpenChange(false); }}
-            disabled={tiers.length === 0 || !startDate || !endDate}
+            onClick={() => { onExport({ sortBy, startDate, endDate, dailyBreakdown: isRange && dailyBreakdown }); onOpenChange(false); }}
+            disabled={!startDate || !endDate}
             className="font-mono text-sm bg-emerald-600 hover:bg-emerald-700 gap-1.5"
           >
             <Download className="h-3.5 w-3.5" />

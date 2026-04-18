@@ -126,6 +126,8 @@ n8n/*-LIVE.json
 
 # Optional Apify + CRM for generate-dsb-daily-LIVE.mjs (see dsb-daily-n8n-secrets.example.json)
 n8n/dsb-daily-n8n-secrets.json
+n8n/snippets/out/
+n8n/dsb-sales-late-sweep-LIVE.json
 
 # n8n fetch snippet with local Supabase / Marketing keys (tracked template: hourly-fetch-with-marketing.example.js)
 n8n/snippets/hourly-fetch-with-marketing.js

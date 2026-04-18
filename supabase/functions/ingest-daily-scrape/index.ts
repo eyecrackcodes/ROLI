@@ -24,7 +24,25 @@ interface AgentPayload {
 interface IngestPayload {
   scrape_date: string;
   agents: AgentPayload[];
+  /**
+   * Mode controls how rows are written:
+   *   - "full" (default): full upsert of all columns + intraday snapshot
+   *   - "sales_only": only updates ib_sales/ob_sales/custom_sales + premiums.
+   *     Preserves existing dials, talk_time, leads_delivered. Does NOT write
+   *     to intraday_snapshots. Used by the late-sweep workflow to fix sales
+   *     entered after the daily scrape ran.
+   */
+  mode?: "full" | "sales_only";
 }
+
+const SALE_COLUMNS = [
+  "ib_sales",
+  "ob_sales",
+  "custom_sales",
+  "ib_premium",
+  "ob_premium",
+  "custom_premium",
+] as const;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -100,32 +118,82 @@ Deno.serve(async (req) => {
       };
     });
 
-    const intradayRecords = dailyRecords.map((r) => ({
-      ...r,
-      scrape_hour: cstHour,
-    }));
-
-    const { error: dailyError } = await supabase
-      .from("daily_scrape_data")
-      .upsert(dailyRecords, { onConflict: "scrape_date,agent_name" });
-
-    const { error: intradayError } = await supabase
-      .from("intraday_snapshots")
-      .upsert(intradayRecords, { onConflict: "scrape_date,scrape_hour,agent_name" });
-
+    const mode = payload.mode === "sales_only" ? "sales_only" : "full";
     const errors: Array<{ source: string; error: string }> = [];
-    if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
-    if (intradayError) errors.push({ source: "intraday_snapshots", error: intradayError.message });
+    let updated = 0;
+    let inserted = 0;
+    let intradayCount = 0;
+
+    if (mode === "sales_only") {
+      // Fetch existing rows for this date+agent set, merge sale columns, upsert.
+      // Preserves dials/talk/leads from the original daily scrape.
+      const names = dailyRecords.map((r) => r.agent_name);
+      const { data: existing, error: fetchErr } = await supabase
+        .from("daily_scrape_data")
+        .select("*")
+        .eq("scrape_date", payload.scrape_date)
+        .in("agent_name", names);
+      if (fetchErr) errors.push({ source: "daily_scrape_data.select", error: fetchErr.message });
+
+      const existingMap = new Map<string, Record<string, unknown>>();
+      for (const row of (existing ?? []) as Array<Record<string, unknown>>) {
+        existingMap.set(row.agent_name as string, row);
+      }
+
+      const merged = dailyRecords.map((r) => {
+        const prev = existingMap.get(r.agent_name);
+        if (prev) {
+          updated++;
+          // Keep all existing columns, replace sale columns only.
+          const out: Record<string, unknown> = { ...prev };
+          for (const c of SALE_COLUMNS) out[c] = r[c as keyof typeof r];
+          // Defensive: ensure date/agent/tier are exactly the keys
+          out.scrape_date = r.scrape_date;
+          out.agent_name = r.agent_name;
+          if (!out.tier) out.tier = r.tier;
+          // Drop server-managed columns that may not be writable
+          delete (out as { id?: unknown }).id;
+          delete (out as { created_at?: unknown }).created_at;
+          delete (out as { updated_at?: unknown }).updated_at;
+          return out;
+        } else {
+          inserted++;
+          return r;
+        }
+      });
+
+      const { error: dailyError } = await supabase
+        .from("daily_scrape_data")
+        .upsert(merged, { onConflict: "scrape_date,agent_name" });
+      if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
+    } else {
+      // Full mode: original behavior. Upsert + intraday snapshot.
+      const intradayRecords = dailyRecords.map((r) => ({ ...r, scrape_hour: cstHour }));
+
+      const { error: dailyError } = await supabase
+        .from("daily_scrape_data")
+        .upsert(dailyRecords, { onConflict: "scrape_date,agent_name" });
+      if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
+
+      const { error: intradayError } = await supabase
+        .from("intraday_snapshots")
+        .upsert(intradayRecords, { onConflict: "scrape_date,scrape_hour,agent_name" });
+      if (intradayError) errors.push({ source: "intraday_snapshots", error: intradayError.message });
+      else intradayCount = validAgents.length;
+    }
 
     return new Response(
       JSON.stringify({
         success: errors.length === 0,
+        mode,
         scrape_date: payload.scrape_date,
         scrape_hour: cstHour,
         total_agents: payload.agents.length,
         upserted: validAgents.length,
+        sales_only_updated: mode === "sales_only" ? updated : undefined,
+        sales_only_inserted: mode === "sales_only" ? inserted : undefined,
         alias_resolved: aliasResolved,
-        intraday_snapshots: intradayError ? 0 : validAgents.length,
+        intraday_snapshots: intradayCount,
         errors,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

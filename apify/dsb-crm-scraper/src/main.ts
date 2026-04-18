@@ -37,6 +37,15 @@ interface ActorInput {
    * defaults and `saleMadeOutboundTypeBySite` for that site.
    */
   saleMadePassesBySite?: Record<string, SaleMadePassInput[]>;
+  /**
+   * Sales-only backfill mode. When set, the actor SKIPS Lead Tracker, Calls Report,
+   * Pool Report, Pool Inventory, and Agent Performance, and instead only re-scrapes
+   * the Sale Made Report for each ISO date provided. Each date produces a typed
+   * dataset item `{ _type: "sale_made_backfill", scrape_date, agents }` that n8n
+   * forwards to ingest-daily-scrape with `mode: "sales_only"` so dials/talk/leads
+   * are preserved.
+   */
+  salesBackfillDates?: string[];
 }
 
 type TierLabel = "T1" | "T2" | "T3";
@@ -760,8 +769,10 @@ try {
 
   const scrapeDate = input.scrapeDate || todayISO();
   const loginUrl = input.loginUrl || "https://crm.digitalseniorbenefits.com/login";
+  const backfillDates = (input.salesBackfillDates ?? []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  const isBackfillMode = backfillDates.length > 0;
 
-  log.info(`Starting DSB CRM scrape for date: ${scrapeDate}`);
+  log.info(`Starting DSB CRM scrape for date: ${scrapeDate}${isBackfillMode ? ` | SALES BACKFILL MODE (${backfillDates.length} dates)` : ""}`);
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true });
@@ -775,6 +786,36 @@ try {
     if (t === "T1" || t === "T2" || t === "T3") return t;
     return "T2";
   };
+
+  // ---- SALES BACKFILL MODE: only re-scrape Sale Made for past dates ----
+  if (isBackfillMode) {
+    const dataset = await Actor.openDataset();
+    log.info(`Backfill mode: skipping all reports except Sale Made for ${backfillDates.length} dates`);
+
+    for (const date of backfillDates) {
+      log.info(`\n========== SALES BACKFILL ${date} ==========`);
+      const dateMap = new Map<string, AgentRecord>();
+      for (const { site, agencyId } of AGENCIES) {
+        try {
+          await scrapeSaleMade(page, agencyId, date, site, dateMap, tierLookup, resolveSaleMadePasses(site, input));
+        } catch (err) {
+          log.error(`Sale Made backfill [${site}] [${date}] failed: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+      const dateAgents = Array.from(dateMap.values());
+      const totalSales = dateAgents.reduce((s, a) => s + a.ib_sales + a.ob_sales + a.custom_sales, 0);
+      const totalPremium = dateAgents.reduce((s, a) => s + a.ib_premium + a.ob_premium + a.custom_premium, 0);
+      log.info(`  ${date}: ${dateAgents.length} agents | ${totalSales} sales | $${totalPremium.toFixed(0)} premium`);
+      await dataset.pushData({
+        _type: "sale_made_backfill",
+        scrape_date: date,
+        agents: dateAgents,
+      });
+    }
+
+    await browser.close();
+    log.info(`\nBackfill complete: ${backfillDates.length} dates scraped.`);
+  } else {
 
   const agentMap = new Map<string, AgentRecord>();
   let saleTypeOptions: Array<{ value: string; label: string }> = [];
@@ -928,8 +969,10 @@ try {
     });
   }
 
-  const { count } = await dataset.getInfo() ?? { count: 0 };
-  log.info(`Dataset verified: ${count} items stored (${agents.length} agents + ${poolAgents.length > 0 ? 1 : 0} pool + ${perfAgents.length > 0 ? 1 : 0} perf + ${reconcileResults.length} reconciliation). Actor complete.`);
+  const datasetInfo = await dataset.getInfo();
+  const itemCount = datasetInfo && "itemCount" in datasetInfo ? (datasetInfo as { itemCount: number }).itemCount : 0;
+  log.info(`Dataset verified: ${itemCount} items stored (${agents.length} agents + ${poolAgents.length > 0 ? 1 : 0} pool + ${perfAgents.length > 0 ? 1 : 0} perf + ${reconcileResults.length} reconciliation). Actor complete.`);
+  } // end of else (non-backfill mode)
 } catch (err) {
   log.error(`Actor failed: ${err instanceof Error ? err.message : err}`);
   throw err;

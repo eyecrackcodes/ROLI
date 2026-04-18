@@ -42,11 +42,16 @@ const CRM_BASE = "https://crm.digitalseniorbenefits.com";
 const DASHBOARD_URL = (agentId: string) =>
   `${CRM_BASE}/agent-advanced-dashboard-stats/?agent_id=${agentId}`;
 
-// Unified model: single stale-queue rate and avg premium for all agents
-const STALE_QUEUE_RATE = 0.10;
+// Unified model. The "stale lead" composite was retired in favour of CRM-native
+// buckets the agent actually sees: Past Dues + Untouched (new leads) = Actionable.
+// Active call queue is workload, not backlog — the cadence engine works it.
+//
+// `total_stale` and `revenue_at_risk` columns are kept in the DB for backwards
+// compatibility but now hold the new honest math:
+//   total_stale     = past_due + new_leads           (Actionable Leads)
+//   revenue_at_risk = Actionable × AVG_PREMIUM       (Premium @ Stake — option B)
+//   projected_recovery = 0 (deprecated; computed at query time when needed)
 const AVG_PREMIUM = 700;
-
-const RECYCLED_CONVERSION_RATE = 0.12;
 
 function todayISO(): string {
   const central = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -224,10 +229,9 @@ async function scrapeDashboard(
   log.info(`  → ${agentName}: PastDue=${pastDue} New=${newLeads} Queue=${callQueue} F/U=${todaysFollowUps} PostSale=${postSale}`);
 
   const psl = pslOverride ?? AVG_PREMIUM;
-  const staleCallQueue = Math.round(callQueue * STALE_QUEUE_RATE);
-  const totalStale = pastDue + newLeads + staleCallQueue;
-  const revenueAtRisk = totalStale * psl;
-  const projectedRecovery = Math.round(totalStale * RECYCLED_CONVERSION_RATE * psl);
+  // Simplified: actionable backlog the agent must clear NOW.
+  const actionableLeads = pastDue + newLeads;
+  const premiumAtStake = Math.round(actionableLeads * psl);
 
   return {
     agent_name: agentName,
@@ -238,9 +242,10 @@ async function scrapeDashboard(
     call_queue_count: callQueue,
     todays_follow_ups: todaysFollowUps,
     post_sale_leads: postSale,
-    total_stale: totalStale,
-    revenue_at_risk: revenueAtRisk,
-    projected_recovery: projectedRecovery,
+    // Legacy column names — same physical fields, new honest math.
+    total_stale: actionableLeads,
+    revenue_at_risk: premiumAtStake,
+    projected_recovery: 0,
   };
 }
 
@@ -314,7 +319,7 @@ try {
 
       // Log high-risk agents immediately
       if (record.total_stale > 20) {
-        log.warning(`HIGH RISK: ${agent.name} has ${record.total_stale} stale leads ($${record.revenue_at_risk} at risk)`);
+        log.warning(`HIGH BACKLOG: ${agent.name} has ${record.total_stale} actionable leads ($${record.revenue_at_risk} premium @ stake)`);
       }
     } catch (err) {
       log.error(`Failed to scrape ${agent.name}: ${err instanceof Error ? err.message : err}`);
@@ -328,23 +333,21 @@ try {
 
   await browser.close();
 
-  // Summary logging
-  const totalStale = results.reduce((s, r) => s + r.total_stale, 0);
-  const totalRevAtRisk = results.reduce((s, r) => s + r.revenue_at_risk, 0);
-  const totalRecovery = results.reduce((s, r) => s + r.projected_recovery, 0);
+  // Summary logging — total_stale column now holds Actionable Leads (Past Due + Untouched).
+  const totalActionable = results.reduce((s, r) => s + r.total_stale, 0);
+  const totalPremiumAtStake = results.reduce((s, r) => s + r.revenue_at_risk, 0);
 
   log.info(`\n========== PIPELINE COMPLIANCE SUMMARY ==========`);
   log.info(`Agents scraped: ${results.length}`);
-  log.info(`Total stale leads: ${totalStale}`);
-  log.info(`Total revenue at risk: $${totalRevAtRisk.toLocaleString()}`);
-  log.info(`Projected monthly recovery: $${totalRecovery.toLocaleString()}`);
+  log.info(`Total actionable leads (past due + untouched): ${totalActionable}`);
+  log.info(`Total premium @ stake: $${totalPremiumAtStake.toLocaleString()}`);
 
   for (const tier of ["T1", "T2", "T3"]) {
     const tierResults = results.filter((r) => r.tier === tier);
     if (tierResults.length > 0) {
-      const tierStale = tierResults.reduce((s, r) => s + r.total_stale, 0);
-      const tierRisk = tierResults.reduce((s, r) => s + r.revenue_at_risk, 0);
-      log.info(`  ${tier}: ${tierResults.length} agents, ${tierStale} stale, $${tierRisk.toLocaleString()} at risk`);
+      const tierActionable = tierResults.reduce((s, r) => s + r.total_stale, 0);
+      const tierStake = tierResults.reduce((s, r) => s + r.revenue_at_risk, 0);
+      log.info(`  ${tier}: ${tierResults.length} agents, ${tierActionable} actionable, $${tierStake.toLocaleString()} @ stake`);
     }
   }
 
@@ -357,9 +360,8 @@ try {
     crmDropdown: dropdownOptions,
     summary: {
       total_agents: results.length,
-      total_stale_leads: totalStale,
-      total_revenue_at_risk: totalRevAtRisk,
-      total_projected_recovery: totalRecovery,
+      total_actionable_leads: totalActionable,
+      total_premium_at_stake: totalPremiumAtStake,
       unmatched_agents: targetAgents.length - matchedAgents.length,
     },
   });

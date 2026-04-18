@@ -17,13 +17,13 @@ export type BehavioralFlag =
   | "HIGH_PERFORMER";
 
 export const FLAG_META: Record<BehavioralFlag, { label: string; description: string; severity: "critical" | "warning" | "positive" }> = {
-  CHERRY_PICKER:      { label: "Cherry Picker",       description: "Only works fresh leads, abandons older ones",     severity: "warning" },
-  PIPELINE_HOARDER:   { label: "Pipeline Hoarder",    description: "Sitting on leads without working them",           severity: "critical" },
-  FOLLOWUP_AVOIDER:   { label: "Follow-up Avoider",   description: "Letting follow-ups rot",                          severity: "critical" },
-  POOL_FARMER:        { label: "Pool Farmer",          description: "Avoiding assigned pipeline for pool",             severity: "warning" },
-  DEAD_WEIGHT_CARRIER:{ label: "Dead Weight Carrier",  description: "Carrying massive unrealized revenue",             severity: "critical" },
+  CHERRY_PICKER:      { label: "Cherry Picker",       description: "Only works fresh leads, ignores past dues",        severity: "warning" },
+  PIPELINE_HOARDER:   { label: "Pipeline Hoarder",    description: "Huge call queue relative to dials made",           severity: "critical" },
+  FOLLOWUP_AVOIDER:   { label: "Follow-up Avoider",   description: "Past dues piling up vs today's appointments",      severity: "critical" },
+  POOL_FARMER:        { label: "Pool Farmer",          description: "Working pool while own pipeline is full",          severity: "warning" },
+  DEAD_WEIGHT_CARRIER:{ label: "Dead Weight Carrier",  description: "Premium at stake far exceeds premium written",     severity: "critical" },
   QUEUE_BLOAT:        { label: "Queue Bloat",          description: "Queue exceeds 150 — leads not being withdrawn after 6 attempts", severity: "warning" },
-  HIGH_PERFORMER:     { label: "High Performer",       description: "Clean pipeline AND converting above segment average", severity: "positive" },
+  HIGH_PERFORMER:     { label: "High Performer",       description: "Clean pipeline AND converting above team average", severity: "positive" },
 };
 
 export interface PipelineComplianceRow {
@@ -36,6 +36,9 @@ export interface PipelineComplianceRow {
   call_queue_count: number | null;
   todays_follow_ups: number | null;
   post_sale_leads: number | null;
+  // Legacy DB columns from the old "stale" model. Kept on the row type so
+  // existing readers don't break, but no longer used in computation —
+  // pipelineIntelligence now derives everything from the raw CRM buckets above.
   total_stale: number | null;
   revenue_at_risk: number | null;
   projected_recovery: number | null;
@@ -64,14 +67,28 @@ export interface PipelineAgent {
   poolSales: number;
   poolAnswered: number;
 
-  // Pipeline compliance (pipeline_compliance_daily)
-  pastDue: number;
-  newLeads: number;
-  callQueue: number;
+  // Pipeline compliance — raw CRM buckets the agent actually sees.
+  pastDue: number;          // missed-appointment count from #past-due-follow-ups
+  newLeads: number;         // untouched leads from #user-new-leads
+  callQueue: number;        // active dialer queue from #call-queue-count-field
   todaysFollowUps: number;
   postSaleLeads: number;
+
+  // Simplified model (replaces the old "stale" composite):
+  //   actionableLeads = pastDue + newLeads     ← things the agent must act on now
+  //   premiumAtStake  = actionableLeads × avgPremium  ← theoretical max $ sitting on shelf
+  // Active call queue is tracked but does NOT contribute to either — the cadence
+  // engine is working it, so penalising it would punish agents for healthy workload.
+  actionableLeads: number;
+  premiumAtStake: number;
+
+  // Legacy aliases — preserved so older consumers keep compiling. They now point
+  // at the new honest numbers (no synthetic 10%-of-queue contribution).
+  /** @deprecated use actionableLeads */
   totalStale: number;
+  /** @deprecated use premiumAtStake */
   revenueAtRisk: number;
+  /** @deprecated derive from premiumAtStake × closeRate at the call site if needed */
   projectedRecovery: number;
 
   // Revenue model transparency
@@ -107,10 +124,17 @@ function calcFollowUpDiscipline(pastDue: number, todaysFollowUps: number): numbe
   return (1 - pastDue / total) * 25;
 }
 
-function calcPipelineFreshness(totalStale: number, newLeads: number, callQueue: number, pastDue: number): number {
-  const total = newLeads + callQueue + pastDue;
+/**
+ * Pipeline Freshness — what % of the agent's visible pipeline is *actionable backlog*
+ * (past dues + untouched) vs *active queue* being worked by the cadence engine.
+ *
+ * Heavier on past-due / untouched = lower score (you're letting things rot).
+ * Heavier on call queue = higher score (cadence is doing its job).
+ */
+function calcPipelineFreshness(actionableLeads: number, callQueue: number): number {
+  const total = actionableLeads + callQueue;
   if (total === 0) return 25;
-  const ratio = 1 - Math.min(totalStale / total, 1);
+  const ratio = 1 - Math.min(actionableLeads / total, 1);
   return ratio * 25;
 }
 
@@ -186,7 +210,7 @@ function detectFlags(agent: PipelineAgent, tierAvgCR: number): BehavioralFlag[] 
     flags.push("POOL_FARMER");
   }
 
-  if (agent.revenueAtRisk > 0 && agent.totalPremium > 0 && agent.revenueAtRisk > 2 * agent.totalPremium) {
+  if (agent.premiumAtStake > 0 && agent.totalPremium > 0 && agent.premiumAtStake > 2 * agent.totalPremium) {
     flags.push("DEAD_WEIGHT_CARRIER");
   }
 
@@ -239,8 +263,10 @@ export interface PriorDayCompliance {
   pastDue: number;
 }
 
-/** Unified flat model — stale queue contribution (replaces tier-specific rates). */
-const STALE_QUEUE_RATE_UNIFIED = 0.1;
+// Unified flat model. Floors used when an agent has too little history to
+// trust their personal averages. The synthetic STALE_QUEUE_RATE constant
+// from the previous "stale" model has been removed — actionable leads now
+// equal exactly what the agent sees in CRM (past dues + untouched).
 const UNIFIED_FALLBACK_PREMIUM = 700;
 const UNIFIED_FALLBACK_CR = 0.1;
 const MIN_DAYS_FOR_AGENT_STATS = 3;
@@ -374,18 +400,18 @@ export function buildPipelineAgents(
       closeRateSource = "tier";
     }
 
-    const staleRate = STALE_QUEUE_RATE_UNIFIED;
-    const staleCallQueue = Math.round(callQueue * staleRate);
-    const totalStale = pastDue + newLeads + staleCallQueue;
-    const revenueAtRisk = Math.round(totalStale * avgPremium);
-    const projectedRecovery = Math.round(totalStale * closeRate * avgPremium);
+    // --- Simplified pipeline math ---
+    // actionableLeads = the two CRM buckets that demand the agent's attention NOW.
+    // premiumAtStake  = theoretical max revenue sitting on the shelf (option B).
+    const actionableLeads = pastDue + newLeads;
+    const premiumAtStake = Math.round(actionableLeads * avgPremium);
 
     // --- Follow-up compliance with day-over-day delta ---
     const prior = priorDayCompliance?.get(name);
     const pastDueDelta = prior != null ? pastDue - prior.pastDue : null;
 
     const followUpDiscipline = calcFollowUpDiscipline(pastDue, todaysFollowUps);
-    const pipelineFreshness = calcPipelineFreshness(totalStale, newLeads, callQueue, pastDue);
+    const pipelineFreshness = calcPipelineFreshness(actionableLeads, callQueue);
     const workRateScore = calcWorkRate(totalDials, newLeads, callQueue, pastDue, todaysFollowUps);
     const totalLeads = ibLeads + obLeads;
     const agentFunnel = funnelMap?.get(name);
@@ -397,8 +423,8 @@ export function buildPipelineAgents(
       ? (1 - pastDue / (pastDue + todaysFollowUps)) * 100
       : 100;
 
-    const wasteRatio = (totalPremium + revenueAtRisk) > 0
-      ? (revenueAtRisk / (totalPremium + revenueAtRisk)) * 100
+    const wasteRatio = (totalPremium + premiumAtStake) > 0
+      ? (premiumAtStake / (totalPremium + premiumAtStake)) * 100
       : 0;
 
     const agent: PipelineAgent = {
@@ -407,7 +433,11 @@ export function buildPipelineAgents(
       ibLeads, obLeads, ibSales, obSales,
       poolDials, poolTalk, poolSelfAssigned, poolSales, poolAnswered,
       pastDue, newLeads, callQueue, todaysFollowUps, postSaleLeads,
-      totalStale, revenueAtRisk, projectedRecovery,
+      actionableLeads, premiumAtStake,
+      // Legacy aliases — same numbers, old names so nothing breaks until consumers migrate.
+      totalStale: actionableLeads,
+      revenueAtRisk: premiumAtStake,
+      projectedRecovery: Math.round(actionableLeads * closeRate * avgPremium),
       avgPremium, closeRate, premiumSource, closeRateSource,
       tierAvgPremium: tierAvgPrem, tierAvgCloseRate: tierAvgCR,
       pastDueDelta,
@@ -432,13 +462,19 @@ export function buildPipelineAgents(
 
 export interface PipelineSummary {
   avgHealthScore: number;
-  totalRevenueAtRisk: number;
-  totalProjectedRecovery: number;
+  totalActionableLeads: number;
+  totalPremiumAtStake: number;
   orgFollowUpCompliance: number;
   agentCount: number;
   gradeDistribution: Record<HealthGrade, number>;
   flagCounts: Record<BehavioralFlag, string[]>;
   topRiskAgents: PipelineAgent[];
+  // Legacy aliases mirroring the new fields above so existing UI keeps compiling.
+  /** @deprecated use totalPremiumAtStake */
+  totalRevenueAtRisk: number;
+  /** @deprecated derive at the call site if you really need it */
+  totalProjectedRecovery: number;
+  /** @deprecated use topRiskAgents */
   topRecoveryAgents: PipelineAgent[];
 }
 
@@ -446,6 +482,8 @@ export function buildPipelineSummary(agents: PipelineAgent[]): PipelineSummary {
   if (agents.length === 0) {
     return {
       avgHealthScore: 0,
+      totalActionableLeads: 0,
+      totalPremiumAtStake: 0,
       totalRevenueAtRisk: 0,
       totalProjectedRecovery: 0,
       orgFollowUpCompliance: 0,
@@ -464,6 +502,8 @@ export function buildPipelineSummary(agents: PipelineAgent[]): PipelineSummary {
   const totalHealth = agents.reduce((s, a) => s + a.healthScore, 0);
   const totalPastDue = agents.reduce((s, a) => s + a.pastDue, 0);
   const totalFollowUps = agents.reduce((s, a) => s + a.todaysFollowUps, 0);
+  const totalActionableLeads = agents.reduce((s, a) => s + a.actionableLeads, 0);
+  const totalPremiumAtStake = agents.reduce((s, a) => s + a.premiumAtStake, 0);
 
   const gradeDistribution: Record<HealthGrade, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 };
   for (const a of agents) gradeDistribution[a.healthGrade]++;
@@ -477,9 +517,15 @@ export function buildPipelineSummary(agents: PipelineAgent[]): PipelineSummary {
     for (const f of a.flags) flagCounts[f].push(a.name);
   }
 
+  const topRisk = [...agents]
+    .sort((a, b) => b.premiumAtStake - a.premiumAtStake)
+    .slice(0, 5);
+
   return {
     avgHealthScore: Math.round(totalHealth / agents.length),
-    totalRevenueAtRisk: agents.reduce((s, a) => s + a.revenueAtRisk, 0),
+    totalActionableLeads,
+    totalPremiumAtStake,
+    totalRevenueAtRisk: totalPremiumAtStake,
     totalProjectedRecovery: agents.reduce((s, a) => s + a.projectedRecovery, 0),
     orgFollowUpCompliance: (totalPastDue + totalFollowUps) > 0
       ? (1 - totalPastDue / (totalPastDue + totalFollowUps)) * 100
@@ -487,8 +533,8 @@ export function buildPipelineSummary(agents: PipelineAgent[]): PipelineSummary {
     agentCount: agents.length,
     gradeDistribution,
     flagCounts,
-    topRiskAgents: [...agents].sort((a, b) => b.revenueAtRisk - a.revenueAtRisk).slice(0, 5),
-    topRecoveryAgents: [...agents].sort((a, b) => b.projectedRecovery - a.projectedRecovery).slice(0, 5),
+    topRiskAgents: topRisk,
+    topRecoveryAgents: topRisk,
   };
 }
 

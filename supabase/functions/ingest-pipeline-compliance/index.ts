@@ -22,6 +22,16 @@ interface PipelineAgentPayload {
 interface IngestPayload {
   scrape_date: string;
   agents: PipelineAgentPayload[];
+  /**
+   * Optional intraday snapshot label. When supplied, in addition to the usual
+   * upsert into `pipeline_compliance_daily`, a snapshot row is upserted into
+   * `pipeline_compliance_intraday` keyed by (scrape_date, snapshot_label,
+   * agent_name). Used by the unified compliance workflow to compute deltas
+   * across morning -> midday -> eod snapshots.
+   */
+  snapshot_label?: "morning" | "midday" | "eod";
+  /** Optional CST hour the snapshot was captured. Defaults to current CST hour. */
+  scrape_hour?: number;
 }
 
 Deno.serve(async (req) => {
@@ -103,11 +113,47 @@ Deno.serve(async (req) => {
       );
     }
 
+    let intradayInserted = 0;
+    let intradayError: string | null = null;
+    if (payload.snapshot_label) {
+      const validLabels = new Set(["morning", "midday", "eod"]);
+      if (!validLabels.has(payload.snapshot_label)) {
+        intradayError = `invalid snapshot_label: ${payload.snapshot_label}`;
+      } else {
+        const cstHour = typeof payload.scrape_hour === "number"
+          ? payload.scrape_hour
+          : new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" })).getHours();
+        const intradayRecords = records.map((r) => ({
+          scrape_date: r.scrape_date,
+          snapshot_label: payload.snapshot_label,
+          scrape_hour: cstHour,
+          agent_name: r.agent_name,
+          agent_id_crm: r.agent_id_crm,
+          past_due_follow_ups: r.past_due_follow_ups,
+          new_leads: r.new_leads,
+          call_queue_count: r.call_queue_count,
+          todays_follow_ups: r.todays_follow_ups,
+          post_sale_leads: r.post_sale_leads,
+          total_stale: r.total_stale,
+          revenue_at_risk: r.revenue_at_risk,
+          projected_recovery: r.projected_recovery,
+        }));
+        const { error: intError } = await supabase
+          .from("pipeline_compliance_intraday")
+          .upsert(intradayRecords, { onConflict: "scrape_date,snapshot_label,agent_name" });
+        if (intError) intradayError = intError.message;
+        else intradayInserted = intradayRecords.length;
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
         inserted: records.length,
         scrape_date: payload.scrape_date,
+        snapshot_label: payload.snapshot_label ?? null,
+        intraday_inserted: intradayInserted,
+        intraday_error: intradayError,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

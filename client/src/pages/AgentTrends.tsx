@@ -417,34 +417,36 @@ function PipelineTab({ agentName }: { agentName: string }) {
 
   const latest = pipelineTrends[pipelineTrends.length - 1];
   const prev = pipelineTrends.length >= 2 ? pipelineTrends[pipelineTrends.length - 2] : null;
-  const staleDelta = prev ? latest.totalStale - prev.totalStale : null;
-  const riskDelta = prev ? latest.revenueAtRisk - prev.revenueAtRisk : null;
+  const actionableDelta = prev ? latest.actionableLeads - prev.actionableLeads : null;
+  const stakeDelta = prev ? latest.premiumAtStake - prev.premiumAtStake : null;
+  const pastDueDelta = prev ? latest.pastDue - prev.pastDue : null;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricCard
-          label="Total Stale"
-          value={latest.totalStale}
-          color={latest.totalStale > 100 ? "red" : latest.totalStale > 50 ? "amber" : "green"}
-          subtext={staleDelta !== null ? <DeltaBadge value={staleDelta} invert /> : `${pipelineTrends.length} days tracked`}
-        />
-        <MetricCard
-          label="Revenue at Risk"
-          value={formatCurrency(latest.revenueAtRisk)}
-          color="red"
-          subtext={riskDelta !== null ? <DeltaBadge value={riskDelta} format="currency" invert /> : undefined}
-        />
-        <MetricCard
-          label="Projected Recovery"
-          value={formatCurrency(latest.projectedRecovery)}
-          color="green"
-        />
-        <MetricCard
           label="Past Due"
           value={latest.pastDue}
-          color={latest.pastDue > 50 ? "red" : latest.pastDue > 20 ? "amber" : "green"}
-          subtext={`Queue: ${latest.callQueue} | New: ${latest.newLeads}`}
+          color={latest.pastDue > 10 ? "red" : latest.pastDue > 3 ? "amber" : "green"}
+          subtext={pastDueDelta !== null ? <DeltaBadge value={pastDueDelta} invert /> : `${pipelineTrends.length} days tracked`}
+        />
+        <MetricCard
+          label="Actionable Leads"
+          value={latest.actionableLeads}
+          color={latest.actionableLeads > 30 ? "red" : latest.actionableLeads > 15 ? "amber" : "green"}
+          subtext={actionableDelta !== null ? <DeltaBadge value={actionableDelta} invert /> : `Past Due + Untouched`}
+        />
+        <MetricCard
+          label="Premium @ Stake"
+          value={formatCurrency(latest.premiumAtStake)}
+          color="red"
+          subtext={stakeDelta !== null ? <DeltaBadge value={stakeDelta} format="currency" invert /> : undefined}
+        />
+        <MetricCard
+          label="Call Queue"
+          value={latest.callQueue}
+          color={latest.callQueue > 150 ? "red" : "default"}
+          subtext={`Untouched: ${latest.newLeads}`}
         />
       </div>
 
@@ -469,9 +471,9 @@ function PipelineTab({ agentName }: { agentName: string }) {
               />
               <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
               <Bar dataKey="pastDue" name="Past Due" fill="#ef4444" stackId="pipe" />
+              <Bar dataKey="newLeads" name="Untouched" fill="#22c55e" stackId="pipe" />
               <Bar dataKey="callQueue" name="Call Queue" fill="#f59e0b" stackId="pipe" />
-              <Bar dataKey="newLeads" name="New Leads" fill="#22c55e" stackId="pipe" />
-              <Line type="monotone" dataKey="totalStale" name="Stale" stroke="#a78bfa" strokeWidth={2.5} dot={{ r: 4, fill: "#a78bfa", strokeWidth: 2, stroke: "#0f172a" }} />
+              <Line type="monotone" dataKey="actionableLeads" name="Actionable" stroke="#a78bfa" strokeWidth={2.5} dot={{ r: 4, fill: "#a78bfa", strokeWidth: 2, stroke: "#0f172a" }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -500,8 +502,7 @@ function PipelineTab({ agentName }: { agentName: string }) {
                 formatter={(value: number, name: string) => ["$" + Math.round(value).toLocaleString(), name]}
               />
               <Legend wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: 9 }} />
-              <Bar dataKey="revenueAtRisk" name="Rev at Risk" fill="#ef444480" />
-              <Bar dataKey="projectedRecovery" name="Proj. Recovery" fill="#22c55e80" />
+              <Bar dataKey="premiumAtStake" name="Premium @ Stake" fill="#ef444480" />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -515,25 +516,23 @@ function PipelineTab({ agentName }: { agentName: string }) {
               <tr className="border-b border-border text-muted-foreground">
                 <th className="px-3 py-2 text-left">Date</th>
                 <th className="px-3 py-2 text-right">Past Due</th>
-                <th className="px-3 py-2 text-right">New Leads</th>
+                <th className="px-3 py-2 text-right">Untouched</th>
                 <th className="px-3 py-2 text-right">Queue</th>
                 <th className="px-3 py-2 text-right">Follow-Ups</th>
-                <th className="px-3 py-2 text-right">Stale</th>
-                <th className="px-3 py-2 text-right">Rev Risk</th>
-                <th className="px-3 py-2 text-right">Proj. Recovery</th>
+                <th className="px-3 py-2 text-right">Actionable</th>
+                <th className="px-3 py-2 text-right">Premium @ Stake</th>
               </tr>
             </thead>
             <tbody>
               {[...pipelineTrends].reverse().map((d, i) => (
                 <tr key={d.date} className={cn("border-b border-border/30", i % 2 === 0 ? "bg-transparent" : "bg-card/40")}>
                   <td className="px-3 py-1.5 text-muted-foreground">{d.date.slice(5)}</td>
-                  <td className={cn("px-3 py-1.5 text-right", d.pastDue > 50 ? "text-red-400 font-bold" : "")}>{d.pastDue}</td>
+                  <td className={cn("px-3 py-1.5 text-right", d.pastDue > 10 ? "text-red-400 font-bold" : d.pastDue > 0 ? "text-amber-400" : "")}>{d.pastDue}</td>
                   <td className="px-3 py-1.5 text-right">{d.newLeads}</td>
                   <td className="px-3 py-1.5 text-right">{d.callQueue}</td>
                   <td className="px-3 py-1.5 text-right">{d.todaysFollowUps}</td>
-                  <td className={cn("px-3 py-1.5 text-right", d.totalStale > 100 ? "text-amber-400" : "")}>{d.totalStale}</td>
-                  <td className="px-3 py-1.5 text-right text-red-400">{formatCurrency(d.revenueAtRisk)}</td>
-                  <td className="px-3 py-1.5 text-right text-emerald-400">{formatCurrency(d.projectedRecovery)}</td>
+                  <td className={cn("px-3 py-1.5 text-right font-bold", d.actionableLeads > 30 ? "text-amber-400" : "")}>{d.actionableLeads}</td>
+                  <td className="px-3 py-1.5 text-right text-red-400">{formatCurrency(d.premiumAtStake)}</td>
                 </tr>
               ))}
             </tbody>

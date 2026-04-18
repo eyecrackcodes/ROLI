@@ -74,13 +74,14 @@ export interface FunnelTrend {
 export interface PipelineTrend {
   date: string;
   pastDue: number;
-  newLeads: number;
+  newLeads: number;          // CRM "new leads" — untouched
   callQueue: number;
   todaysFollowUps: number;
   postSaleLeads: number;
-  totalStale: number;
-  revenueAtRisk: number;
-  projectedRecovery: number;
+  /** Past Due + Untouched. Replaces the old `totalStale` composite. */
+  actionableLeads: number;
+  /** actionableLeads × DB-stored avg premium estimate (from ingest). Theoretical max $$. */
+  premiumAtStake: number;
 }
 
 export interface WindowTrend {
@@ -398,7 +399,7 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
 
     const { data } = await supabase
       .from("pipeline_compliance_daily")
-      .select("scrape_date, past_due_follow_ups, new_leads, call_queue_count, todays_follow_ups, post_sale_leads, total_stale, revenue_at_risk, projected_recovery")
+      .select("scrape_date, past_due_follow_ups, new_leads, call_queue_count, todays_follow_ups, post_sale_leads, revenue_at_risk")
       .eq("agent_name", agentName)
       .gte("scrape_date", startDate)
       .order("scrape_date", { ascending: true });
@@ -410,22 +411,30 @@ export function useAgentTrends(agentName: string | null, daysBack: number = 10) 
       call_queue_count: number | null;
       todays_follow_ups: number | null;
       post_sale_leads: number | null;
-      total_stale: number | null;
       revenue_at_risk: number | null;
-      projected_recovery: number | null;
     }>;
 
-    setPipelineTrends(rows.map((r) => ({
-      date: r.scrape_date,
-      pastDue: r.past_due_follow_ups ?? 0,
-      newLeads: r.new_leads ?? 0,
-      callQueue: r.call_queue_count ?? 0,
-      todaysFollowUps: r.todays_follow_ups ?? 0,
-      postSaleLeads: r.post_sale_leads ?? 0,
-      totalStale: r.total_stale ?? 0,
-      revenueAtRisk: Number(r.revenue_at_risk ?? 0),
-      projectedRecovery: Number(r.projected_recovery ?? 0),
-    })));
+    setPipelineTrends(rows.map((r) => {
+      const pd = r.past_due_follow_ups ?? 0;
+      const nl = r.new_leads ?? 0;
+      const actionable = pd + nl;
+      // Historical rows wrote `revenue_at_risk` using the old stale-composite math.
+      // Convert it to a per-lead premium estimate, then re-derive against actionable
+      // so the trend chart shows the new honest premium-at-stake number.
+      const dbRevenue = Number(r.revenue_at_risk ?? 0);
+      const dbStaleEst = pd + nl + Math.round((r.call_queue_count ?? 0) * 0.1);
+      const perLeadPrem = dbStaleEst > 0 ? dbRevenue / dbStaleEst : 0;
+      return {
+        date: r.scrape_date,
+        pastDue: pd,
+        newLeads: nl,
+        callQueue: r.call_queue_count ?? 0,
+        todaysFollowUps: r.todays_follow_ups ?? 0,
+        postSaleLeads: r.post_sale_leads ?? 0,
+        actionableLeads: actionable,
+        premiumAtStake: Math.round(actionable * perLeadPrem),
+      };
+    }));
   }, [agentName, daysBack]);
 
   const fetchFunnelTrends = useCallback(async () => {
