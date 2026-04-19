@@ -17,6 +17,16 @@ import type {
 } from "@/lib/pipelineIntelligence";
 import { buildPipelineAgents } from "@/lib/pipelineIntelligence";
 import { fetchMarketingSummary, type MarketingDailySummary } from "@/lib/marketingSummary";
+import { UNIFIED_CONFIG } from "@/lib/unifiedTargets";
+
+// Unified all-remote model: every agent gets DAILY_LEADS inbound at LEAD_COST each.
+const DAILY_LEAD_SPEND = UNIFIED_CONFIG.DAILY_LEADS * UNIFIED_CONFIG.LEAD_COST;
+function computeMtdROLI(mtd?: { mtdDays: number; mtdPremium: number }): number | undefined {
+  if (!mtd || mtd.mtdDays <= 0) return undefined;
+  const cost = mtd.mtdDays * DAILY_LEAD_SPEND;
+  if (cost <= 0) return undefined;
+  return (mtd.mtdPremium - cost) / cost;
+}
 
 interface DailyScrapeRow {
   agent_name: string;
@@ -297,6 +307,7 @@ function buildPulseAgents(
       totalPremium,
       mtdSales: mtd?.mtdSales,
       mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
+      mtdROLI: computeMtdROLI(mtd),
       daysActive: daysActiveMap?.get(name),
       pool,
       funnel,
@@ -327,6 +338,7 @@ function buildPulseAgents(
         totalPremium: 0,
         mtdSales: mtd?.mtdSales,
         mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
+        mtdROLI: computeMtdROLI(mtd),
         daysActive: daysActiveMap?.get(name),
         pool,
         funnel,

@@ -176,7 +176,9 @@ async function buildWorkbook(configs: ExportConfig[]): Promise<ExcelJS.Workbook>
   return workbook;
 }
 
-export type SortKey = "totalPremium" | "salesToday" | "dials" | "talkTimeMin" | "totalTalk" | "closeRate" | "mtdROLI" | "mtdPace";
+// MTD ROLI intentionally omitted — these exports are agent-facing and we
+// surface ROLI only inside the management UI.
+export type SortKey = "totalPremium" | "salesToday" | "dials" | "talkTimeMin" | "totalTalk" | "closeRate" | "mtdPace";
 
 const SORT_LABELS: Record<SortKey, string> = {
   totalPremium: "Total Premium",
@@ -185,7 +187,6 @@ const SORT_LABELS: Record<SortKey, string> = {
   talkTimeMin: "Talk Time",
   totalTalk: "Total Talk (CRM+Pool)",
   closeRate: "Close Rate",
-  mtdROLI: "MTD ROLI",
   mtdPace: "MTD Pace",
 };
 export { SORT_LABELS };
@@ -234,7 +235,6 @@ const PULSE_COLS = {
   overallCR: { key: "overallCR", header: "Overall CR%", format: "decimal" as const, gradient: true },
   mtdSales: { key: "mtdSales", header: "MTD Sales", format: "number" as const, gradient: true },
   mtdPace: { key: "mtdPace", header: "MTD Pace", format: "decimal" as const, gradient: true },
-  mtdROLI: { key: "mtdROLI", header: "MTD ROLI", format: "decimal" as const, gradient: true },
 };
 
 function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
@@ -282,7 +282,6 @@ function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
     totalPremium: agent.totalPremium,
     mtdSales: agent.mtdSales,
     mtdPace: agent.mtdPace,
-    mtdROLI: agent.mtdROLI,
     daysActive: agent.daysActive,
     poolDials: poolCalls,
     poolTalk: Math.round(agent.pool?.talkTimeMin ?? 0),
@@ -351,8 +350,8 @@ function buildUnifiedColumns(agents: DailyPulseAgent[], isRange: boolean): strin
   // Per-row totals + premium (the headline aggregates)
   cols.push("totalLeads", "totalSales", "overallCR", "totalPremium");
 
-  // MTD context
-  cols.push("mtdSales", "mtdROLI");
+  // MTD context (ROLI omitted — agent-facing exports show only outcomes, not cost-derived metrics).
+  cols.push("mtdSales");
 
   return cols;
 }

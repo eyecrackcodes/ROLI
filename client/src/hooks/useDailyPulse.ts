@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DailyPulseAgent, Tier } from "@/lib/types";
+import { UNIFIED_CONFIG } from "@/lib/unifiedTargets";
+
+// Unified all-remote model: every agent gets DAILY_LEADS inbound at LEAD_COST each.
+const DAILY_LEAD_SPEND = UNIFIED_CONFIG.DAILY_LEADS * UNIFIED_CONFIG.LEAD_COST;
 
 interface DailyScrapeRow {
   agent_name: string;
@@ -127,7 +131,9 @@ export function useDailyPulse(windowStartDate?: string): UseDailyPulseReturn {
           totalPremium,
           mtdSales: mtd?.mtdSales,
           mtdPace: mtd && mtd.mtdDays > 0 ? mtd.mtdSales / mtd.mtdDays : undefined,
-          mtdROLI: undefined,
+          mtdROLI: mtd && mtd.mtdDays > 0
+            ? (mtd.mtdPremium - mtd.mtdDays * DAILY_LEAD_SPEND) / (mtd.mtdDays * DAILY_LEAD_SPEND)
+            : undefined,
         };
 
         if (tier === "T1") t1.push(pulseAgent);
