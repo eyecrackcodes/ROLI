@@ -7,8 +7,6 @@ import { Link } from "wouter";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
-import { CoachingQuadrant } from "@/components/CoachingQuadrant";
-import { useCoachingQuadrant } from "@/hooks/useCoachingQuadrant";
 import { UNIFIED_CONFIG, UNIFIED_POOL } from "@/lib/unifiedTargets";
 
 import { getPaceColor } from "@/lib/types";
@@ -453,11 +451,6 @@ export default function DailyPulse() {
   const [drillAgent, setDrillAgent] = useState<DailyPulseAgent | null>(null);
   const allAgents = useMemo(() => [...data.dailyT1, ...data.dailyT2, ...data.dailyT3], [data.dailyT1, data.dailyT2, data.dailyT3]);
 
-  // 30-day coaching quadrant anchored on the page's selected date (or end-of-range
-  // when in range mode). Trails show where each agent was 30/14/7 days ago.
-  const quadrantAnchor = data.isRangeMode ? data.dateRange.end : data.selectedDate;
-  const coachingQuadrant = useCoachingQuadrant(quadrantAnchor);
-
   const hasData = data.dailyT1.length > 0 || data.dailyT2.length > 0 || data.dailyT3.length > 0;
 
   const handleAgentClick = (agent: DailyPulseAgent) => setDrillAgent(agent);
@@ -670,10 +663,7 @@ export default function DailyPulse() {
           <p className="text-sm font-mono text-muted-foreground animate-pulse">Loading data...</p>
         </div>
       ) : hasData ? (
-        <>
-          <CoachingQuadrant data={coachingQuadrant} />
-          <UnifiedTable agents={allAgents} onAgentClick={handleAgentClick} />
-        </>
+        <UnifiedTable agents={allAgents} onAgentClick={handleAgentClick} />
       ) : (
         <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
           <div className="text-4xl font-mono text-muted-foreground/20">---</div>

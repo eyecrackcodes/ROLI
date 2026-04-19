@@ -82,13 +82,31 @@ export interface FunnelDecomposition {
 interface PerfRow {
   agent_name: string;
   scrape_date: string;
+  scrape_hour: number;
   dials: number | null;
   leads_worked: number | null;
   contacts_made: number | null;
   conversations: number | null;
   presentations: number | null;
   sales: number | null;
-  premium: number | null;
+  premium: number | string | null;
+}
+
+/**
+ * `agent_performance_daily` rows are CUMULATIVE through `scrape_hour` (the
+ * agent performance scraper writes one row per hour, each containing the
+ * day-to-date totals as of that hour). To get the daily aggregate we keep
+ * only the row with the highest scrape_hour for each (agent, date) — that
+ * row IS the end-of-day total. Summing across hours would double count.
+ */
+function eodPerAgentDay(rows: PerfRow[]): PerfRow[] {
+  const latest = new Map<string, PerfRow>();
+  for (const r of rows) {
+    const key = `${r.agent_name}|${r.scrape_date}`;
+    const prev = latest.get(key);
+    if (!prev || r.scrape_hour > prev.scrape_hour) latest.set(key, r);
+  }
+  return Array.from(latest.values());
 }
 
 const ZERO_STATS: FunnelStageStats = {
@@ -100,8 +118,10 @@ const ZERO_STATS: FunnelStageStats = {
 };
 
 function aggregate(rows: PerfRow[]): FunnelStageStats {
-  const sum = (sel: (r: PerfRow) => number | null) =>
-    rows.reduce((s, r) => s + (sel(r) ?? 0), 0);
+  // PerfRows passed in here are already deduped to one EOD row per agent-day,
+  // so summing across them is summing daily totals across the window.
+  const sum = (sel: (r: PerfRow) => number | string | null) =>
+    rows.reduce((s, r) => s + (Number(sel(r)) || 0), 0);
 
   const dials = sum((r) => r.dials);
   const leadsWorked = sum((r) => r.leads_worked);
@@ -257,29 +277,37 @@ export function useFunnelDecomposition(
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    if (!isSupabaseConfigured || !agentName) {
-      setAgentRows([]); setFloorRows([]); return;
+    if (!isSupabaseConfigured || !agentName || !startDate || !endDate) {
+      setAgentRows([]); setFloorRows([]); setError(null);
+      return;
     }
     setLoading(true); setError(null);
     try {
-      const cols = "agent_name, scrape_date, dials, leads_worked, contacts_made, conversations, presentations, sales, premium";
+      const cols = "agent_name, scrape_date, scrape_hour, dials, leads_worked, contacts_made, conversations, presentations, sales, premium";
 
-      // Pull every daily aggregate row (scrape_hour IS NULL) for the window — single
-      // round trip, then split client-side. The table indexes scrape_date so this is
-      // cheap relative to two separate queries.
+      // Pull every hourly snapshot in the window — these are CUMULATIVE
+      // through scrape_hour, so we collapse to one row per (agent, date) by
+      // taking the max scrape_hour. PostgREST's range over scrape_date keeps
+      // this cheap (table is indexed on scrape_date).
       const { data, error: qErr } = await supabase
         .from("agent_performance_daily")
         .select(cols)
         .gte("scrape_date", startDate)
-        .lte("scrape_date", endDate)
-        .is("scrape_hour", null);
+        .lte("scrape_date", endDate);
 
       if (qErr) throw qErr;
-      const all = (data ?? []) as PerfRow[];
-      setAgentRows(all.filter((r) => r.agent_name === agentName));
-      setFloorRows(all);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load funnel data");
+      const eod = eodPerAgentDay((data ?? []) as PerfRow[]);
+      setAgentRows(eod.filter((r) => r.agent_name === agentName));
+      setFloorRows(eod);
+    } catch (err: unknown) {
+      // PostgrestError isn't an Error subclass — pull the message off the
+      // shape directly so the user sees the real failure, not a generic.
+      const e = err as { message?: string; details?: string; hint?: string } | Error;
+      const msg = e instanceof Error
+        ? e.message
+        : (e?.message ?? e?.details ?? e?.hint ?? "Failed to load funnel data");
+      console.error("useFunnelDecomposition query failed:", err);
+      setError(msg);
       setAgentRows([]); setFloorRows([]);
     } finally {
       setLoading(false);

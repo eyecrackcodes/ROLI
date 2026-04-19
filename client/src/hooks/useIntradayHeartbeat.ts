@@ -231,7 +231,14 @@ export function useIntradayHeartbeat(
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    if (!isSupabaseConfigured) { setRows([]); return; }
+    // Bail early when we have nothing to query. An empty scrapeDate on first
+    // mount used to hit Supabase with `?scrape_date=eq.` (400 Bad Request) —
+    // the HeartbeatTab initializes selectedDate as "" before the date list
+    // finishes loading, so we have to tolerate that gracefully.
+    if (!isSupabaseConfigured || !scrapeDate) {
+      setRows([]); setAgentCount(0); setError(null);
+      return;
+    }
     setLoading(true); setError(null);
     try {
       const cols = "agent_name, scrape_hour, total_dials, talk_time_minutes, ib_sales, ob_sales, custom_sales, ib_premium, ob_premium, custom_premium, pool_dials, pool_talk_minutes, pool_self_assigned";
@@ -250,8 +257,17 @@ export function useIntradayHeartbeat(
       const all = (data ?? []) as IntradayRow[];
       setRows(all);
       setAgentCount(new Set(all.map((r) => r.agent_name)).size);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load heartbeat data");
+    } catch (err: unknown) {
+      // Supabase PostgrestError is a plain object, NOT an Error instance — so
+      // we have to pull `message` (and `details`/`hint`) explicitly or the
+      // fallback string would mask the real failure.
+      const e = err as { message?: string; details?: string; hint?: string; code?: string } | Error;
+      const msg = e instanceof Error
+        ? e.message
+        : (e?.message ?? e?.details ?? e?.hint ?? "Failed to load heartbeat data");
+      // Surface to console so the original failure isn't lost.
+      console.error("useIntradayHeartbeat query failed:", err);
+      setError(msg);
       setRows([]); setAgentCount(0);
     } finally {
       setLoading(false);

@@ -10,10 +10,12 @@ import {
   X,
   ChevronRight,
   Radar,
+  Target,
 } from "lucide-react";
 
 const navItems = [
   { path: "/", label: "Production", icon: Activity, description: "Daily sales, CR, and gate status" },
+  { path: "/coaching", label: "Coaching Map", icon: Target, description: "Skill x effort quadrant + momentum" },
   { path: "/pipeline", label: "Pipeline", icon: Radar, description: "Health scores and coaching actions" },
   { path: "/leads-pool", label: "Leads Pool", icon: Users, description: "Pool activity and self-assigns" },
   { path: "/trends", label: "Trends", icon: TrendingUp, description: "Agent analytics and stack rank" },

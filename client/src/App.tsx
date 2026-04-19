@@ -10,6 +10,7 @@ import DailyPulse from "./pages/DailyPulse";
 import AgentTrends from "./pages/AgentTrends";
 import LeadsPool from "./pages/LeadsPool";
 import PipelineIntelligence from "./pages/PipelineIntelligence";
+import CoachingMap from "./pages/CoachingMap";
 import Settings from "./pages/Settings";
 import AgentProfile from "./pages/AgentProfile";
 
@@ -18,6 +19,7 @@ function Router() {
     <AppLayout>
       <Switch>
         <Route path="/" component={DailyPulse} />
+        <Route path="/coaching" component={CoachingMap} />
         <Route path="/trends" component={AgentTrends} />
         <Route path="/leads-pool" component={LeadsPool} />
         <Route path="/pipeline" component={PipelineIntelligence} />

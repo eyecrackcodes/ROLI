@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import {
   TrendingUp, TrendingDown, Star, Lightbulb, Activity, ArrowUpRight,
-  ChevronRight, Users, Target,
+  ChevronRight, Users, Target, Eye, EyeOff, AlertCircle,
 } from "lucide-react";
 import {
   QUADRANT_META,
@@ -21,38 +21,47 @@ import {
  * Each agent renders as:
  *   - A faint dot at their T-30 position (where they were a month ago)
  *   - A slightly stronger dot at T-14
- *   - A near-solid dot at T-7
- *   - A bright filled dot at the trailing-7-day position with their name
- *   - A connecting curve from T-30 → T-7 (the "trajectory")
+ *   - A bright filled dot at the trailing-7-day position (today's quadrant)
+ *   - A connecting curve from T-30 → T-14 → T-7 (the "trajectory")
  *
- * Quadrant backdrops are colored by coaching prescription. Floor median lines
- * carve the chart into the four quadrants, computed from this very roster
- * over the trailing 7 days.
+ * Labels are on by default ONLY for agents who matter (climbers, sliders,
+ * quadrant transitions). Everyone else's label appears on hover. A toggle
+ * surfaces all labels at once for power users.
  *
- * Side panel ranks the biggest CLIMBERS (improving) and SLIDERS (declining)
- * by a directional momentum score, plus quadrant TRANSITIONS (someone who
- * moved between quadrants this week — those are real coaching events).
+ * Axes are clipped at the 90th-percentile values upstream so a single
+ * outlier (e.g. someone with 1 lead and 1 sale = 100% CR) cannot squash the
+ * rest of the floor into the corner. Clipped agents get an outward chevron.
+ *
+ * Low-activity agents (< MIN_LEADS_FOR_PLOT in T7) are excluded from the
+ * scatter and listed in a footer chip — visible but not distorting the floor.
  * -------------------------------------------------------------------------- */
 
-const VIEW_W = 760;
-const VIEW_H = 480;
-const PAD_L = 60;
-const PAD_R = 24;
-const PAD_T = 32;
-const PAD_B = 44;
+const VIEW_W = 1000;
+const VIEW_H = 580;
+const PAD_L = 70;
+const PAD_R = 28;
+const PAD_T = 36;
+const PAD_B = 50;
 const PLOT_W = VIEW_W - PAD_L - PAD_R;
 const PLOT_H = VIEW_H - PAD_T - PAD_B;
 
 const fmtPct = (n: number) => (n * 100).toFixed(1) + "%";
 const fmtMin = (n: number) => Math.round(n) + "m";
+const firstLast = (full: string) => full.split(" ").slice(0, 2).join(" ");
 
 interface CoachingQuadrantProps {
   data: CoachingQuadrantData;
 }
 
 export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
-  const { agents, medianCloseRate, medianTalkPerDay, axisMaxX, axisMaxY, loading, error, anchorDate } = data;
+  const {
+    agents, lowActivity,
+    medianCloseRate, medianTalkPerDay,
+    axisMaxX, axisMaxY, trueMaxX, trueMaxY,
+    loading, error, anchorDate,
+  } = data;
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
+  const [showAllLabels, setShowAllLabels] = useState(false);
 
   // SVG-space coordinate transformers — clamp so tracks stay inside the plot.
   const scaleX = (cr: number) => PAD_L + (Math.max(0, Math.min(cr, axisMaxX)) / axisMaxX) * PLOT_W;
@@ -63,6 +72,7 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
   const medY = scaleY(medianTalkPerDay);
 
   // Movers analysis — directional momentum score normalized to axis range.
+  // Threshold of 0.02 means "moved >= 2% of either axis"; keeps noise out.
   const { climbers, sliders, transitions } = useMemo(() => {
     const scored = agents.map((a) => ({
       track: a,
@@ -73,6 +83,45 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
     const transitions = agents.filter((a) => a.movedQuadrant);
     return { climbers, sliders, transitions };
   }, [agents, axisMaxX, axisMaxY]);
+
+  // Build the set of agents that always get a static label — the people the
+  // floor manager should recognize at a glance even without hovering.
+  const alwaysLabeled = useMemo(() => {
+    const s = new Set<string>();
+    climbers.forEach((c) => s.add(c.track.name));
+    sliders.forEach((c) => s.add(c.track.name));
+    transitions.forEach((c) => s.add(c.name));
+    return s;
+  }, [climbers, sliders, transitions]);
+
+  // Lay out static labels with vertical anti-collision: bucket by X position
+  // and offset alternating labels up/down within each bucket so names don't
+  // sit on top of each other in dense regions of the chart.
+  const labelOffsets = useMemo(() => {
+    const map = new Map<string, { dx: number; dy: number; anchor: "start" | "end" }>();
+    const visible = agents.filter((a) => showAllLabels || alwaysLabeled.has(a.name));
+    // Bucket by 90px X-window so nearby labels know they're nearby.
+    const buckets = new Map<number, AgentTrack[]>();
+    for (const a of visible) {
+      const x = scaleX(a.windows[7].closeRate);
+      const k = Math.floor(x / 90);
+      const arr = buckets.get(k) ?? [];
+      arr.push(a);
+      buckets.set(k, arr);
+    }
+    for (const arr of Array.from(buckets.values())) {
+      arr.sort((a: AgentTrack, b: AgentTrack) =>
+        scaleY(a.windows[7].talkMinutesPerDay) - scaleY(b.windows[7].talkMinutesPerDay));
+      arr.forEach((a: AgentTrack, i: number) => {
+        // Stagger Y offset by index, alternate left/right anchor by parity.
+        const dy = (i % 2 === 0 ? 4 : 14) + Math.floor(i / 2) * 11;
+        const anchor: "start" | "end" = i % 2 === 0 ? "start" : "end";
+        const dx = anchor === "start" ? 10 : -10;
+        map.set(a.name, { dx, dy, anchor });
+      });
+    }
+    return map;
+  }, [agents, showAllLabels, alwaysLabeled]);
 
   if (loading) {
     return (
@@ -97,6 +146,11 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
         <p className="text-xs font-mono text-muted-foreground">
           No active agents had production in the trailing 7 days for {anchorDate}.
         </p>
+        {lowActivity.length > 0 && (
+          <p className="text-[10px] font-mono text-muted-foreground/70 mt-2">
+            {lowActivity.length} agent(s) had thin samples (&lt; 5 leads/T7) and were excluded.
+          </p>
+        )}
       </div>
     );
   }
@@ -131,10 +185,23 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
               </span>
             );
           })}
+          <button
+            onClick={() => setShowAllLabels((v) => !v)}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded border transition-colors",
+              showAllLabels
+                ? "bg-accent border-border text-foreground"
+                : "border-border/60 text-muted-foreground hover:text-foreground hover:border-border"
+            )}
+            aria-pressed={showAllLabels}
+          >
+            {showAllLabels ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            {showAllLabels ? "Hide labels" : "Show all labels"}
+          </button>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_280px] gap-4 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
         {/* Quadrant chart ----------------------------------------------- */}
         <div className="relative">
           <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full h-auto">
@@ -148,14 +215,14 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
             {quadrantRects.map((r) => {
               const meta = QUADRANT_META[r.id];
               const cx = r.x + r.w / 2;
-              const cy = r.y + Math.min(20, r.h / 2);
+              const cy = r.y + Math.min(22, r.h / 2);
               if (r.w < 80 || r.h < 30) return null;
               return (
                 <text key={`lbl-${r.id}`}
                   x={cx} y={cy + 4}
                   textAnchor="middle"
-                  fontSize={11} fontFamily="monospace" fontWeight={700}
-                  fill={meta.hex} fillOpacity={0.55}
+                  fontSize={12} fontFamily="monospace" fontWeight={700}
+                  fill={meta.hex} fillOpacity={0.5}
                   pointerEvents="none">
                   {meta.label.toUpperCase()}
                 </text>
@@ -205,29 +272,29 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
             })}
 
             {/* Axis labels */}
-            <text x={PAD_L + PLOT_W / 2} y={VIEW_H - 6}
+            <text x={PAD_L + PLOT_W / 2} y={VIEW_H - 8}
                   textAnchor="middle" fontSize={11} fontFamily="monospace" fontWeight={600}
                   className="fill-foreground">
               SKILL → close rate (sales / leads)
             </text>
-            <text x={14} y={PAD_T + PLOT_H / 2}
+            <text x={16} y={PAD_T + PLOT_H / 2}
                   textAnchor="middle" fontSize={11} fontFamily="monospace" fontWeight={600}
                   className="fill-foreground"
-                  transform={`rotate(-90, 14, ${PAD_T + PLOT_H / 2})`}>
+                  transform={`rotate(-90, 16, ${PAD_T + PLOT_H / 2})`}>
               EFFORT → talk minutes per day
             </text>
 
             {/* Median value chips */}
             <g pointerEvents="none">
-              <rect x={medX + 4} y={PAD_T + 4} rx={3} ry={3} width={86} height={16}
+              <rect x={medX + 4} y={PAD_T + 4} rx={3} ry={3} width={92} height={16}
                     fill="rgba(15,23,42,0.85)" stroke="rgba(148,163,184,0.3)" />
-              <text x={medX + 47} y={PAD_T + 15} textAnchor="middle" fontSize={9}
+              <text x={medX + 50} y={PAD_T + 15} textAnchor="middle" fontSize={9}
                     fontFamily="monospace" className="fill-muted-foreground">
                 median CR {fmtPct(medianCloseRate)}
               </text>
-              <rect x={PAD_L + PLOT_W - 102} y={medY - 20} rx={3} ry={3} width={98} height={16}
+              <rect x={PAD_L + PLOT_W - 108} y={medY - 20} rx={3} ry={3} width={104} height={16}
                     fill="rgba(15,23,42,0.85)" stroke="rgba(148,163,184,0.3)" />
-              <text x={PAD_L + PLOT_W - 53} y={medY - 9} textAnchor="middle" fontSize={9}
+              <text x={PAD_L + PLOT_W - 56} y={medY - 9} textAnchor="middle" fontSize={9}
                     fontFamily="monospace" className="fill-muted-foreground">
                 median talk {fmtMin(medianTalkPerDay)}
               </text>
@@ -238,13 +305,25 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
               const meta = QUADRANT_META[a.quadrant];
               const isHover = hoveredAgent === a.name;
               const dimOthers = hoveredAgent && !isHover;
+              const showLabel = isHover || showAllLabels || alwaysLabeled.has(a.name);
 
               const p30 = { x: scaleX(a.windows[30].closeRate), y: scaleY(a.windows[30].talkMinutesPerDay) };
               const p14 = { x: scaleX(a.windows[14].closeRate), y: scaleY(a.windows[14].talkMinutesPerDay) };
               const p7  = { x: scaleX(a.windows[7].closeRate),  y: scaleY(a.windows[7].talkMinutesPerDay) };
 
+              // Detect axis clipping — if the actual T7 value exceeded the
+              // visible axis cap, draw an outward chevron so the user knows
+              // this dot is at the edge, not actually at axisMax.
+              const clippedRight = a.windows[7].closeRate > axisMaxX;
+              const clippedTop   = a.windows[7].talkMinutesPerDay > axisMaxY;
+
+              const offset = labelOffsets.get(a.name);
+              const labelDx = offset?.dx ?? 10;
+              const labelDy = offset?.dy ?? 4;
+              const labelAnchor = offset?.anchor ?? "start";
+
               return (
-                <g key={a.name} opacity={dimOthers ? 0.18 : 1}
+                <g key={a.name} opacity={dimOthers ? 0.15 : 1}
                    style={{ transition: "opacity 150ms" }}
                    onMouseEnter={() => setHoveredAgent(a.name)}
                    onMouseLeave={() => setHoveredAgent(null)}>
@@ -253,7 +332,7 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
                     points={`${p30.x},${p30.y} ${p14.x},${p14.y} ${p7.x},${p7.y}`}
                     fill="none"
                     stroke={meta.hex}
-                    strokeOpacity={isHover ? 0.9 : 0.35}
+                    strokeOpacity={isHover ? 0.9 : 0.30}
                     strokeWidth={isHover ? 2 : 1.2}
                   />
                   {/* T30 ghost */}
@@ -263,7 +342,7 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
                   {/* T7 — main dot */}
                   <motion.circle
                     cx={p7.x} cy={p7.y} r={isHover ? 8 : 6}
-                    fill={meta.hex} fillOpacity={0.9}
+                    fill={meta.hex} fillOpacity={0.92}
                     stroke="white" strokeOpacity={0.7}
                     strokeWidth={isHover ? 2 : 1}
                     initial={{ scale: 0 }}
@@ -275,16 +354,27 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
                     <circle cx={p7.x + 8} cy={p7.y - 8} r={3}
                             fill="#fff" stroke={meta.hex} strokeWidth={1} />
                   )}
-                  {/* Name label */}
-                  <text
-                    x={p7.x + 10} y={p7.y + 4}
-                    fontSize={isHover ? 12 : 10}
-                    fontFamily="monospace"
-                    fontWeight={isHover ? 700 : 500}
-                    className="fill-foreground"
-                    pointerEvents="none">
-                    {a.name.split(" ").slice(0, 2).join(" ")}
-                  </text>
+                  {/* Outlier chevrons — actual value exceeded the visible cap */}
+                  {clippedRight && (
+                    <text x={p7.x + 11} y={p7.y + 3} fontSize={11} fill={meta.hex} fontWeight={700} pointerEvents="none">›</text>
+                  )}
+                  {clippedTop && (
+                    <text x={p7.x - 2} y={p7.y - 9} fontSize={11} fill={meta.hex} fontWeight={700} pointerEvents="none">›</text>
+                  )}
+                  {/* Name label — only if hovered, alwaysLabeled, or showAll */}
+                  {showLabel && (
+                    <text
+                      x={p7.x + labelDx} y={p7.y + labelDy}
+                      textAnchor={labelAnchor}
+                      fontSize={isHover ? 12 : 10}
+                      fontFamily="monospace"
+                      fontWeight={isHover ? 700 : 500}
+                      className="fill-foreground"
+                      style={{ paintOrder: "stroke", stroke: "rgba(15,23,42,0.85)", strokeWidth: 3 }}
+                      pointerEvents="none">
+                      {firstLast(a.name)}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -340,7 +430,7 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
               return (
                 <Link key={a.name} href={`/agent-profile/${encodeURIComponent(a.name)}`}>
                   <a style={{ pointerEvents: "auto" }}>
-                    <circle cx={x} cy={y} r={12} fill="transparent"
+                    <circle cx={x} cy={y} r={14} fill="transparent"
                             onMouseEnter={() => setHoveredAgent(a.name)}
                             onMouseLeave={() => setHoveredAgent(null)} />
                   </a>
@@ -363,7 +453,7 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
               const count = agents.filter((a) => a.quadrant === q).length;
               return (
                 <div key={q} className={cn("rounded p-1.5 border border-transparent flex items-start gap-1.5", meta.bgClass)}>
-                  <span className={cn("text-[10px] font-mono font-bold", meta.textClass)}>
+                  <span className={cn("text-[10px] font-mono font-bold whitespace-nowrap", meta.textClass)}>
                     {meta.label} ({count})
                   </span>
                   <span className="text-[9px] font-mono text-muted-foreground flex-1">
@@ -381,6 +471,7 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
             tone="emerald"
             entries={climbers.map((c) => ({ track: c.track, score: c.score }))}
             emptyText="No standout climbers this week."
+            onHover={setHoveredAgent}
           />
 
           {/* Sliders */}
@@ -390,6 +481,7 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
             tone="red"
             entries={sliders.map((s) => ({ track: s.track, score: s.score }))}
             emptyText="No agents sliding meaningfully — clean week."
+            onHover={setHoveredAgent}
           />
 
           {/* Quadrant transitions */}
@@ -399,19 +491,23 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
                 <ArrowUpRight className="h-3 w-3" />
                 Quadrant transitions ({transitions.length})
               </div>
-              {transitions.slice(0, 5).map((t) => {
+              {transitions.slice(0, 6).map((t) => {
                 const fromMeta = QUADRANT_META[t.prevQuadrant];
                 const toMeta = QUADRANT_META[t.quadrant];
                 const isUpgrade = upgradeRank(t.quadrant) > upgradeRank(t.prevQuadrant);
                 return (
-                  <Link key={t.name} href={`/agent-profile/${encodeURIComponent(t.name)}`}>
-                    <a className="flex items-center gap-1.5 text-[10px] font-mono hover:bg-accent rounded px-1 py-0.5">
-                      <span className="text-foreground flex-1 truncate">{t.name}</span>
-                      <span className={fromMeta.textClass}>{fromMeta.label}</span>
-                      <ChevronRight className={cn("h-3 w-3", isUpgrade ? "text-emerald-400" : "text-red-400")} />
-                      <span className={toMeta.textClass}>{toMeta.label}</span>
-                    </a>
-                  </Link>
+                  <div key={t.name}
+                       onMouseEnter={() => setHoveredAgent(t.name)}
+                       onMouseLeave={() => setHoveredAgent(null)}>
+                    <Link href={`/agent-profile/${encodeURIComponent(t.name)}`}>
+                      <a className="flex items-center gap-1.5 text-[10px] font-mono hover:bg-accent rounded px-1 py-0.5">
+                        <span className="text-foreground flex-1 truncate">{t.name}</span>
+                        <span className={fromMeta.textClass}>{fromMeta.label}</span>
+                        <ChevronRight className={cn("h-3 w-3", isUpgrade ? "text-emerald-400" : "text-red-400")} />
+                        <span className={toMeta.textClass}>{toMeta.label}</span>
+                      </a>
+                    </Link>
+                  </div>
                 );
               })}
             </div>
@@ -420,12 +516,13 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
           <div className="text-[9px] font-mono text-muted-foreground italic px-1 leading-snug">
             Trail = where each agent was 30/14/7 days ago, ending at their bright dot today.
             Floor medians are computed from this very roster, so quadrants describe relative performance.
+            Hover a side-panel name to highlight that agent on the map.
           </div>
         </div>
       </div>
 
-      {/* Tally strip at the bottom: ratio of stars to at-risk */}
-      <div className="flex items-center gap-3 pt-2 border-t border-border/60 text-[10px] font-mono">
+      {/* Tally strip + low-activity callout at the bottom */}
+      <div className="flex items-center gap-3 pt-2 border-t border-border/60 text-[10px] font-mono flex-wrap">
         <Users className="h-3 w-3 text-muted-foreground" />
         <span className="text-muted-foreground">Floor mix:</span>
         {(["stars", "grinders", "talents", "atRisk"] as QuadrantId[]).map((q) => {
@@ -440,8 +537,38 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
         })}
         <span className="text-muted-foreground ml-auto">
           {agents.length} agents · trailing 7d / 30d
+          {(trueMaxX > axisMaxX || trueMaxY > axisMaxY) && (
+            <span className="ml-2 text-amber-400/80">(axis clipped at p90 — chevrons mark outliers)</span>
+          )}
         </span>
       </div>
+
+      {/* Low-activity bench — agents excluded from the scatter so the floor
+          medians stay honest. They still get listed so they aren't invisible. */}
+      {lowActivity.length > 0 && (
+        <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5">
+          <div className="text-[9px] font-mono uppercase tracking-widest text-amber-400/80 flex items-center gap-1 mb-1.5">
+            <AlertCircle className="h-3 w-3" />
+            Excluded from map · &lt; 5 leads in trailing 7 days ({lowActivity.length})
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {lowActivity.map((a) => (
+              <Link key={a.name} href={`/agent-profile/${encodeURIComponent(a.name)}`}>
+                <a className="text-[10px] font-mono px-2 py-0.5 rounded bg-card/40 border border-border/50 text-muted-foreground hover:text-foreground hover:border-border">
+                  {a.name}
+                  <span className="text-muted-foreground/60 ml-1">
+                    ({a.windows[7].leads}l/{a.windows[7].sales}s)
+                  </span>
+                </a>
+              </Link>
+            ))}
+          </div>
+          <div className="text-[9px] font-mono text-amber-400/60 italic mt-1.5">
+            Sample too thin to plot reliably (a single sale on 1 lead becomes "100% CR" and distorts the floor).
+            Click any name to drill in.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -457,9 +584,10 @@ interface MoverListProps {
   tone: "emerald" | "red";
   entries: Array<{ track: AgentTrack; score: number }>;
   emptyText: string;
+  onHover: (name: string | null) => void;
 }
 
-function MoverList({ title, icon, tone, entries, emptyText }: MoverListProps) {
+function MoverList({ title, icon, tone, entries, emptyText, onHover }: MoverListProps) {
   const borderClass = tone === "emerald" ? "border-emerald-500/20" : "border-red-500/20";
   const bgClass     = tone === "emerald" ? "bg-emerald-500/5" : "bg-red-500/5";
   const valueClass  = tone === "emerald" ? "text-emerald-400" : "text-red-400";
@@ -475,18 +603,22 @@ function MoverList({ title, icon, tone, entries, emptyText }: MoverListProps) {
         const dx = e.track.momentum.dx * 100;
         const dy = e.track.momentum.dy;
         return (
-          <Link key={e.track.name} href={`/agent-profile/${encodeURIComponent(e.track.name)}`}>
-            <a className="flex items-center gap-2 text-[10px] font-mono hover:bg-accent rounded px-1 py-0.5">
-              <span className="text-foreground flex-1 truncate">{e.track.name}</span>
-              <span className={cn("tabular-nums", valueClass)}>
-                {dx >= 0 ? "+" : ""}{dx.toFixed(1)}pp
-              </span>
-              <span className="text-muted-foreground tabular-nums">/</span>
-              <span className={cn("tabular-nums", valueClass)}>
-                {dy >= 0 ? "+" : ""}{Math.round(dy)}m
-              </span>
-            </a>
-          </Link>
+          <div key={e.track.name}
+               onMouseEnter={() => onHover(e.track.name)}
+               onMouseLeave={() => onHover(null)}>
+            <Link href={`/agent-profile/${encodeURIComponent(e.track.name)}`}>
+              <a className="flex items-center gap-2 text-[10px] font-mono hover:bg-accent rounded px-1 py-0.5">
+                <span className="text-foreground flex-1 truncate">{e.track.name}</span>
+                <span className={cn("tabular-nums", valueClass)}>
+                  {dx >= 0 ? "+" : ""}{dx.toFixed(1)}pp
+                </span>
+                <span className="text-muted-foreground tabular-nums">/</span>
+                <span className={cn("tabular-nums", valueClass)}>
+                  {dy >= 0 ? "+" : ""}{Math.round(dy)}m
+                </span>
+              </a>
+            </Link>
+          </div>
         );
       })}
     </div>

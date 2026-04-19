@@ -87,6 +87,8 @@ export interface WindowStats {
   premium: number;
   /** Total dials in the window. */
   dials: number;
+  /** Total leads delivered in the window (IB + OB + custom). */
+  leads: number;
   /** # of weekday rows present in the window (used for the per-day average). */
   daysActive: number;
 }
@@ -110,19 +112,31 @@ export interface AgentTrack {
 }
 
 export interface CoachingQuadrantData {
-  /** All active agents with computed tracks (only those with T7 data). */
+  /** Active agents with enough activity to plot (>= MIN_LEADS_FOR_PLOT in T7). */
   agents: AgentTrack[];
+  /** Active agents excluded from the plot due to thin sample size. */
+  lowActivity: AgentTrack[];
   /** Median of T7 close rate across the floor. Becomes the X axis divider. */
   medianCloseRate: number;
   /** Median of T7 talk-min-per-day across the floor. Becomes the Y axis divider. */
   medianTalkPerDay: number;
-  /** Bounds of the chart (axis max), padded for headroom. */
+  /** Visible chart bounds. Outliers above these get clipped + flagged. */
   axisMaxX: number;
   axisMaxY: number;
+  /** True bounds of the data (used to know when an agent is clipped). */
+  trueMaxX: number;
+  trueMaxY: number;
   anchorDate: string;
   loading: boolean;
   error: string | null;
 }
+
+/**
+ * Minimum trailing-7-day leads delivered required for an agent to appear on
+ * the quadrant. Agents below this threshold (e.g. 1 lead, 1 sale, "100% CR")
+ * would otherwise blow out the X axis and mislead coaching prioritization.
+ */
+const MIN_LEADS_FOR_PLOT = 5;
 
 interface DailyRow {
   agent_name: string;
@@ -148,11 +162,6 @@ interface AgentRow {
   terminated_date: string | null;
 }
 
-const ZERO: WindowStats = {
-  closeRate: 0, talkMinutesPerDay: 0,
-  sales: 0, premium: 0, dials: 0, daysActive: 0,
-};
-
 /** Anchor − N days, formatted as YYYY-MM-DD (calendar days, no business-day skip). */
 function shiftDate(anchor: string, daysBack: number): string {
   const d = new Date(anchor + "T00:00:00Z");
@@ -177,7 +186,7 @@ function aggregate(rows: DailyRow[], from: string, to: string): WindowStats {
   return {
     closeRate: leads > 0 ? sales / leads : 0,
     talkMinutesPerDay: talk / days,
-    sales, premium, dials,
+    sales, premium, dials, leads,
     daysActive: daySet.size,
   };
 }
@@ -188,6 +197,14 @@ function median(xs: number[]): number {
   if (s.length === 0) return 0;
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+/** Pth-percentile of a number array (p in [0..1]), nan-safe. */
+function percentile(xs: number[], p: number): number {
+  const s = xs.filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  if (s.length === 0) return 0;
+  const idx = Math.min(s.length - 1, Math.max(0, Math.round((s.length - 1) * p)));
+  return s[idx];
 }
 
 function classify(cr: number, talk: number, medCR: number, medTalk: number): QuadrantId {
@@ -242,9 +259,10 @@ export function useCoachingQuadrant(anchorDate: string): CoachingQuadrantData {
   return useMemo<CoachingQuadrantData>(() => {
     if (!anchorDate) {
       return {
-        agents: [], medianCloseRate: 0, medianTalkPerDay: 0,
-        axisMaxX: 0.4, axisMaxY: 240, anchorDate: "",
-        loading, error,
+        agents: [], lowActivity: [],
+        medianCloseRate: 0, medianTalkPerDay: 0,
+        axisMaxX: 0.4, axisMaxY: 240, trueMaxX: 0.4, trueMaxY: 240,
+        anchorDate: "", loading, error,
       };
     }
 
@@ -270,7 +288,7 @@ export function useCoachingQuadrant(anchorDate: string): CoachingQuadrantData {
     const w30From = shiftDate(anchorDate, 29);
 
     // First pass: per-agent aggregates for each window.
-    const tracks: AgentTrack[] = activeAgents.map((a) => {
+    const allTracks: AgentTrack[] = activeAgents.map((a) => {
       const rows = rowsByAgent.get(a.name) ?? [];
       const w0  = aggregate(rows, w0From, anchorDate);
       const w7  = aggregate(rows, w7From, anchorDate);
@@ -294,30 +312,52 @@ export function useCoachingQuadrant(anchorDate: string): CoachingQuadrantData {
       return track;
     }).filter((t) => t.hasData);
 
-    // Floor medians = median across active agents who actually showed up in T7.
+    // Split out low-activity agents BEFORE computing medians + axes so a single
+    // outlier (1 lead, 1 sale = 100% CR) can't distort the floor reference.
+    const tracks: AgentTrack[] = [];
+    const lowActivity: AgentTrack[] = [];
+    for (const t of allTracks) {
+      if (t.windows[7].leads >= MIN_LEADS_FOR_PLOT) tracks.push(t);
+      else lowActivity.push(t);
+    }
+
+    // Floor medians = median across qualified agents only.
     const medianCloseRate = median(tracks.map((t) => t.windows[7].closeRate));
     const medianTalkPerDay = median(tracks.map((t) => t.windows[7].talkMinutesPerDay));
 
-    // Second pass: assign quadrants now that the dividers are known.
-    for (const t of tracks) {
+    // Second pass: assign quadrants now that the dividers are known. Apply to
+    // BOTH qualified and low-activity tracks so they can still appear in
+    // climber/slider lists if they actually moved.
+    for (const t of [...tracks, ...lowActivity]) {
       t.quadrant = classify(t.windows[7].closeRate, t.windows[7].talkMinutesPerDay, medianCloseRate, medianTalkPerDay);
       t.prevQuadrant = classify(t.windows[30].closeRate, t.windows[30].talkMinutesPerDay, medianCloseRate, medianTalkPerDay);
       t.movedQuadrant = t.quadrant !== t.prevQuadrant;
     }
 
-    // Axis bounds: snap a bit above the max observation so dots don't kiss edges.
-    const axisMaxX = Math.max(0.30, ...tracks.map((t) =>
-      Math.max(t.windows[0].closeRate, t.windows[7].closeRate, t.windows[14].closeRate, t.windows[30].closeRate)
-    )) * 1.15;
-    const axisMaxY = Math.max(60, ...tracks.map((t) =>
-      Math.max(t.windows[0].talkMinutesPerDay, t.windows[7].talkMinutesPerDay, t.windows[14].talkMinutesPerDay, t.windows[30].talkMinutesPerDay)
-    )) * 1.15;
+    // Axis bounds: cap at the 90th percentile of observations across the four
+    // windows so a single outlier (huge talk-time hermit, fluke 90% CR) does not
+    // squash the rest of the floor into the lower-left corner. We then add 12%
+    // headroom so the cap value itself isn't sitting on the axis edge.
+    const xObservations = tracks.flatMap((t) => [
+      t.windows[0].closeRate, t.windows[7].closeRate, t.windows[14].closeRate, t.windows[30].closeRate,
+    ]);
+    const yObservations = tracks.flatMap((t) => [
+      t.windows[0].talkMinutesPerDay, t.windows[7].talkMinutesPerDay, t.windows[14].talkMinutesPerDay, t.windows[30].talkMinutesPerDay,
+    ]);
+    const trueMaxX = Math.max(0.10, ...xObservations);
+    const trueMaxY = Math.max(30, ...yObservations);
+    const p90X = percentile(xObservations, 0.90);
+    const p90Y = percentile(yObservations, 0.90);
+    const axisMaxX = Math.max(0.30, p90X) * 1.12;
+    const axisMaxY = Math.max(60, p90Y) * 1.12;
 
     return {
       agents: tracks,
+      lowActivity,
       medianCloseRate,
       medianTalkPerDay,
       axisMaxX, axisMaxY,
+      trueMaxX, trueMaxY,
       anchorDate,
       loading, error,
     };

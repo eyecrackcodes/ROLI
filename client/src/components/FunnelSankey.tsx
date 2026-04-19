@@ -211,10 +211,10 @@ export function FunnelSankey({ decomposition }: FunnelSankeyProps) {
     return (
       <div className="rounded-lg border border-border bg-card/30 p-6 text-center">
         <p className="text-xs font-mono text-muted-foreground">
-          No agent_performance_daily rows for this agent in the selected window.
+          No funnel activity for this agent in the selected window.
         </p>
         <p className="text-[10px] font-mono text-muted-foreground/70 mt-1">
-          The Daily Agent Performance scrape feeds this view — check that it ran.
+          Try widening the date range, or pick a window where the agent took calls.
         </p>
       </div>
     );
