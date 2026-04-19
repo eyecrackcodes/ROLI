@@ -482,6 +482,10 @@ function buildPulseFromRows(
   const processed = new Set<string>();
 
   for (const [name, rows] of Array.from(scrapeGrouped)) {
+    // Skip scrape rows for agents that aren't in the active roster (e.g.
+    // terminated agents). Callers are responsible for building agentMap with
+    // the desired inclusion policy.
+    if (agentMap.size > 0 && !agentMap.has(name)) continue;
     processed.add(name);
     const agent = agentMap.get(name);
     const site = agent?.site ?? "RMT";
@@ -560,13 +564,18 @@ export async function fetchAndExportPulse(opts: ExportOptions): Promise<void> {
       .select("name, site, tier, is_active, terminated_date"),
   ]);
 
-  const typedDaily = (dailyRows ?? []) as ScrapeRow[];
-  const typedPool = (poolRows ?? []) as PoolRow[];
+  const typedDailyRaw = (dailyRows ?? []) as ScrapeRow[];
+  const typedPoolRaw = (poolRows ?? []) as PoolRow[];
+  // Active-only: terminated agents are excluded from exports regardless of
+  // whether they had production inside the date range. This keeps agent-facing
+  // reports tied to the current roster.
   const agentMap = new Map<string, { name: string; site: string; tier: string }>();
   for (const a of (agents ?? []) as Array<{ name: string; site: string; tier: string; is_active: boolean; terminated_date: string | null }>) {
-    if (a.is_active) { agentMap.set(a.name, a); continue; }
-    if (a.terminated_date && startDate < a.terminated_date) agentMap.set(a.name, a);
+    if (a.is_active) agentMap.set(a.name, a);
   }
+  // Drop scrape/pool rows belonging to terminated agents so totals match.
+  const typedDaily = typedDailyRaw.filter((r) => agentMap.has(r.agent_name));
+  const typedPool = typedPoolRaw.filter((r) => agentMap.has(r.agent_name));
 
   // Daily breakdown: one unified sheet per date (no tier split).
   if (opts.dailyBreakdown && isRange) {
