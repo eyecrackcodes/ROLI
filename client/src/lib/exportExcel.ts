@@ -254,10 +254,16 @@ function flattenWithPool(agent: DailyPulseAgent): ExportableRow {
 
   // Unified all-remote totals: every conversion-eligible touch counts toward
   // overall conversion. Pool self-assigned leads are the "leads" denominator
-  // for pool work; bonus/custom sales count in the numerator but have no
-  // separate lead denominator.
+  // for pool work.
+  //
+  // IMPORTANT: salesToday/totalPremium come from daily_scrape_data which is
+  // sourced from the CRM Sale Made report — the system of record for ALL
+  // sales regardless of channel (inbound, pool, bonus). Pool sales from
+  // leads_pool_daily_data are the SAME physical sales re-attributed to pool
+  // dialing, so we must NOT add them again. Use the pre-aggregated
+  // salesToday field which is already correct in both daily and range paths.
   const totalLeads = ibLeads + selfAssigned;
-  const totalSales = ibSales + poolSales + bonusSales;
+  const totalSales = agent.salesToday ?? (ibSales + bonusSales);
   const overallCR = totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0;
 
   return {

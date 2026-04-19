@@ -584,8 +584,12 @@ export function useAgentProfile(agentName: string | null, startDate: string, end
 
         const regDials = Math.max(0, combinedDials - poolDials);
         const regTalk = Math.max(0, combinedTalk - poolTalk);
-        const combinedSales = regSales + poolSales;
-        const combinedPremium = regPremium + poolPremium;
+        // regSales / regPremium come from daily_scrape_data, sourced from the CRM
+        // Sale Made report — system of record for ALL sales regardless of channel.
+        // Pool sales (poolSales) are the SAME physical sales re-attributed to pool
+        // dialing in leads_pool_daily_data, so they must NOT be added again.
+        const combinedSales = regSales;
+        const combinedPremium = regPremium;
         const poolPct = combinedDials > 0 ? (poolDials / combinedDials) * 100 : 0;
         const assignRate = poolAnswered > 0 ? (poolAssigned / poolAnswered) * 100 : 0;
 
