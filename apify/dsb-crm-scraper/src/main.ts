@@ -150,6 +150,22 @@ function buildLeadsPoolReportUrl(scrapeDate: string): string {
   return `${CRM_BASE}/admin-leads-pool-report/?period=custom&start_date=${d}&end_date=${d}&agent_id=all&coach=&agency_id=`;
 }
 
+function buildLeadsPoolReportRangeUrl(startDate: string, endDate: string): string {
+  const s = encodeDate(startDate);
+  const e = encodeDate(endDate);
+  return `${CRM_BASE}/admin-leads-pool-report/?period=custom&start_date=${s}&end_date=${e}&agent_id=all&coach=&agency_id=`;
+}
+
+/**
+ * Most recent Sunday on or before `isoDate`, ISO format.
+ * Used as the WTD anchor for the leads-pool aggregate reconciliation.
+ */
+function startOfWeekSunday(isoDate: string): string {
+  const d = new Date(isoDate + "T12:00:00");
+  d.setDate(d.getDate() - d.getDay()); // getDay(): 0 = Sunday
+  return d.toISOString().slice(0, 10);
+}
+
 const LEADS_POOL_INVENTORY_URL = `${CRM_BASE}/admin-in-leads-pool-status-report/?status=reports_currently_in_leads_pool_status_default_group`;
 
 function buildAgentPerformanceUrl(agencyId: string, scrapeDate: string): string {
@@ -603,8 +619,33 @@ async function scrapeLeadsPoolReport(
   page: Page,
   scrapeDate: string,
 ): Promise<PoolAgentRecord[]> {
-  const url = buildLeadsPoolReportUrl(scrapeDate);
-  log.info(`Leads Pool Report: ${url}`);
+  return scrapeLeadsPoolReportFromUrl(page, buildLeadsPoolReportUrl(scrapeDate), `Leads Pool Report (${scrapeDate})`);
+}
+
+/**
+ * Scrape the leads-pool report aggregated across a date range. CRM sometimes
+ * attributes a pool sale into the WTD aggregate without showing it in the
+ * single-day view for any day in that range. We use this WTD pull to detect
+ * those gaps and apply a delta to today's row before ingest.
+ */
+async function scrapeLeadsPoolReportRange(
+  page: Page,
+  startDate: string,
+  endDate: string,
+): Promise<PoolAgentRecord[]> {
+  return scrapeLeadsPoolReportFromUrl(
+    page,
+    buildLeadsPoolReportRangeUrl(startDate, endDate),
+    `Leads Pool Report (${startDate} → ${endDate})`,
+  );
+}
+
+async function scrapeLeadsPoolReportFromUrl(
+  page: Page,
+  url: string,
+  label: string,
+): Promise<PoolAgentRecord[]> {
+  log.info(`${label}: ${url}`);
   await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
   await page.waitForTimeout(3000);
   await page.waitForSelector('table', { timeout: 15000 }).catch(() => {});
@@ -629,7 +670,7 @@ async function scrapeLeadsPoolReport(
   const longCallsIdx = headers.findIndex((h) => h.includes("long call"));
   const contactRateIdx = headers.findIndex((h) => h.includes("contact") && h.includes("rate"));
 
-  log.info(`Leads Pool Report: ${rows.length} rows, columns: agent=${agentIdx}, calls=${callsMadeIdx}, talk=${talkTimeIdx}, sales=${salesIdx}, premium=${premiumIdx}, selfAssigned=${selfAssignedIdx}, answered=${answeredIdx}, long=${longCallsIdx}, contactRate=${contactRateIdx}`);
+  log.info(`${label}: ${rows.length} rows, columns: agent=${agentIdx}, calls=${callsMadeIdx}, talk=${talkTimeIdx}, sales=${salesIdx}, premium=${premiumIdx}, selfAssigned=${selfAssignedIdx}, answered=${answeredIdx}, long=${longCallsIdx}, contactRate=${contactRateIdx}`);
 
   const results: PoolAgentRecord[] = [];
 
@@ -653,7 +694,7 @@ async function scrapeLeadsPoolReport(
     });
   }
 
-  log.info(`Leads Pool Report: parsed ${results.length} agent records`);
+  log.info(`${label}: parsed ${results.length} agent records`);
   return results;
 }
 
@@ -898,6 +939,94 @@ try {
         }
       } catch (err) {
         log.error(`Pool reconciliation [${pastDate}] failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
+  // ---- WTD Pool Sales Reconciliation ----
+  // The CRM Leads Pool Report's date-range aggregate sometimes reports a higher
+  // sales/premium total than the sum of the per-day pulls — CRM lazily attributes
+  // a sale into the WTD view without populating it into any single-day query.
+  // Pull the WTD aggregate (Sun→today), compare per agent, and add any positive
+  // delta to today's row (pre-ingest) so dashboards stay correct.
+  //
+  // We only add to today's row (never decrement past days) — over-attribution
+  // is rare and is better surfaced via the standalone reconcile-wtd-pool.mjs
+  // diagnostic than auto-corrected silently here.
+  if (poolAgents.length > 0) {
+    const wtdStart = startOfWeekSunday(scrapeDate);
+    if (wtdStart !== scrapeDate) {
+      try {
+        log.info(`\n========== POOL WTD AGGREGATE RECONCILIATION ==========`);
+        log.info(`  Window: ${wtdStart} → ${scrapeDate}`);
+        const wtdAgents = await scrapeLeadsPoolReportRange(page, wtdStart, scrapeDate);
+
+        // Sum the per-day rows (today + reconcile results) restricted to the WTD window.
+        const perDaySums = new Map<string, { sales: number; premium: number }>();
+        const accum = (rec: PoolAgentRecord) => {
+          const cur = perDaySums.get(rec.agent_name) ?? { sales: 0, premium: 0 };
+          cur.sales += rec.sales_made;
+          cur.premium += rec.premium;
+          perDaySums.set(rec.agent_name, cur);
+        };
+        for (const a of poolAgents) accum(a);
+        for (const rec of reconcileResults) {
+          if (rec.scrape_date >= wtdStart && rec.scrape_date <= scrapeDate) {
+            for (const a of rec.pool_agents) accum(a);
+          }
+        }
+
+        // Compute deltas.
+        const corrections: Array<{ name: string; salesDelta: number; premiumDelta: number; wtdSales: number; perDaySales: number }> = [];
+        for (const wAgent of wtdAgents) {
+          const seen = perDaySums.get(wAgent.agent_name) ?? { sales: 0, premium: 0 };
+          const salesDelta = wAgent.sales_made - seen.sales;
+          const premiumDelta = wAgent.premium - seen.premium;
+          if (salesDelta > 0 || premiumDelta > 0.5) {
+            corrections.push({
+              name: wAgent.agent_name,
+              salesDelta: Math.max(0, salesDelta),
+              premiumDelta: Math.max(0, premiumDelta),
+              wtdSales: wAgent.sales_made,
+              perDaySales: seen.sales,
+            });
+          }
+        }
+
+        if (corrections.length === 0) {
+          log.info(`  ✓ Per-day pool sales/premium fully reconcile against WTD aggregate.`);
+        } else {
+          log.info(`  ${corrections.length} agent(s) under-attributed by the per-day view; bumping today's row:`);
+          // Build a name -> index map for poolAgents for fast in-place mutation.
+          const todayIdx = new Map<string, number>();
+          poolAgents.forEach((a, i) => todayIdx.set(a.agent_name, i));
+
+          for (const c of corrections) {
+            const i = todayIdx.get(c.name);
+            if (i === undefined) {
+              // Agent had WTD activity but no row in today's pull — synthesize a
+              // sales-only row so the delta still lands on the right date.
+              poolAgents.push({
+                agent_name: c.name,
+                calls_made: 0,
+                talk_time_minutes: 0,
+                sales_made: c.salesDelta,
+                premium: c.premiumDelta,
+                self_assigned_leads: 0,
+                answered_calls: 0,
+                long_calls: 0,
+                contact_rate: 0,
+              });
+              log.info(`    + ${c.name.padEnd(24)} +${c.salesDelta} sales / +$${c.premiumDelta.toFixed(0)}  (WTD ${c.wtdSales}, per-day sum ${c.perDaySales}, no today row — synthesized)`);
+            } else {
+              poolAgents[i].sales_made += c.salesDelta;
+              poolAgents[i].premium += c.premiumDelta;
+              log.info(`    + ${c.name.padEnd(24)} +${c.salesDelta} sales / +$${c.premiumDelta.toFixed(0)}  (WTD ${c.wtdSales}, per-day sum ${c.perDaySales})`);
+            }
+          }
+        }
+      } catch (err) {
+        log.error(`Pool WTD reconciliation failed: ${err instanceof Error ? err.message : err}`);
       }
     }
   }

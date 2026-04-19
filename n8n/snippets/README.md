@@ -8,6 +8,16 @@
 - **`merge-hourly-slack.mjs`** — writes Slack node into a workflow JSON (default `../hourly-action-alert.json`). Optional path: `node n8n/snippets/merge-hourly-slack.mjs n8n/hourly-action-alert-LIVE.json`
 - **`merge-hourly-action-LIVE.mjs`** — one-shot refresh of gitignored **`hourly-action-alert-LIVE.json`**: injects **local** `hourly-fetch-with-marketing.js` (keys), plus recommender + Slack snippets. Run after editing any of those three files.
 - **`dsb-build-slack-production-digest.js`** — **DSB daily scrape** Slack body (RMT + AUS digest only; Charlotte not shown). Merge with **`merge-dsb-daily-slack.mjs`** into `../dsb-daily-scrape-v5-pool.json`. Ingestion still sends **all** agents to Supabase; only Slack is filtered.
+- **`reconcile-wtd-sales.mjs`** — Diff-only check of CRM Sale Made aggregate vs `daily_scrape_data` for the WTD window. Run on demand when total sales feel off. No writes.
+- **`reconcile-wtd-pool.mjs`** — Diff CRM **Leads Pool Report** WTD aggregate vs `leads_pool_daily_data` per agent. Catches sales CRM only attributes into the aggregate view (per-day pulls miss them). Pass `--apply` to PATCH today's row by the positive delta.
+
+```bash
+node n8n/snippets/reconcile-wtd-sales.mjs            # diff-only
+node n8n/snippets/reconcile-wtd-pool.mjs             # diff-only
+node n8n/snippets/reconcile-wtd-pool.mjs --apply     # apply positive deltas onto today's row
+```
+
+> The Apify scraper now performs this WTD-aggregate reconciliation automatically every hour (Mon–Fri 8 AM–6 PM CST), bumping today's row in-flight before ingest. The standalone script is for ad-hoc diagnostic use or to apply a correction immediately without waiting for the next scheduled run.
 
 ```bash
 node n8n/snippets/merge-hourly-fetch.mjs
