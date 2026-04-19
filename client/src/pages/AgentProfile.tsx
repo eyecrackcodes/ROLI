@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import { useRoute, Link } from "wouter";
 import { useAgentProfile } from "@/hooks/useAgentProfile";
 import type { ProfileDay, CoachingSignal } from "@/hooks/useAgentProfile";
+import { useFunnelDecomposition } from "@/hooks/useFunnelDecomposition";
+import { FunnelSankey } from "@/components/FunnelSankey";
 import { MetricCard } from "@/components/MetricCard";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -14,6 +16,7 @@ import {
   TrendingUp, TrendingDown, Shield, ShieldCheck, ShieldX,
   Target, Lightbulb, AlertTriangle, ThumbsUp,
   Calendar, CalendarRange, Users, DollarSign, BarChart3, CalendarClock,
+  Filter,
 } from "lucide-react";
 
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -529,6 +532,9 @@ export default function AgentProfile() {
   };
 
   const { agent, days, summary, coaching, flags, loading } = useAgentProfile(agentName, startDate, endDate);
+  // Funnel decomposition: pulls agent_performance_daily for this agent + the floor
+  // over the same window; the FunnelSankey component renders flow + leak diagnosis.
+  const funnel = useFunnelDecomposition(agentName, startDate, endDate);
 
   if (!agentName) {
     return (
@@ -560,6 +566,19 @@ export default function AgentProfile() {
           <ComplianceScorecard days={days} />
           <ActivityBalance summary={summary} />
           <ProductionSummary days={days} summary={summary} />
+
+          {/* Funnel Forensics — flow diagram + leak diagnosis with what-if sliders. */}
+          <div className="bg-card border border-border rounded-md p-4 space-y-3 print:break-inside-avoid">
+            <h2 className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <Filter className="h-3.5 w-3.5" />
+              Funnel Forensics
+              <span className="text-[10px] font-normal text-muted-foreground/70 ml-2 normal-case tracking-normal">
+                Where the dollars are leaking — and what they'd be worth fixed
+              </span>
+            </h2>
+            <FunnelSankey decomposition={funnel} />
+          </div>
+
           <PipelineHealth days={days} summary={summary} />
           <CoachingSummary signals={coaching} tier={agent?.tier ?? "T3"} />
         </>

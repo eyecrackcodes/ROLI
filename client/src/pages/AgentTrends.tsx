@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { HeartbeatClock } from "@/components/HeartbeatClock";
+import { useIntradayHeartbeat } from "@/hooks/useIntradayHeartbeat";
 
 function formatCurrency(val: number) {
   return "$" + val.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -26,6 +28,94 @@ const HOUR_LABELS: Record<number, string> = {
   12: "12PM", 13: "1PM", 14: "2PM", 15: "3PM", 16: "4PM", 17: "5PM",
   18: "6PM", 19: "7PM", 20: "8PM",
 };
+
+/**
+ * HeartbeatTab — polar SVG view of one workday's hourly rhythm.
+ * Supports per-agent (selected) and floor-aggregate (toggle) modes; both
+ * derive purely from intraday_snapshots cumulative deltas.
+ */
+function HeartbeatTab({ agentName }: { agentName: string }) {
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [scope, setScope] = useState<"agent" | "floor">("agent");
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    (async () => {
+      const { data } = await supabase
+        .from("intraday_snapshots")
+        .select("scrape_date")
+        .order("scrape_date", { ascending: false })
+        .limit(500);
+      const dates = Array.from(new Set((data ?? []).map((r: { scrape_date: string }) => r.scrape_date)));
+      setAvailableDates(dates);
+      if (dates.length > 0 && !selectedDate) setSelectedDate(dates[0]);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const heartbeat = useIntradayHeartbeat(scope === "agent" ? agentName : null, selectedDate);
+
+  const navDate = (dir: number) => {
+    const idx = availableDates.indexOf(selectedDate);
+    const next = idx + dir;
+    if (next >= 0 && next < availableDates.length) setSelectedDate(availableDates[next]);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navDate(-1)}
+            disabled={availableDates.indexOf(selectedDate) >= availableDates.length - 1}
+            className="p-1 rounded hover:bg-accent text-muted-foreground disabled:opacity-30"
+            aria-label="Previous day"
+          >‹</button>
+          <Select value={selectedDate} onValueChange={setSelectedDate}>
+            <SelectTrigger className="w-[160px] h-8 font-mono text-xs">
+              <SelectValue placeholder="Select date" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableDates.map((d) => (
+                <SelectItem key={d} value={d} className="font-mono text-xs">{d}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <button
+            onClick={() => navDate(1)}
+            disabled={availableDates.indexOf(selectedDate) <= 0}
+            className="p-1 rounded hover:bg-accent text-muted-foreground disabled:opacity-30"
+            aria-label="Next day"
+          >›</button>
+        </div>
+        {/* Scope toggle: this single agent vs the entire floor */}
+        <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
+          <button
+            onClick={() => setScope("agent")}
+            className={cn("px-2.5 py-1 rounded text-[11px] font-mono transition-colors",
+              scope === "agent" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
+          >
+            {agentName}
+          </button>
+          <button
+            onClick={() => setScope("floor")}
+            className={cn("px-2.5 py-1 rounded text-[11px] font-mono transition-colors",
+              scope === "floor" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
+          >
+            All Agents
+          </button>
+        </div>
+      </div>
+
+      <HeartbeatClock data={heartbeat} />
+
+      <p className="text-[10px] font-mono text-muted-foreground italic px-1">
+        Source: intraday_snapshots (CRM hourly scrape) — hourly deltas derived from cumulative rows.
+        Pace overlay uses the published unified pace curve (9 AM = 5%, 12 PM = 42%, 5 PM = 100%).
+      </p>
+    </div>
+  );
+}
 
 function IntradayTab({ agentName }: { agentName: string }) {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -597,8 +687,11 @@ export default function AgentTrends() {
       </div>
 
       {selectedAgent ? (
-        <Tabs defaultValue="dod" className="w-full">
+        <Tabs defaultValue="heartbeat" className="w-full">
           <TabsList className="bg-card border border-border">
+            <TabsTrigger value="heartbeat" className="font-mono text-xs data-[state=active]:bg-accent">
+              HEARTBEAT
+            </TabsTrigger>
             <TabsTrigger value="intraday" className="font-mono text-xs data-[state=active]:bg-accent">
               INTRADAY
             </TabsTrigger>
@@ -618,6 +711,9 @@ export default function AgentTrends() {
               STACK RANK
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="heartbeat" className="mt-4">
+            <HeartbeatTab agentName={selectedAgent} />
+          </TabsContent>
           <TabsContent value="intraday" className="mt-4">
             <IntradayTab agentName={selectedAgent} />
           </TabsContent>
