@@ -9,10 +9,14 @@ Every automated workflow in `/n8n` ships as a **pair** of files. Maintain both w
 
 | File | Purpose | Secrets? | Tracked? |
 |---|---|---|---|
-| `<workflow>.json` | Reference template — `YOUR_*` placeholders for every secret | No | Yes (committed) |
-| `<workflow>-LIVE.json` | Drop-in import for n8n with real values inline | Yes | Yes (committed — this repo is private) |
+| `<workflow>.json` | Reference template — `YOUR_*` placeholders for every secret | No | **Yes — committed** |
+| `<workflow>-LIVE.json` | Drop-in import for n8n with real values inline | Yes | **No — gitignored via `n8n/*-LIVE.json` rule** |
 
-Reference example: `n8n/dsb-pipeline-compliance-LIVE.json` ↔ (canonical placeholder version exists in git history before LIVE was promoted).
+The LIVE file lives in the working tree on the developer's machine (and on the user's machine via copy-paste). It is **never** committed. The committed `.gitignore` rule `n8n/*-LIVE.json` (line ~125) enforces this.
+
+Reference example pair already in this repo:
+- `n8n/dsb-pipeline-compliance-LIVE.json` (local only, gitignored)
+- `n8n/dsb-icd-billable-leads.json` (committed placeholder template)
 
 ## When to use which
 
@@ -22,17 +26,16 @@ Reference example: `n8n/dsb-pipeline-compliance-LIVE.json` ↔ (canonical placeh
 
 ## Required substitutions (placeholder → LIVE)
 
-These are the canonical values for this project. Pull the live values from any existing `*-LIVE.json` in `/n8n` if a token has rotated — never guess.
+Pull every real value from an existing `n8n/*-LIVE.json` in the working tree (e.g. `n8n/dsb-pipeline-compliance-LIVE.json`). Do **not** hard-code values here — secrets rotate, and this file is committed.
 
-| Placeholder | Live value source |
+| Placeholder | How to source it |
 |---|---|
-| `YOUR_SUPABASE_PROJECT` | `bcibmmbxrjfiulofserv` |
-| `YOUR_SUPABASE_ANON_KEY` | The `eyJ...` JWT in `dsb-pipeline-compliance-LIVE.json` (search `apikey =`) |
-| `YOUR_APIFY_TOKEN` | The `apify_api_...` token in any `-LIVE.json` URL |
-| `YOUR_SLACK_WEBHOOK` | `T1KA0KDNJ/B0AH01XP6AV/PGcSdbAQ3QhDkqrPxS7RcMnq` (path after `/services/`) |
-| `YOUR_*_ACTOR_ID` | The 17-char Apify actor ID — get from `apify push` output or the Apify console URL |
-| `YOUR_DSB_USERNAME` / `YOUR_ICD_USERNAME` | `anthonypattonll` |
-| `YOUR_DSB_PASSWORD` / `YOUR_ICD_PASSWORD` | `password` (yes literally — single SSO across DSB CRM and ICD) |
+| `YOUR_SUPABASE_PROJECT` | Subdomain in any LIVE file's `https://<project>.supabase.co/...` URL |
+| `YOUR_SUPABASE_ANON_KEY` | The `eyJ...` JWT — search `apikey =` or `Bearer ` in any LIVE file |
+| `YOUR_APIFY_TOKEN` | The `apify_api_...` token in any LIVE file's Apify URL (`?token=...`) |
+| `YOUR_SLACK_WEBHOOK` | The path segment after `https://hooks.slack.com/services/` in any LIVE file's Slack node |
+| `YOUR_*_ACTOR_ID` | The 17-char Apify actor ID from the most recent `apify push` output (`Actor detail https://console.apify.com/actors/<ID>`) |
+| `YOUR_*_USERNAME` / `YOUR_*_PASSWORD` | DSB CRM and ICD share an SSO credential — find it in the `apifyBody` of `dsb-pipeline-compliance-LIVE.json`'s `Fetch Agent Roster` node |
 | `REPLACE_WITH_GMAIL_CRED_ID` | Leave as-is — n8n binds Gmail OAuth via its own credential picker on import |
 
 ## Workflow when changing an n8n workflow
@@ -40,10 +43,10 @@ These are the canonical values for this project. Pull the live values from any e
 1. Edit the placeholder file (`<workflow>.json`).
 2. Mirror every change into `<workflow>-LIVE.json` with the substitution table above.
 3. Run `npm run build` from the repo root to make sure no TypeScript edge-function changes broke the frontend.
-4. `git add` both files (+ any related Apify actor / edge function changes).
+4. `git add` ONLY the placeholder file (+ any related Apify actor / edge function changes). The LIVE file is gitignored and must stay local — `git status` will silently skip it.
 5. Commit with a `feat(n8n):` or `fix(n8n):` prefix. Mention which workflow + what behavior changed.
 6. Push to `origin/main`.
-7. Tell the user to re-import the LIVE file into n8n (n8n does not auto-pick up file changes).
+7. Tell the user where to find the LIVE file and to re-import it into n8n (n8n does not auto-pick up file changes). Showing the file path is enough — they have it locally; do not paste credentials into chat.
 
 ## Deploying a brand-new workflow end-to-end
 
@@ -67,8 +70,10 @@ When you need to seed historical data and the n8n workflow isn't wired yet, the 
 
 ## Hard rules
 
+- **Never commit a `*-LIVE.json` file.** The gitignore rule `n8n/*-LIVE.json` enforces this; if `git add -f` ever bypasses it, that's a mistake — undo before pushing.
 - **Never commit a temp file containing credentials.** The `.tmp-*` prefix is your reminder, not your guarantee — verify with `git status` before staging.
-- **Never split-edit.** If you change `<workflow>.json` and not `<workflow>-LIVE.json` (or vice-versa) in the same commit, the next deployment will silently use stale logic.
+- **Never paste the LIVE file contents into chat.** It contains the Supabase anon key, Apify token, ICD password, and Slack webhook. Reference the file by path (`n8n/<workflow>-LIVE.json`) — the user already has it locally.
+- **Never split-edit.** If you change `<workflow>.json` and not `<workflow>-LIVE.json` (or vice-versa), the next deployment will silently use stale logic. Always update both in the same change.
 - **Never substitute the placeholder anon key for the service role key.** The edge functions use the service role internally via env vars; n8n only ever needs the anon key.
 - **`verify_jwt` should match what was deployed previously.** The current ROLI edge functions all use `verify_jwt: false` because n8n authenticates by passing the anon key in `Authorization: Bearer ...` and the function trusts that. Don't toggle this unless the user explicitly asks.
 

@@ -105,34 +105,50 @@ function parseSalesMade(val: string | undefined | null): number | null {
 // ---- Login ----
 
 async function login(page: Page, loginUrl: string, username: string, password: string): Promise<void> {
-  log.info(`[ICD] Navigating to login: ${loginUrl}`);
-  await page.goto(loginUrl, { waitUntil: "networkidle", timeout: 30000 });
-
-  // ICD uses a standard email/password form. Selectors are intentionally broad
-  // so the actor survives small markup changes (matches the DSB scraper pattern).
+  // ICD is occasionally slow at the start of the day. Retry once with longer
+  // timeouts before giving up so the morning scheduled run does not silently
+  // fail on a transient cold-start (same hardening as the DSB pipeline scraper).
   const userSelector = 'input[name="email"], input[name="username"], input[type="email"], input[id="email"], input[id="username"]';
   const passSelector = 'input[name="password"], input[type="password"], input[id="password"]';
   const submitSelector =
     'button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Log In"), button:has-text("Sign In")';
 
-  await page.waitForSelector(userSelector, { timeout: 15000 });
-  await page.fill(userSelector, username);
-  await page.fill(passSelector, password);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "networkidle", timeout: 30000 }).catch(() => {}),
-    page.click(submitSelector),
-  ]);
+  const attempts = 2;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const navTimeout = attempt === 1 ? 60000 : 90000;
+      log.info(`[ICD] Navigating to login (attempt ${attempt}/${attempts}, timeout ${navTimeout}ms): ${loginUrl}`);
+      await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: navTimeout });
+      await page.waitForLoadState("networkidle", { timeout: navTimeout }).catch(() => {});
+      await page.waitForSelector(userSelector, { timeout: 15000 });
+      await page.fill(userSelector, username);
+      await page.fill(passSelector, password);
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: navTimeout }).catch(() => {}),
+        page.click(submitSelector),
+      ]);
+      await page.waitForLoadState("networkidle", { timeout: navTimeout }).catch(() => {});
 
-  // Sanity: confirm we're past the login form. If not, bail loudly.
-  const stillOnLogin = await page
-    .locator('input[type="password"]')
-    .first()
-    .isVisible({ timeout: 2000 })
-    .catch(() => false);
-  if (stillOnLogin) {
-    throw new Error("ICD login appears to have failed (password field still visible after submit). Verify icdUsername / icdPassword.");
+      const stillOnLogin = await page
+        .locator('input[type="password"]')
+        .first()
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      if (stillOnLogin) {
+        throw new Error("ICD login appears to have failed (password field still visible after submit).");
+      }
+      log.info(`[ICD] Login successful`);
+      return;
+    } catch (err) {
+      lastErr = err;
+      log.warning(`[ICD] Login attempt ${attempt} failed: ${err instanceof Error ? err.message : err}`);
+      if (attempt < attempts) {
+        await page.waitForTimeout(5000);
+      }
+    }
   }
-  log.info(`[ICD] Login successful`);
+  throw new Error(`ICD login failed after ${attempts} attempts: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
 }
 
 // ---- Report scrape (one date) ----
@@ -291,9 +307,24 @@ try {
   const datasetInfo = await dataset.getInfo();
   const itemCount = datasetInfo && "itemCount" in datasetInfo ? (datasetInfo as { itemCount: number }).itemCount : 0;
   log.info(`[ICD] Dataset verified: ${itemCount} items stored across ${dates.length} dates. Actor complete.`);
-} catch (err) {
-  log.error(`[ICD] Actor failed: ${err instanceof Error ? err.message : err}`);
-  throw err;
-} finally {
+
+  // Loud-fail when every date errored — a "succeeded with only error items"
+  // run is never a real success. Counts only the success rows (icd_calls_report).
+  const successRows = await dataset
+    .getData({ limit: 1000 })
+    .then((d) => d.items.filter((i) => (i as { _type?: string })._type === "icd_calls_report").length)
+    .catch(() => 0);
+  if (successRows === 0) {
+    await Actor.fail("ICD scrape produced 0 successful date items — treating as failure");
+    return;
+  }
+
   await Actor.exit();
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  log.error(`[ICD] Actor failed: ${msg}`);
+  // Use Actor.fail so the run is reported as FAILED in Apify (exit code 1).
+  // The previous `throw err; finally Actor.exit()` pattern was being short-
+  // circuited by the finally block calling process.exit(0).
+  await Actor.fail(msg);
 }

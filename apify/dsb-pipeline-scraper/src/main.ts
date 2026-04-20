@@ -97,13 +97,36 @@ function fuzzyMatch(crmName: string, targetName: string): boolean {
 }
 
 async function login(page: Page, loginUrl: string, username: string, password: string): Promise<void> {
-  log.info(`Navigating to login: ${loginUrl}`);
-  await page.goto(loginUrl, { waitUntil: "networkidle", timeout: 30000 });
-  await page.fill('input[name="email"], input[name="username"], input[type="email"], input[type="text"]', username);
-  await page.fill('input[name="password"], input[type="password"]', password);
-  await page.click('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign In")');
-  await page.waitForNavigation({ waitUntil: "networkidle", timeout: 30000 });
-  log.info("Login successful");
+  // CRM is occasionally slow at the start of the day. Retry once with longer
+  // timeouts before giving up so the morning scheduled run does not silently
+  // fail on a transient cold-start.
+  const attempts = 2;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const navTimeout = attempt === 1 ? 60000 : 90000;
+      log.info(`Navigating to login (attempt ${attempt}/${attempts}, timeout ${navTimeout}ms): ${loginUrl}`);
+      await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: navTimeout });
+      await page.waitForLoadState("networkidle", { timeout: navTimeout }).catch(() => {});
+      await page.fill('input[name="email"], input[name="username"], input[type="email"], input[type="text"]', username);
+      await page.fill('input[name="password"], input[type="password"]', password);
+      // Submit + wait for nav atomically (avoids click/nav race).
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: navTimeout }),
+        page.click('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign In")'),
+      ]);
+      await page.waitForLoadState("networkidle", { timeout: navTimeout }).catch(() => {});
+      log.info("Login successful");
+      return;
+    } catch (err) {
+      lastErr = err;
+      log.warning(`Login attempt ${attempt} failed: ${err instanceof Error ? err.message : err}`);
+      if (attempt < attempts) {
+        await page.waitForTimeout(5000);
+      }
+    }
+  }
+  throw new Error(`Login failed after ${attempts} attempts: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
 }
 
 async function extractAgentDropdown(page: Page): Promise<CrmAgentOption[]> {
@@ -368,9 +391,21 @@ try {
 
   const { count } = (await dataset.getInfo()) ?? { count: 0 };
   log.info(`Dataset: ${count} items stored. Actor complete.`);
-} catch (err) {
-  log.error(`Actor failed: ${err instanceof Error ? err.message : err}`);
-  throw err;
-} finally {
+
+  // Loud-fail when we end up with an empty result so downstream automation
+  // (n8n / Slack) can react. A "succeeded with 0 agents" run is never a real
+  // success — it means login or dropdown extraction quietly failed earlier.
+  if (results.length === 0) {
+    await Actor.fail("Pipeline scrape produced 0 agents — treating as failure");
+    return;
+  }
+
   await Actor.exit();
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  log.error(`Actor failed: ${msg}`);
+  // Use Actor.fail so the run is reported as FAILED in Apify (exit code 1).
+  // The previous `throw err; finally Actor.exit()` pattern was being short-
+  // circuited by the finally block calling process.exit(0).
+  await Actor.fail(msg);
 }
