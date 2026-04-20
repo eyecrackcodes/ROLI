@@ -27,6 +27,28 @@ interface Input {
   linkedOids?: string[];
   salesTitleKeywords?: string[];
   /**
+   * Lowercased substrings that DISQUALIFY a job title from being treated as a
+   * sales producer, even if it contains a sales keyword. Catches things like
+   * "Sales Operations", "Brokerage Sales Support", "Director of Sales",
+   * "Sales Manager" — leadership/back-office roles that should never trigger
+   * "new sales hire" Slack alerts.
+   *
+   * Default: ["operations", "support", "director", "manager"].
+   *
+   * Linked workers always bypass this filter (so we still pull status updates
+   * for the GM if he was ever onboarded as an agent and later promoted).
+   */
+  salesTitleExcludeKeywords?: string[];
+  /**
+   * ADP associateOIDs to skip outright — never emitted, never Slacked.
+   * Use this for known noise (sales ops, leadership, support staff in the
+   * XAJ tenant whose titles match the sales keyword regex).
+   *
+   * NOTE: Only applies to UNLINKED workers. If an OID here is also in
+   * linkedOids, the linked-worker path wins so terminations still propagate.
+   */
+  ignoredAssociateOids?: string[];
+  /**
    * ADP company code allowlist. Workers whose primary assignment positionID
    * does NOT start with one of these prefixes are excluded from the dataset.
    * Defaults to ["XAJ"] (Digital Senior Benefits) — the only company we
@@ -168,7 +190,11 @@ function deriveCompanyCode(assignment: AdpAssignment): string {
   return "";
 }
 
-function isSalesRole(assignment: AdpAssignment, keywords: string[]): boolean {
+function isSalesRole(
+  assignment: AdpAssignment,
+  keywords: string[],
+  excludeKeywords: string[] = [],
+): boolean {
   const haystack = [
     assignment.jobTitle ?? "",
     assignment.jobCode?.shortName ?? "",
@@ -176,10 +202,17 @@ function isSalesRole(assignment: AdpAssignment, keywords: string[]): boolean {
   ]
     .join(" ")
     .toLowerCase();
+  if (excludeKeywords.some((k) => k && haystack.includes(k.toLowerCase()))) {
+    return false;
+  }
   return keywords.some((k) => haystack.includes(k.toLowerCase()));
 }
 
-function normalize(worker: AdpWorker, salesKeywords: string[]): OutputItem | null {
+function normalize(
+  worker: AdpWorker,
+  salesKeywords: string[],
+  salesExcludeKeywords: string[] = [],
+): OutputItem | null {
   const oid = trim(worker.associateOID);
   if (!oid) return null;
 
@@ -212,7 +245,7 @@ function normalize(worker: AdpWorker, salesKeywords: string[]): OutputItem | nul
     termination_date: trim(primary.terminationDate),
     original_hire_date: trim(worker.workerDates?.originalHireDate),
     work_email: pickWorkEmail(worker),
-    is_sales_role: isSalesRole(primary, salesKeywords),
+    is_sales_role: isSalesRole(primary, salesKeywords, salesExcludeKeywords),
     position_id: trim(primary.positionID),
     company_code: deriveCompanyCode(primary),
   };
@@ -335,6 +368,15 @@ try {
     (o): o is string => typeof o === "string" && o.length > 0,
   );
   const salesKeywords = input.salesTitleKeywords ?? ["agent", "sales", "producer"];
+  const salesExcludeKeywords = (
+    input.salesTitleExcludeKeywords ?? ["operations", "support", "director", "manager"]
+  )
+    .map((k) => trim(k).toLowerCase())
+    .filter((k) => k.length > 0);
+  const ignoredOidSet = new Set(
+    (input.ignoredAssociateOids ?? [])
+      .filter((o): o is string => typeof o === "string" && o.length > 0),
+  );
   const companyAllowlist = (input.companyCodeAllowlist ?? ["XAJ"])
     .map((c) => trim(c).toUpperCase())
     .filter((c) => c.length > 0);
@@ -342,6 +384,12 @@ try {
     log.info(`[ADP] Company allowlist active: [${companyAllowlist.join(", ")}] (linked workers always kept)`);
   } else {
     log.warning(`[ADP] companyCodeAllowlist is empty — no company filter applied`);
+  }
+  if (salesExcludeKeywords.length > 0) {
+    log.info(`[ADP] Sales title exclude keywords: [${salesExcludeKeywords.join(", ")}]`);
+  }
+  if (ignoredOidSet.size > 0) {
+    log.info(`[ADP] Ignored OIDs: ${ignoredOidSet.size} (linked workers bypass)`);
   }
 
   if (!input.adpClientId || !input.adpClientSecret) {
@@ -403,13 +451,20 @@ try {
   //   - unlinked workers only when is_sales_role=true AND in companyAllowlist (so n8n only Slacks "new sales hire" for our tenant)
   const emitted: OutputItem[] = [];
   let filteredByCompany = 0;
+  let filteredByOidIgnore = 0;
   for (const oid of detailTargets) {
+    const isLinked = linkedOids.includes(oid);
+    // Hard skip: explicit ignore list (only applies to UNLINKED workers — we
+    // never want a leadership/ops OID to silently break a linked agent row).
+    if (!isLinked && ignoredOidSet.has(oid)) {
+      filteredByOidIgnore += 1;
+      continue;
+    }
     const source = detailedByOid.get(oid) ?? byOid.get(oid);
     if (!source) continue;
-    const item = normalize(source, salesKeywords);
+    const item = normalize(source, salesKeywords, salesExcludeKeywords);
     if (!item) continue;
 
-    const isLinked = linkedOids.includes(oid);
     if (!passesCompanyFilter(item, companyAllowlist, isLinked)) {
       filteredByCompany += 1;
       continue;
@@ -421,17 +476,21 @@ try {
 
   // Also re-hydrate any linked OID that was filtered out by the "Active only"
   // gate above (e.g. someone got terminated yesterday — we still need the row
-  // to flip is_active=false in ROLI). Linked workers bypass the company filter.
+  // to flip is_active=false in ROLI). Linked workers bypass the company filter
+  // AND the ignore list.
   for (const oid of linkedOids) {
     if (detailedByOid.has(oid)) continue;
     const detail = await fetchWorkerDetail(dispatcher, apiBase, token, oid);
     if (!detail) continue;
-    const item = normalize(detail, salesKeywords);
+    const item = normalize(detail, salesKeywords, salesExcludeKeywords);
     if (item) emitted.push(item);
   }
 
   if (companyAllowlist.length > 0) {
     log.info(`[ADP] Company filter dropped ${filteredByCompany} unlinked workers (kept ${emitted.length})`);
+  }
+  if (ignoredOidSet.size > 0) {
+    log.info(`[ADP] OID ignore list dropped ${filteredByOidIgnore} unlinked workers`);
   }
 
   const dataset = await Actor.openDataset();
@@ -453,6 +512,9 @@ try {
     ).length,
     company_allowlist: companyAllowlist,
     company_filter_dropped: filteredByCompany,
+    sales_title_exclude_keywords: salesExcludeKeywords,
+    ignored_oids_count: ignoredOidSet.size,
+    ignored_oids_dropped: filteredByOidIgnore,
   };
   await dataset.pushData(summary as unknown as Record<string, unknown>);
   await Actor.setValue(SUMMARY_KEY, summary);

@@ -47,6 +47,22 @@
       "default": ["agent", "sales", "producer"],
       "items": { "type": "string" }
     },
+    "salesTitleExcludeKeywords": {
+      "title": "Job title keywords that DISQUALIFY 'sales' classification",
+      "type": "array",
+      "description": "Lowercased substrings; if any matches the worker's jobTitle/jobCode, the worker is NOT flagged as a sales hire even if a sales keyword also matches. Catches 'Sales Operations', 'Brokerage Sales Support', 'Director of Sales', 'Sales Manager', etc. Linked workers bypass this filter.",
+      "editor": "json",
+      "default": ["operations", "support", "director", "manager"],
+      "items": { "type": "string" }
+    },
+    "ignoredAssociateOids": {
+      "title": "AssociateOIDs to skip outright (unlinked only)",
+      "type": "array",
+      "description": "ADP associateOIDs that should never be emitted or Slacked as 'new sales hire'. Surgical override for noise that title keywords can't catch. Only applies to UNLINKED workers — linked agents always pass through so terminations propagate.",
+      "editor": "json",
+      "default": [],
+      "items": { "type": "string" }
+    },
     "companyCodeAllowlist": {
       "title": "Company code allowlist",
       "type": "array",
