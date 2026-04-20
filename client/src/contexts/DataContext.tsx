@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import type { DailyPulseAgent, MonthlyAgent, Tier, PoolMetrics, PoolInventorySnapshot, FunnelMetrics } from "@/lib/types";
 import {
   sampleDailyT1, sampleDailyT2, sampleDailyT3,
@@ -142,6 +142,20 @@ interface DataContextType {
   pipelineLoading: boolean;
   /** Org-wide CPC / ROAS row for selected pipeline date (synced from Marketing AAR). */
   marketingSummary: MarketingDailySummary | null;
+  /**
+   * Wall-clock timestamp of the most recent realtime event (or completed
+   * manual refresh). UI surfaces this as "Updated · Nm ago" so users can tell
+   * at a glance whether they're looking at fresh data.
+   */
+  lastUpdatedAt: Date | null;
+  /**
+   * True when the Supabase realtime channel is currently SUBSCRIBED. Drives
+   * the green/gray pulse dot in AppLayout. False during initial connection,
+   * temporary network drops, or when Supabase isn't configured.
+   */
+  isLive: boolean;
+  /** Force a full refresh of every dataset on the current page. */
+  refreshAll: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -377,6 +391,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
   const [marketingSummary, setMarketingSummary] = useState<MarketingDailySummary | null>(null);
   const [pipelineLoading, setPipelineLoading] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [isLive, setIsLive] = useState(false);
+  // Per-channel debounce. Realtime can fire many events back-to-back during
+  // a bulk insert (e.g. n8n posts 50 daily_scrape_data rows in one shot);
+  // we coalesce them into a single refetch ~750ms after the last event.
+  const debounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Fetch available dates + evaluation window on mount, then smart-select date
   useEffect(() => {
@@ -802,11 +822,60 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured && activeWindow) refreshMonthly();
   }, [activeWindow, refreshMonthly]);
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Realtime subscriptions
+  // ────────────────────────────────────────────────────────────────────────
+  // Subscribe to every table that affects what's on screen so dashboards
+  // refresh themselves the moment n8n / Apify writes new rows. Each table
+  // bumps `lastUpdatedAt` (drives the "Updated · Nm ago" indicator) and
+  // schedules a debounced refetch of whichever fetch function owns the data.
+  //
+  // Tables wired here (must also be added to the supabase_realtime publication
+  // — see migrations/2026-04-20_enable_realtime.sql):
+  //   - daily_scrape_data        → refreshDaily   (production rows)
+  //   - intraday_snapshots       → refreshDaily   (hourly intraday writes)
+  //   - leads_pool_daily_data    → refreshDaily + refreshPipeline (pool writes)
+  //   - pipeline_compliance_daily → refreshPipeline (CRM dashboard scrape)
+  //   - agent_performance_daily  → refreshPipeline (funnel rows)
+  //   - agents                   → refreshAgentMap (ADP roster sync)
+  //   - daily_marketing_summary  → refreshPipeline (n8n hourly marketing alert)
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
+    const debouncers = debounceRef.current;
+    const debounce = (key: string, fn: () => void, ms = 750) => {
+      const existing = debouncers.get(key);
+      if (existing) clearTimeout(existing);
+      debouncers.set(
+        key,
+        setTimeout(() => {
+          debouncers.delete(key);
+          fn();
+        }, ms),
+      );
+    };
+
+    const onAnyEvent = () => setLastUpdatedAt(new Date());
+
+    const refreshDates = () => {
+      void supabase
+        .from("daily_scrape_data")
+        .select("scrape_date")
+        .order("scrape_date", { ascending: false })
+        .then(({ data }) => {
+          if (!data) return;
+          const dates = Array.from(
+            new Set(data.map((r: { scrape_date: string }) => r.scrape_date)),
+          )
+            .sort()
+            .reverse();
+          setAvailableDates(dates);
+        });
+    };
+
     const channel = supabase
-      .channel("daily-scrape-realtime")
+      .channel("roli-realtime")
+      // Production rows for the visible date
       .on(
         "postgres_changes",
         {
@@ -816,26 +885,123 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           filter: `scrape_date=eq.${selectedDate}`,
         },
         () => {
-          refreshDaily();
-          // Refresh available dates when new data arrives
-          supabase
-            .from("daily_scrape_data")
-            .select("scrape_date")
-            .order("scrape_date", { ascending: false })
-            .then(({ data }) => {
-              if (data) {
-                const dates = [...new Set(data.map((r: { scrape_date: string }) => r.scrape_date))].sort().reverse();
-                setAvailableDates(dates);
-              }
-            });
-        }
+          onAnyEvent();
+          debounce("daily", () => {
+            void refreshDaily();
+            void refreshPipeline();
+          });
+          refreshDates();
+        },
       )
-      .subscribe();
+      // Hourly intraday snapshots — refresh Daily Pulse + intraday-driven views
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "intraday_snapshots",
+          filter: `snapshot_date=eq.${selectedDate}`,
+        },
+        () => {
+          onAnyEvent();
+          debounce("intraday", () => {
+            void refreshDaily();
+          });
+        },
+      )
+      // Pool daily — feeds both daily pulse and pipeline view
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "leads_pool_daily_data",
+          filter: `scrape_date=eq.${selectedDate}`,
+        },
+        () => {
+          onAnyEvent();
+          debounce("pool", () => {
+            void refreshDaily();
+            void refreshPipeline();
+          });
+        },
+      )
+      // Pipeline hygiene rows
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "pipeline_compliance_daily",
+          filter: `scrape_date=eq.${selectedDate}`,
+        },
+        () => {
+          onAnyEvent();
+          debounce("pipeline", () => {
+            void refreshPipeline();
+          });
+        },
+      )
+      // Funnel rows (agent_performance_daily) — the date column is `period_end`,
+      // so we don't filter server-side; the debounced refetch is cheap.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "agent_performance_daily",
+        },
+        () => {
+          onAnyEvent();
+          debounce("perf", () => {
+            void refreshPipeline();
+          });
+        },
+      )
+      // Agents roster (ADP roster sync, manual edits)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "agents",
+        },
+        () => {
+          onAnyEvent();
+          // Roster changes invalidate the agentMap inside both fetches.
+          debounce("agents", () => {
+            void refreshDaily();
+            void refreshPipeline();
+          });
+        },
+      )
+      // Marketing summary (n8n hourly) — pipeline math depends on org avg_premium
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "daily_marketing_summary",
+        },
+        () => {
+          onAnyEvent();
+          debounce("marketing", () => {
+            void refreshPipeline();
+          });
+        },
+      )
+      .subscribe((status) => {
+        setIsLive(status === "SUBSCRIBED");
+      });
 
     return () => {
+      // Flush any pending debounced refetches so we don't fire after unmount.
+      for (const t of Array.from(debouncers.values())) clearTimeout(t);
+      debouncers.clear();
       supabase.removeChannel(channel);
+      setIsLive(false);
     };
-  }, [selectedDate, refreshDaily]);
+  }, [selectedDate, refreshDaily, refreshPipeline]);
 
   const loadSampleData = useCallback(() => {
     setDailyT1(sampleDailyT1);
@@ -854,6 +1020,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setMonthlyT2([]);
     setMonthlyT3([]);
   }, []);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refreshDaily(), refreshPipeline()]);
+    setLastUpdatedAt(new Date());
+  }, [refreshDaily, refreshPipeline]);
+
+  // Stamp lastUpdatedAt when a manual/initial refresh succeeds, so the
+  // header indicator works even before any realtime event arrives.
+  useEffect(() => {
+    if (!loading && !pipelineLoading && isSupabaseConfigured) {
+      setLastUpdatedAt((prev) => prev ?? new Date());
+    }
+  }, [loading, pipelineLoading]);
 
   return (
     <DataContext.Provider
@@ -874,6 +1053,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         poolInventory,
         pipelineAgents, refreshPipeline, pipelineLoading,
         marketingSummary,
+        lastUpdatedAt, isLive, refreshAll,
       }}
     >
       {children}

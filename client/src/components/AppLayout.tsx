@@ -13,6 +13,7 @@ import {
   Target,
   Zap,
 } from "lucide-react";
+import { LiveStatusIndicator } from "@/components/LiveStatusIndicator";
 
 const navItems = [
   { path: "/", label: "Production", icon: Activity, description: "Daily sales, CR, and gate status" },
@@ -114,8 +115,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               {navItems.find((n) => n.path === location)?.label ?? "Dashboard"}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-muted-foreground">
+          <div className="flex items-center gap-3">
+            <LiveStatusIndicator />
+            <span className="text-[10px] font-mono text-muted-foreground hidden sm:inline">
               Digital Senior Benefits
             </span>
           </div>
