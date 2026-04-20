@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useActivityProfiles } from "@/hooks/useActivityProfiles";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
+import { LiveCohortPulse } from "@/components/LiveCohortPulse";
 import { computeTenure, cohortBadgeClasses, type TenureCohort } from "@/lib/tenure";
 import {
   formatMetric,
@@ -361,6 +362,9 @@ export default function ActivityProfiles() {
           {error}
         </div>
       )}
+
+      {/* Live pulse — today's intraday vs cohort baselines */}
+      <LiveCohortPulse spotlightLimit={6} />
 
       {/* Cohort summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">

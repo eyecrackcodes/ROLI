@@ -1,14 +1,16 @@
 import { useMemo } from "react";
 import { useActivityProfiles } from "@/hooks/useActivityProfiles";
+import { useLivePace } from "@/hooks/useLivePace";
 import {
   formatMetric,
   metricLabel,
   type ActivityAnomaly,
   type ProfileMetricKey,
 } from "@/lib/activityProfile";
+import { statusColor, statusLabel } from "@/lib/livePace";
 import { cohortBadgeClasses } from "@/lib/tenure";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, TrendingDown, TrendingUp, Zap } from "lucide-react";
+import { Activity, AlertTriangle, TrendingDown, TrendingUp, Zap } from "lucide-react";
 
 interface ActivityProfileSectionProps {
   agentName: string;
@@ -53,6 +55,7 @@ export function ActivityProfileSection({
 }: ActivityProfileSectionProps) {
   const { profiles, baselines, anomaliesByAgent, windowStart, windowEnd, loading } =
     useActivityProfiles(windowDays);
+  const { agents: liveAgents, hour: liveHour } = useLivePace(windowDays);
 
   const profile = useMemo(
     () => profiles.find((p) => p.name === agentName),
@@ -61,6 +64,10 @@ export function ActivityProfileSection({
 
   const baseline = profile ? baselines.get(profile.cohort) : undefined;
   const anomalies = anomaliesByAgent.get(agentName) ?? [];
+  const liveSummary = useMemo(
+    () => liveAgents.find((a) => a.agentName === agentName),
+    [liveAgents, agentName],
+  );
   const positive = anomalies.filter((a) => a.kind === "cohort_overperforming");
   const issues = anomalies.filter((a) => a.kind !== "cohort_overperforming");
 
@@ -105,6 +112,52 @@ export function ActivityProfileSection({
           {windowDays}d · {profile.daysActive} active days
         </span>
       </div>
+
+      {/* Live pace strip — today's projected EOD vs cohort median */}
+      {liveSummary && liveHour >= 9 && (
+        <div className="bg-card border border-border rounded-md p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+              <Activity className="h-3 w-3 text-emerald-400" />
+              Live Pace · {formatLiveHour(liveHour)}
+            </h4>
+            <span
+              className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border",
+                statusColor(liveSummary.overall),
+              )}
+            >
+              {statusLabel(liveSummary.overall)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {liveSummary.metrics.map((m) => (
+              <div
+                key={m.metric}
+                className={cn(
+                  "px-2 py-1.5 rounded border",
+                  statusColor(m.status),
+                )}
+                title={`Cumulative so far: ${m.cumulative.toFixed(1)} | Projected EOD: ${m.projected.toFixed(1)} | Cohort median (full day): ${m.cohortMedian.toFixed(1)}`}
+              >
+                <div className="text-[9px] font-mono uppercase tracking-widest opacity-80">
+                  {metricLabel(m.metric)}
+                </div>
+                <div className="text-sm font-mono font-bold leading-tight">
+                  {m.cumulative.toFixed(0)}
+                  <span className="text-[10px] font-normal opacity-70 ml-1">
+                    →{m.projected.toFixed(0)}
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono">
+                  {m.pctVsMedian > 0 ? "+" : ""}
+                  {m.pctVsMedian.toFixed(0)}% vs med
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Metric grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
@@ -202,4 +255,10 @@ export function ActivityProfileSection({
       )}
     </div>
   );
+}
+
+function formatLiveHour(hour: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const ampm = hour < 12 ? "AM" : "PM";
+  return `${h12} ${ampm} CST`;
 }

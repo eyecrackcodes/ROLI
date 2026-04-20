@@ -893,14 +893,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           refreshDates();
         },
       )
-      // Hourly intraday snapshots — refresh Daily Pulse + intraday-driven views
+      // Hourly intraday snapshots — refresh Daily Pulse + intraday-driven views.
+      // NB: column is scrape_date (NOT snapshot_date) per migration 001.
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "intraday_snapshots",
-          filter: `snapshot_date=eq.${selectedDate}`,
+          filter: `scrape_date=eq.${selectedDate}`,
         },
         () => {
           onAnyEvent();
