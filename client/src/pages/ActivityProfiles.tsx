@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useActivityProfiles } from "@/hooks/useActivityProfiles";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
 import { LiveCohortPulse } from "@/components/LiveCohortPulse";
+import { MetricLabel } from "@/components/MetricLabel";
 import { computeTenure, cohortBadgeClasses, type TenureCohort } from "@/lib/tenure";
 import {
   formatMetric,
@@ -86,12 +87,15 @@ function SortHeader({
   current,
   onToggle,
   align = "right",
+  metric,
 }: {
   label: string;
   sortKey: SortKey;
   current: SortState;
   onToggle: (k: SortKey) => void;
   align?: "left" | "right";
+  /** When provided, renders a hover-tooltip explaining the metric. */
+  metric?: ProfileMetricKey;
 }) {
   const active = current.key === sortKey;
   return (
@@ -102,8 +106,8 @@ function SortHeader({
         align === "right" && "text-right",
       )}
     >
-      <span className="inline-flex items-center gap-1">
-        {label}
+      <span className={cn("inline-flex items-center gap-1", align === "right" && "justify-end w-full")}>
+        {metric ? <MetricLabel metric={metric} label={label} /> : label}
         {active ? (
           current.dir === "desc" ? (
             <ArrowDown className="h-3 w-3" />
@@ -501,13 +505,13 @@ export default function ActivityProfiles() {
                 <SortHeader label="Agent" sortKey="name" current={sort} onToggle={toggleSort} align="left" />
                 <SortHeader label="Cohort" sortKey="cohort" current={sort} onToggle={toggleSort} align="left" />
                 <SortHeader label="Days" sortKey="cohort" current={sort} onToggle={toggleSort} />
-                <SortHeader label="Engage" sortKey="engagementScore" current={sort} onToggle={toggleSort} />
-                <SortHeader label="Total Dials/d" sortKey="totalDialsPerDay" current={sort} onToggle={toggleSort} />
-                <SortHeader label="Talk Min/d" sortKey="talkMinPerDay" current={sort} onToggle={toggleSort} />
-                <SortHeader label="Sec/Dial" sortKey="talkSecPerDial" current={sort} onToggle={toggleSort} />
-                <SortHeader label="Pool Dials/d" sortKey="poolDialsPerDay" current={sort} onToggle={toggleSort} />
-                <SortHeader label="Assign %" sortKey="selfAssignRate" current={sort} onToggle={toggleSort} />
-                <SortHeader label="Pres/d" sortKey="presentationsPerDay" current={sort} onToggle={toggleSort} />
+                <SortHeader label="Engage" sortKey="engagementScore" current={sort} onToggle={toggleSort} metric="engagementScore" />
+                <SortHeader label="Total Dials/d" sortKey="totalDialsPerDay" current={sort} onToggle={toggleSort} metric="totalDialsPerDay" />
+                <SortHeader label="Talk Min/d" sortKey="talkMinPerDay" current={sort} onToggle={toggleSort} metric="talkMinPerDay" />
+                <SortHeader label="Sec/Dial" sortKey="talkSecPerDial" current={sort} onToggle={toggleSort} metric="talkSecPerDial" />
+                <SortHeader label="Pool Dials/d" sortKey="poolDialsPerDay" current={sort} onToggle={toggleSort} metric="poolDialsPerDay" />
+                <SortHeader label="Assign %" sortKey="selfAssignRate" current={sort} onToggle={toggleSort} metric="selfAssignRate" />
+                <SortHeader label="Pres/d" sortKey="presentationsPerDay" current={sort} onToggle={toggleSort} metric="presentationsPerDay" />
                 <SortHeader label="Flags" sortKey="anomalyScore" current={sort} onToggle={toggleSort} />
               </tr>
             </thead>

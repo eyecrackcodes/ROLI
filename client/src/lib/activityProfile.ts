@@ -541,6 +541,116 @@ export function metricLabel(key: ProfileMetricKey): string {
   }
 }
 
+export interface MetricExplanation {
+  /** One-sentence summary suitable for a tooltip header. */
+  short: string;
+  /** Plain-English explanation of how to read the number. */
+  long: string;
+  /** Source columns / formula in technical terms. */
+  formula: string;
+  /** Healthy band or qualitative target (optional — not all metrics have one). */
+  target?: string;
+}
+
+/**
+ * Per-metric descriptions used by tooltips across the app. Centralized here
+ * so that "what does Engage mean?" has exactly one answer everywhere it
+ * appears. Update copy here, not in the components.
+ */
+export function metricDescription(key: ProfileMetricKey): MetricExplanation {
+  switch (key) {
+    case "dialsPerDay":
+      return {
+        short: "Production dials per active day",
+        long: "Average outbound + inbound CRM dials on days the agent worked. Excludes pool dials so you can see inbound queue effort separately.",
+        formula: "SUM(daily_scrape_data.total_dials) / days the agent was active in window",
+      };
+    case "poolDialsPerDay":
+      return {
+        short: "Leads-pool dials per active day",
+        long: "Average dials made in the leads pool. Pool is supplemental — should be steady but not dominate the day.",
+        formula: "SUM(leads_pool_daily_data.calls_made) / days the agent was active in window",
+      };
+    case "totalDialsPerDay":
+      return {
+        short: "All dials per active day (production + pool)",
+        long: "Combined dial volume across inbound, outbound, and pool. The single best raw activity gauge.",
+        formula: "(production dials + pool dials) / days active",
+      };
+    case "talkMinPerDay":
+      return {
+        short: "Total talk time per active day",
+        long: "Combined production + pool talk minutes per active day. The 'were they actually on the phone' check.",
+        formula: "(production talk min + pool talk min) / days active",
+        target: "≥ 120 min/day is healthy",
+      };
+    case "conversationsPerDay":
+      return {
+        short: "Meaningful 2–15 min calls per day",
+        long: "Calls in the qualifying-conversation duration bucket. Not the same as a presentation — these are mid-length talks where the agent is qualifying interest or rapport-building.",
+        formula: "SUM(agent_performance_daily.conversations) / days active",
+      };
+    case "presentationsPerDay":
+      return {
+        short: "15+ minute presentation calls per day",
+        long: "Calls long enough to actually pitch. Conversations and Presentations are PARALLEL duration buckets — never both. A call is one or the other.",
+        formula: "SUM(agent_performance_daily.presentations) / days active",
+      };
+    case "talkSecPerDial":
+      return {
+        short: "Average seconds spent on each dial",
+        long: "Pacing signal. Too low (< ~30s) means hanging up before voicemails or skipping; too high may indicate over-dwelling. Ambiguous on its own — interpret with dials/day.",
+        formula: "(total talk minutes × 60) / total dials",
+      };
+    case "poolEfficiency":
+      return {
+        short: "Talk minutes per pool dial",
+        long: "Gaming detector. Below 0.3 = likely speed-skipping the pool. Above 1.0 = distracted / over-noting / idle between dials.",
+        formula: "pool talk minutes / pool dials",
+        target: "0.5 – 1.0 min/dial is healthy",
+      };
+    case "contactRate":
+      return {
+        short: "% of pool dials that got a live answer",
+        long: "How often a pool dial actually reaches a person. Drops in CR usually mean bad data (wrong numbers) more than bad effort.",
+        formula: "pool answered / pool dials × 100",
+      };
+    case "selfAssignRate":
+      return {
+        short: "% of answered pool calls the agent claimed as a lead",
+        long: "Pool discipline check. Every answered pool contact (yes, even DNCs) should be self-assigned to remove it from rotation. Below 30% means contacts are recycling and burning team capacity.",
+        formula: "self-assigned leads / answered pool calls × 100",
+        target: "≥ 30% required, ≥ 50% excellent",
+      };
+    case "poolPresentationRate":
+      return {
+        short: "% of self-assigned pool leads that became 15+ min calls",
+        long: "Quality of pool contacts. Self-assigning is good; turning those contacts into real pitch conversations is better. Below 12% = qualifying conversations are weak.",
+        formula: "pool long calls (15+ min) / self-assigned leads × 100",
+        target: "≥ 20% strong · 12–19% acceptable · < 12% weak",
+      };
+    case "salesPerDay":
+      return {
+        short: "Sales closed per active day",
+        long: "Combined IB + OB + custom + pool sales per active day in window.",
+        formula: "(production sales + pool sales) / days active",
+      };
+    case "premiumPerDay":
+      return {
+        short: "Production premium $ per active day",
+        long: "Total inbound + outbound + custom premium written per active day. Pool premium is excluded because it lands in production at sale time.",
+        formula: "(IB + OB + custom premium) / days active",
+      };
+    case "engagementScore":
+      return {
+        short: "Composite 0–100 activity intensity score",
+        long: "Single-number rollup of how much the agent is working: dials, talk time, pool engagement, and meaningful calls. NOT a quality or outcome score — a strong-Engage agent could still be missing sales. Use it to spot under-engagement vs cohort, then drill into the individual metrics.",
+        formula: "30% dials/day (cap 80) + 30% talk min/day (cap 120) + 20% pool dials/day (cap 40) + 20% meaningful calls/day (cap 10)",
+        target: "~50 = cohort median · 75+ = top quartile · < 25 = under-engaged",
+      };
+  }
+}
+
 /**
  * Higher = better for most metrics, but a few are inverse (e.g. talkSecPerDial
  * is "bad if too low" but also "bad if too high" — handled at the call site).

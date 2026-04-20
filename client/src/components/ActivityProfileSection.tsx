@@ -3,7 +3,6 @@ import { useActivityProfiles } from "@/hooks/useActivityProfiles";
 import { useLivePace } from "@/hooks/useLivePace";
 import {
   formatMetric,
-  metricLabel,
   type ActivityAnomaly,
   type ProfileMetricKey,
 } from "@/lib/activityProfile";
@@ -11,6 +10,7 @@ import { statusColor, statusLabel } from "@/lib/livePace";
 import { cohortBadgeClasses } from "@/lib/tenure";
 import { cn } from "@/lib/utils";
 import { Activity, AlertTriangle, TrendingDown, TrendingUp, Zap } from "lucide-react";
+import { MetricLabel } from "@/components/MetricLabel";
 
 interface ActivityProfileSectionProps {
   agentName: string;
@@ -140,9 +140,10 @@ export function ActivityProfileSection({
                 )}
                 title={`Cumulative so far: ${m.cumulative.toFixed(1)} | Projected EOD: ${m.projected.toFixed(1)} | Cohort median (full day): ${m.cohortMedian.toFixed(1)}`}
               >
-                <div className="text-[9px] font-mono uppercase tracking-widest opacity-80">
-                  {metricLabel(m.metric)}
-                </div>
+                <MetricLabel
+                  metric={m.metric}
+                  className="text-[9px] font-mono uppercase tracking-widest opacity-80"
+                />
                 <div className="text-sm font-mono font-bold leading-tight">
                   {m.cumulative.toFixed(0)}
                   <span className="text-[10px] font-normal opacity-70 ml-1">
@@ -181,9 +182,10 @@ export function ActivityProfileSection({
               className="p-2.5 bg-card rounded-md border border-border"
               title={`${profile.name}: ${formatMetric(key, value)} | ${profile.cohort} median: ${formatMetric(key, median)}`}
             >
-              <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">
-                {metricLabel(key)}
-              </div>
+              <MetricLabel
+                metric={key}
+                className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground"
+              />
               <div className="text-base font-mono font-bold text-foreground">
                 {formatMetric(key, value)}
               </div>
