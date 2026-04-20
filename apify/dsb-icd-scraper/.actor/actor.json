@@ -1,0 +1,10 @@
+{
+  "actorSpecification": 1,
+  "name": "dsb-icd-scraper",
+  "title": "DSB ICD (Insurance Calls Direct) Scraper",
+  "description": "Scrapes app.insurancecallsdirect.com admin-calls-agents-report for the source-of-truth Billable Leads count per agent. Output is consumed by Supabase ingest-daily-scrape with mode=ib_leads_only to overwrite ib_leads_delivered without disturbing sales/dials/talk.",
+  "version": "1.0",
+  "buildTag": "latest",
+  "input": "./INPUT_SCHEMA.json",
+  "dockerfile": "./Dockerfile"
+}

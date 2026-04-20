@@ -1,0 +1,206 @@
+{
+  "name": "DSB ICD Billable Leads",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 21 * * 1-5" }
+          ]
+        }
+      },
+      "id": "icd-trig-nightly",
+      "name": "Trigger 9pm CST (Nightly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-1800, -100]
+    },
+    {
+      "parameters": {},
+      "id": "icd-trig-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1800, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the date list to scrape.\n// Manual trigger payload may include { backfillDates: ['YYYY-MM-DD', ...] } —\n// in that case we backfill those dates. Otherwise we scrape yesterday\n// (CST), which is when the day's billable leads are stable.\nconst input = $input.first()?.json ?? {};\nconst manualDates = Array.isArray(input.backfillDates)\n  ? input.backfillDates.filter((d) => /^\\d{4}-\\d{2}-\\d{2}$/.test(d))\n  : [];\n\nfunction yesterdayCST() {\n  const central = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });\n  const [y, m, d] = central.split('-').map(Number);\n  const dt = new Date(y, m - 1, d);\n  dt.setDate(dt.getDate() - 1);\n  // Skip weekends back to last weekday.\n  while (dt.getDay() === 0 || dt.getDay() === 6) dt.setDate(dt.getDate() - 1);\n  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');\n}\n\nconst dates = manualDates.length > 0 ? manualDates : [yesterdayCST()];\nreturn [{ json: { dates, isBackfill: manualDates.length > 0 } }];"
+      },
+      "id": "icd-compute-dates",
+      "name": "Compute Scrape Dates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1560, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch active roster + aliases from Supabase. Build:\n//   - targetAgents: canonical names of all active agents (filter at the actor)\n//   - nameAliases:  ICD display name -> canonical ROLI name\n//                   (i.e. agent_name_aliases.crm_name -> canonical_name)\nconst ctx = $input.first().json;\nconst apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base = 'https://YOUR_SUPABASE_PROJECT.supabase.co/rest/v1';\nconst hdr = { apikey };\n\nconst [roster, aliases] = await Promise.all([\n  this.helpers.httpRequest({ method: 'GET', url: base + '/agents?select=name,is_active&is_active=eq.true', headers: hdr, json: true }),\n  this.helpers.httpRequest({ method: 'GET', url: base + '/agent_name_aliases?select=canonical_name,crm_name', headers: hdr, json: true })\n]);\n\nif (!roster || roster.length === 0) {\n  return [{ json: { error: true, message: 'No active agents found in Supabase', ...ctx } }];\n}\n\nconst targetAgents = roster.map((a) => a.name);\n\n// Build inverse alias map: ICD display name -> canonical ROLI name.\n// Agents in the roster whose ICD display name happens to equal their canonical\n// name don't need an entry (the actor falls through to identity).\nconst nameAliases = {};\nfor (const a of (aliases || [])) {\n  if (a.crm_name && a.canonical_name && a.crm_name !== a.canonical_name) {\n    nameAliases[a.crm_name] = a.canonical_name;\n  }\n}\n\nreturn [{\n  json: {\n    ...ctx,\n    agentCount: roster.length,\n    targetAgents,\n    nameAliases,\n    apifyBody: JSON.stringify({\n      icdUsername: 'YOUR_ICD_USERNAME',\n      icdPassword: 'YOUR_ICD_PASSWORD',\n      agencyId: '1428',\n      backfillDates: ctx.dates,\n      targetAgents,\n      nameAliases,\n      requestDelay: 1500\n    })\n  }\n}];"
+      },
+      "id": "icd-fetch-roster",
+      "name": "Fetch Roster + Build Apify Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1320, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/YOUR_ICD_ACTOR_ID/runs?token=YOUR_APIFY_TOKEN",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.apifyBody }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "icd-start-apify",
+      "name": "Start ICD Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1080, 0]
+    },
+    {
+      "parameters": { "amount": 3, "unit": "minutes" },
+      "id": "icd-wait-1",
+      "name": "Wait 3 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-840, 0],
+      "webhookId": "icd-wait-1-hook"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $node['Start ICD Scraper'].json.data.id }}?token=YOUR_APIFY_TOKEN",
+        "options": { "timeout": 10000 }
+      },
+      "id": "icd-poll",
+      "name": "Poll Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            { "id": "succ", "leftValue": "={{ $json.data.status }}", "rightValue": "SUCCEEDED", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "icd-if-succeeded",
+      "name": "Run Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-360, 0]
+    },
+    {
+      "parameters": { "amount": 2, "unit": "minutes" },
+      "id": "icd-wait-retry",
+      "name": "Wait & Retry Poll",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-360, 240],
+      "webhookId": "icd-wait-retry-hook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull the dataset from the Apify run, parse, and split each\n// per-date icd_calls_report item into its own n8n item so the\n// downstream HTTP node can fan out to ingest-daily-scrape once\n// per date.\nconst runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\nif (!datasetId) {\n  return [{ json: { error: true, message: 'No defaultDatasetId. runId=' + runId } }];\n}\nconst token = 'YOUR_APIFY_TOKEN';\nconst url = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${token}`;\nlet items;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    const raw = await this.helpers.httpRequest({\n      method: 'GET',\n      url,\n      encoding: 'utf-8',\n      timeout: 60000,\n      headers: { Accept: 'application/json' },\n    });\n    items = typeof raw === 'string' ? JSON.parse(raw) : raw;\n    if (Array.isArray(items) && items.length > 0) break;\n  } catch (err) {\n    if (attempt === 3) throw err;\n    await new Promise((r) => setTimeout(r, 5000));\n  }\n}\nif (!items || !Array.isArray(items) || items.length === 0) {\n  return [{ json: { error: true, message: 'Dataset empty', datasetId, runId } }];\n}\n\nconst out = [];\nfor (const item of items) {\n  if (item._type === 'icd_calls_report' && Array.isArray(item.agents)) {\n    out.push({\n      json: {\n        scrape_date: item.scrape_date,\n        agency_id: item.agency_id,\n        agent_count: item.agents.length,\n        unmatched: (item.unmatched_agents || []).length,\n        // Build the ingest payload here so the next node just forwards it.\n        ingestBody: JSON.stringify({\n          mode: 'ib_leads_only',\n          scrape_date: item.scrape_date,\n          agents: item.agents.map((a) => ({\n            agent_name: a.agent_name,\n            ib_leads_delivered: a.billable_leads,\n          })),\n        }),\n      },\n    });\n  } else if (item._type === 'icd_calls_report_error') {\n    out.push({ json: { error: true, scrape_date: item.scrape_date, message: item.error } });\n  }\n}\nif (out.length === 0) return [{ json: { error: true, message: 'No icd_calls_report items in dataset', datasetId, runId } }];\nreturn out;"
+      },
+      "id": "icd-fetch-dataset",
+      "name": "Fetch Dataset & Split per Date",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-120, -120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "strict" },
+          "conditions": [
+            { "id": "ok", "leftValue": "={{ $json.error }}", "rightValue": true, "operator": { "type": "boolean", "operation": "false" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "icd-if-data-ok",
+      "name": "Data OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [120, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SUPABASE_PROJECT.supabase.co/functions/v1/ingest-daily-scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.ingestBody }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "icd-ingest",
+      "name": "Ingest (ib_leads_only)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [360, -200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate ingest responses and emit a single Slack-friendly summary.\n// Runs once per workflow execution (after all per-date ingests complete).\nconst all = $input.all().map((i) => i.json);\nconst totalDates = all.length;\nconst ok = all.filter((r) => r.success !== false && !r.error);\nconst failed = all.filter((r) => r.success === false || r.error);\nconst alias = ok.reduce((s, r) => s + (r.alias_resolved || 0), 0);\nconst updated = ok.reduce((s, r) => s + (r.ib_leads_only_updated || 0), 0);\nconst inserted = ok.reduce((s, r) => s + (r.ib_leads_only_inserted || 0), 0);\nconst dates = ok.map((r) => r.scrape_date).sort();\nconst dateRange = dates.length > 0 ? `${dates[0]} → ${dates[dates.length - 1]}` : 'none';\nconst text = `:bar_chart: ICD Billable Leads sync — ${dateRange}\\n` +\n  `· dates: ${totalDates} (${ok.length} ok, ${failed.length} failed)\\n` +\n  `· rows updated: ${updated} · rows inserted: ${inserted} · alias resolved: ${alias}` +\n  (failed.length > 0 ? `\\n· :rotating_light: failures: ${failed.map((f) => f.scrape_date || 'unknown').join(', ')}` : '');\nreturn [{ json: { text } }];"
+      },
+      "id": "icd-summary",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "icd-slack",
+      "name": "Send Slack Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, -200]
+    }
+  ],
+  "connections": {
+    "Trigger 9pm CST (Nightly)": { "main": [[{ "node": "Compute Scrape Dates", "type": "main", "index": 0 }]] },
+    "Manual Trigger":            { "main": [[{ "node": "Compute Scrape Dates", "type": "main", "index": 0 }]] },
+    "Compute Scrape Dates":      { "main": [[{ "node": "Fetch Roster + Build Apify Body", "type": "main", "index": 0 }]] },
+    "Fetch Roster + Build Apify Body": { "main": [[{ "node": "Start ICD Scraper", "type": "main", "index": 0 }]] },
+    "Start ICD Scraper":         { "main": [[{ "node": "Wait 3 Minutes", "type": "main", "index": 0 }]] },
+    "Wait 3 Minutes":            { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
+    "Poll Run Status":           { "main": [[{ "node": "Run Succeeded?", "type": "main", "index": 0 }]] },
+    "Run Succeeded?": {
+      "main": [
+        [{ "node": "Fetch Dataset & Split per Date", "type": "main", "index": 0 }],
+        [{ "node": "Wait & Retry Poll", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait & Retry Poll":         { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
+    "Fetch Dataset & Split per Date": { "main": [[{ "node": "Data OK?", "type": "main", "index": 0 }]] },
+    "Data OK?": { "main": [[{ "node": "Ingest (ib_leads_only)", "type": "main", "index": 0 }], []] },
+    "Ingest (ib_leads_only)":    { "main": [[{ "node": "Build Summary", "type": "main", "index": 0 }]] },
+    "Build Summary":             { "main": [[{ "node": "Send Slack Summary", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true, "instanceId": "dsb-icd-billable-leads" }
+}

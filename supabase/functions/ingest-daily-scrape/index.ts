@@ -7,7 +7,7 @@ const corsHeaders = {
 
 interface AgentPayload {
   agent_name: string;
-  tier: "T1" | "T2" | "T3";
+  tier?: "T1" | "T2" | "T3";
   ib_leads_delivered?: number;
   ob_leads_delivered?: number;
   custom_leads?: number;
@@ -31,8 +31,14 @@ interface IngestPayload {
    *     Preserves existing dials, talk_time, leads_delivered. Does NOT write
    *     to intraday_snapshots. Used by the late-sweep workflow to fix sales
    *     entered after the daily scrape ran.
+   *   - "ib_leads_only": only updates ib_leads_delivered. Preserves all other
+   *     columns. Used by the ICD scraper, which is the source of truth for
+   *     billable inbound leads (replaces the over-counting DSB Lead Tracker
+   *     row-count). Does NOT write intraday_snapshots and does NOT require
+   *     a tier on each agent payload (the value is taken from the existing
+   *     row, or defaulted to T2 when inserting a new row).
    */
-  mode?: "full" | "sales_only";
+  mode?: "full" | "sales_only" | "ib_leads_only";
 }
 
 const SALE_COLUMNS = [
@@ -87,9 +93,19 @@ Deno.serve(async (req) => {
     const now = new Date();
     const cstHour = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" })).getHours();
 
+    const mode = payload.mode === "sales_only"
+      ? "sales_only"
+      : payload.mode === "ib_leads_only"
+        ? "ib_leads_only"
+        : "full";
+
     let aliasResolved = 0;
     const validAgents = payload.agents.filter((a) => {
-      if (!a.agent_name || !a.tier) return false;
+      if (!a.agent_name) return false;
+      // Tier is required for full / sales_only modes (used on insert).
+      // ib_leads_only mode tolerates missing tier (we'll default on insert).
+      if (mode === "ib_leads_only") return true;
+      if (!a.tier) return false;
       if (!["T1", "T2", "T3"].includes(a.tier)) return false;
       return true;
     });
@@ -103,7 +119,7 @@ Deno.serve(async (req) => {
       return {
         scrape_date: payload.scrape_date,
         agent_name: name,
-        tier: a.tier,
+        tier: a.tier ?? "T2",
         ib_leads_delivered: a.ib_leads_delivered ?? 0,
         ob_leads_delivered: a.ob_leads_delivered ?? 0,
         custom_leads: a.custom_leads ?? 0,
@@ -118,7 +134,6 @@ Deno.serve(async (req) => {
       };
     });
 
-    const mode = payload.mode === "sales_only" ? "sales_only" : "full";
     const errors: Array<{ source: string; error: string }> = [];
     let updated = 0;
     let inserted = 0;
@@ -166,6 +181,50 @@ Deno.serve(async (req) => {
         .from("daily_scrape_data")
         .upsert(merged, { onConflict: "scrape_date,agent_name" });
       if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
+    } else if (mode === "ib_leads_only") {
+      // ib_leads_only mode: ICD scraper feed.
+      // Only ib_leads_delivered should be touched on existing rows; everything
+      // else (sales, dials, talk, ob/custom leads) must remain whatever the
+      // DSB daily scraper wrote earlier in the day. If the row doesn't exist
+      // yet (e.g. ICD finished before DSB on backfill), we insert a minimal
+      // stub so the inbound number doesn't get lost — the DSB scraper's later
+      // upsert will fill in the rest.
+      const names = dailyRecords.map((r) => r.agent_name);
+      const { data: existing, error: fetchErr } = await supabase
+        .from("daily_scrape_data")
+        .select("*")
+        .eq("scrape_date", payload.scrape_date)
+        .in("agent_name", names);
+      if (fetchErr) errors.push({ source: "daily_scrape_data.select", error: fetchErr.message });
+
+      const existingMap = new Map<string, Record<string, unknown>>();
+      for (const row of (existing ?? []) as Array<Record<string, unknown>>) {
+        existingMap.set(row.agent_name as string, row);
+      }
+
+      const merged = dailyRecords.map((r) => {
+        const prev = existingMap.get(r.agent_name);
+        if (prev) {
+          updated++;
+          const out: Record<string, unknown> = { ...prev };
+          out.ib_leads_delivered = r.ib_leads_delivered;
+          out.scrape_date = r.scrape_date;
+          out.agent_name = r.agent_name;
+          if (!out.tier) out.tier = r.tier;
+          delete (out as { id?: unknown }).id;
+          delete (out as { created_at?: unknown }).created_at;
+          delete (out as { updated_at?: unknown }).updated_at;
+          return out;
+        } else {
+          inserted++;
+          return r;
+        }
+      });
+
+      const { error: dailyError } = await supabase
+        .from("daily_scrape_data")
+        .upsert(merged, { onConflict: "scrape_date,agent_name" });
+      if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
     } else {
       // Full mode: original behavior. Upsert + intraday snapshot.
       const intradayRecords = dailyRecords.map((r) => ({ ...r, scrape_hour: cstHour }));
@@ -192,6 +251,8 @@ Deno.serve(async (req) => {
         upserted: validAgents.length,
         sales_only_updated: mode === "sales_only" ? updated : undefined,
         sales_only_inserted: mode === "sales_only" ? inserted : undefined,
+        ib_leads_only_updated: mode === "ib_leads_only" ? updated : undefined,
+        ib_leads_only_inserted: mode === "ib_leads_only" ? inserted : undefined,
         alias_resolved: aliasResolved,
         intraday_snapshots: intradayCount,
         errors,

@@ -1,0 +1,17 @@
+{
+  "title": "DSB ICD Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "required": ["icdUsername", "icdPassword"],
+  "properties": {
+    "icdUsername": { "title": "ICD Username", "type": "string", "editor": "textfield" },
+    "icdPassword": { "title": "ICD Password", "type": "string", "editor": "textfield", "isSecret": true },
+    "scrapeDate": { "title": "Scrape Date", "type": "string", "editor": "textfield", "default": "" },
+    "backfillDates": { "title": "Backfill Dates", "type": "array", "editor": "json", "default": [] },
+    "loginUrl": { "title": "Login URL", "type": "string", "editor": "textfield", "default": "https://app.insurancecallsdirect.com/login" },
+    "agencyId": { "title": "Agency ID", "type": "string", "editor": "textfield", "default": "1428" },
+    "nameAliases": { "title": "Name Aliases", "type": "object", "editor": "json", "default": {} },
+    "targetAgents": { "title": "Target Agents", "type": "array", "editor": "json", "default": [] },
+    "requestDelay": { "title": "Request Delay (ms)", "type": "integer", "editor": "number", "default": 1500 }
+  }
+}

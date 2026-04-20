@@ -1,0 +1,72 @@
+{
+  "title": "DSB ICD Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "required": ["icdUsername", "icdPassword"],
+  "properties": {
+    "icdUsername": {
+      "title": "ICD Username",
+      "type": "string",
+      "description": "Login email for app.insurancecallsdirect.com (typically same as DSB CRM credentials)",
+      "editor": "textfield"
+    },
+    "icdPassword": {
+      "title": "ICD Password",
+      "type": "string",
+      "description": "Login password for app.insurancecallsdirect.com",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "scrapeDate": {
+      "title": "Scrape Date (single day)",
+      "type": "string",
+      "description": "Single ISO date (YYYY-MM-DD) to scrape. Pulled as a 1-day range. Defaults to today (CST).",
+      "editor": "textfield",
+      "default": ""
+    },
+    "backfillDates": {
+      "title": "Backfill ISO dates",
+      "type": "array",
+      "description": "Optional list of ISO dates to scrape one-at-a-time. When provided, scrapeDate is ignored. Each date emits its own dataset item so daily ib_leads_delivered values can be backfilled accurately.",
+      "editor": "json",
+      "default": []
+    },
+    "loginUrl": {
+      "title": "ICD Login URL",
+      "type": "string",
+      "description": "ICD login page",
+      "editor": "textfield",
+      "default": "https://app.insurancecallsdirect.com/login"
+    },
+    "agencyId": {
+      "title": "ICD Agency ID",
+      "type": "string",
+      "description": "Agency id used in the report URL (?agency_id=...). Default 1428 = DSB.",
+      "editor": "textfield",
+      "default": "1428"
+    },
+    "nameAliases": {
+      "title": "ICD name -> ROLI canonical name map",
+      "type": "object",
+      "description": "Map of ICD agent display name -> canonical ROLI agent name. e.g. { \"Drew Idahosa\": \"Andrew Idahosa\" }. Resolved n8n-side from agent_name_aliases.",
+      "editor": "json",
+      "default": {}
+    },
+    "targetAgents": {
+      "title": "Canonical agent names (filter)",
+      "type": "array",
+      "description": "Optional whitelist of canonical ROLI agent names. When set, the actor only emits rows whose resolved canonical name is in this list. Use to suppress noise from non-DSB agents that may share the agency.",
+      "editor": "json",
+      "default": []
+    },
+    "requestDelay": {
+      "title": "Inter-request delay (ms)",
+      "type": "integer",
+      "description": "Delay between page loads to avoid rate limiting.",
+      "editor": "number",
+      "default": 1500,
+      "minimum": 0,
+      "maximum": 10000
+    }
+  }
+}
