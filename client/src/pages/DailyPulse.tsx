@@ -7,6 +7,7 @@ import { Link } from "wouter";
 import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
+import { LeadPacer } from "@/components/LeadPacer";
 import { UNIFIED_CONFIG, UNIFIED_POOL } from "@/lib/unifiedTargets";
 
 import { getPaceColor } from "@/lib/types";
@@ -657,6 +658,17 @@ export default function DailyPulse() {
           </div>
         )}
       </div>
+
+      {/*
+        Lead Pacer — only renders for today (in single-day mode). Replaying old
+        days surfaces stale "are we on pace" data that confuses people.
+        The component itself returns null when no intraday data exists for the
+        date, so we don't double-guard with a hasData check.
+      */}
+      {!data.isRangeMode && (() => {
+        const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+        return data.selectedDate === today ? <LeadPacer /> : null;
+      })()}
 
       {data.loading ? (
         <div className="border border-dashed border-border rounded-md p-12 flex items-center justify-center bg-card/30">

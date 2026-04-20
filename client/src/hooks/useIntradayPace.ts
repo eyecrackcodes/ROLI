@@ -8,6 +8,8 @@ interface IntradayRow {
   scrape_hour: number;
   total_dials: number;
   talk_time_minutes: number;
+  ib_leads_delivered: number;
+  ib_sales: number;
   pool_dials: number;
   pool_talk_minutes: number;
   pool_long_calls: number;
@@ -18,8 +20,18 @@ export interface PaceMetric {
   actual: number;
   expected: number;
   pct: number;
+  /** Naive end-of-day projection at current rate (actual / curveValue). 0 before 9 AM. */
+  projected: number;
   behind: boolean;
 }
+
+/**
+ * Agent presence inferred from cumulative intraday activity.
+ * - active:      has non-zero dials/talk/leads at the latest snapshot
+ * - idle:        appeared in snapshot but cumulative activity = 0 past 10 AM CST
+ * - not_started: no snapshot row yet today (likely not logged in / called out)
+ */
+export type AgentPresence = "active" | "idle" | "not_started";
 
 export interface AgentPaceStatus {
   name: string;
@@ -30,9 +42,12 @@ export interface AgentPaceStatus {
     talkTime: PaceMetric;
     longCalls: PaceMetric;
     poolDials: PaceMetric;
+    /** Inbound leads taken so far today, paced against the 7/day unified target. */
+    ibLeads: PaceMetric;
   };
   behindMetrics: string[];
   status: "on_pace" | "behind" | "critical";
+  presence: AgentPresence;
 }
 
 export interface PaceSummary {
@@ -40,9 +55,21 @@ export interface PaceSummary {
   onPace: number;
   behind: number;
   critical: number;
+  /** Active agents with cumulative activity = 0 past 10 AM. */
+  idle: number;
+  /** Active agents with no snapshot row at all today (likely absent). */
+  notStarted: number;
   currentHour: number;
   isBusinessHours: boolean;
   scrapeDate: string;
+  /** Org-wide IB leads taken so far today (active agents only). */
+  ibLeadsActual: number;
+  /** Org-wide expected IB leads by current hour (active agents × 7 × paceCurve). */
+  ibLeadsExpected: number;
+  /** Org-wide naive EOD projection at current rate (active agents only). */
+  ibLeadsProjected: number;
+  /** Number of agents counted in the org IB pace math (excludes idle/not_started). */
+  ibLeadsActiveAgents: number;
 }
 
 function getCentralHour(): number {
@@ -68,7 +95,10 @@ function buildPaceMetric(actual: number, dailyTarget: number, curveValue: number
   const expected = Math.round(dailyTarget * curveValue);
   const pct = expected > 0 ? (actual / expected) * 100 : (actual > 0 ? 100 : 0);
   const behind = actual < expected * T3_INTRADAY_TARGETS.BEHIND_THRESHOLD;
-  return { actual, expected, pct, behind };
+  // Naive linear projection: if you're at X% of day done, your EOD projection is actual / curveValue.
+  // Returns 0 when the day hasn't started (curveValue = 0) so we don't divide by zero.
+  const projected = curveValue > 0 ? Math.round(actual / curveValue) : actual;
+  return { actual, expected, pct, projected, behind };
 }
 
 export function useIntradayPace(overrideDate?: string) {
@@ -90,7 +120,7 @@ export function useIntradayPace(overrideDate?: string) {
 
       const [{ data: snapRows }, { data: agentRows }] = await Promise.all([
         supabase.from("intraday_snapshots")
-          .select("agent_name, scrape_hour, total_dials, talk_time_minutes, pool_dials, pool_talk_minutes, pool_long_calls, pool_self_assigned")
+          .select("agent_name, scrape_hour, total_dials, talk_time_minutes, ib_leads_delivered, ib_sales, pool_dials, pool_talk_minutes, pool_long_calls, pool_self_assigned")
           .eq("scrape_date", todayStr)
           .order("scrape_hour", { ascending: false }),
         supabase.from("agents")
@@ -113,13 +143,29 @@ export function useIntradayPace(overrideDate?: string) {
       }
 
       const curveHour = Math.min(Math.max(hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END);
+      // Org-level absence cutoff: agents with no row at all and we're past 10 AM
+      // are flagged "Not Started" (giving them ≥1 hour after the 9 AM start to log in).
+      const ABSENCE_HOUR_FLOOR = 10;
 
       const results: AgentPaceStatus[] = [];
-      for (const [name, row] of latestByAgent) {
-        const info = agentInfo.get(name);
-        if (!info) continue;
+      // Iterate over the active roster (not the snapshot rows) so absent agents
+      // remain visible in the pacer instead of silently disappearing.
+      for (const [name, info] of agentInfo) {
+        const row = latestByAgent.get(name);
 
-        const agentCurveHour = Math.min(Math.max(row.scrape_hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END);
+        // Determine presence first — short-circuits behind-flag noise for
+        // agents who weren't here to perform.
+        let presence: AgentPresence;
+        if (!row) {
+          presence = curveHour >= ABSENCE_HOUR_FLOOR ? "not_started" : "active";
+        } else {
+          const cumulativeActivity = (row.total_dials ?? 0) + Number(row.talk_time_minutes ?? 0) + (row.ib_leads_delivered ?? 0);
+          presence = cumulativeActivity === 0 && row.scrape_hour >= ABSENCE_HOUR_FLOOR ? "idle" : "active";
+        }
+
+        const agentCurveHour = row
+          ? Math.min(Math.max(row.scrape_hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END)
+          : curveHour;
 
         // Use T3-specific targets for legacy T3 agents, unified for everyone else
         const isT3 = info.tier === "T3";
@@ -130,27 +176,38 @@ export function useIntradayPace(overrideDate?: string) {
         const buildMetric = (actual: number, target: number): PaceMetric => {
           const expected = Math.round(target * agentCurve);
           const pct = expected > 0 ? (actual / expected) * 100 : (actual > 0 ? 100 : 0);
-          return { actual, expected, pct, behind: actual < expected * threshold };
+          const projected = agentCurve > 0 ? Math.round(actual / agentCurve) : actual;
+          return { actual, expected, pct, projected, behind: actual < expected * threshold };
         };
 
         const combinedDials = isT3
-          ? buildMetric(row.total_dials ?? 0, T3_INTRADAY_TARGETS.COMBINED_DIALS)
-          : buildMetric(row.total_dials ?? 0, UNIFIED_INTRADAY_TARGETS.IB_LEADS * 30);
+          ? buildMetric(row?.total_dials ?? 0, T3_INTRADAY_TARGETS.COMBINED_DIALS)
+          : buildMetric(row?.total_dials ?? 0, UNIFIED_INTRADAY_TARGETS.IB_LEADS * 30);
         const talkTime = isT3
-          ? buildMetric(row.talk_time_minutes ?? 0, T3_INTRADAY_TARGETS.TALK_TIME)
-          : buildMetric(row.talk_time_minutes ?? 0, UNIFIED_INTRADAY_TARGETS.TALK_TIME);
+          ? buildMetric(Number(row?.talk_time_minutes ?? 0), T3_INTRADAY_TARGETS.TALK_TIME)
+          : buildMetric(Number(row?.talk_time_minutes ?? 0), UNIFIED_INTRADAY_TARGETS.TALK_TIME);
         const longCalls = buildMetric(
-          row.pool_long_calls ?? 0,
+          row?.pool_long_calls ?? 0,
           isT3 ? T3_INTRADAY_TARGETS.LONG_CALLS : 2);
         const poolDials = buildMetric(
-          row.pool_dials ?? 0,
+          row?.pool_dials ?? 0,
           isT3 ? T3_INTRADAY_TARGETS.POOL_DIALS : UNIFIED_INTRADAY_TARGETS.POOL_FOLLOWUPS * 10);
+        // IB leads pace toward the 7-leads-per-day unified target. Legacy T3
+        // agents pace against the same 7 since the IB delivery cap is org-wide.
+        const ibLeads = buildMetric(
+          row?.ib_leads_delivered ?? 0,
+          UNIFIED_INTRADAY_TARGETS.IB_LEADS,
+        );
 
         const behindMetrics: string[] = [];
-        if (combinedDials.behind) behindMetrics.push("Dials");
-        if (talkTime.behind) behindMetrics.push("Talk Time");
-        if (longCalls.behind) behindMetrics.push("Long Calls");
-        if (poolDials.behind) behindMetrics.push("Pool Dials");
+        // Skip behind-metric flagging for idle/absent — there's nothing
+        // actionable about saying "their pace is bad" when they're not here.
+        if (presence === "active") {
+          if (combinedDials.behind) behindMetrics.push("Dials");
+          if (talkTime.behind) behindMetrics.push("Talk Time");
+          if (longCalls.behind) behindMetrics.push("Long Calls");
+          if (poolDials.behind) behindMetrics.push("Pool Dials");
+        }
 
         const status: AgentPaceStatus["status"] =
           behindMetrics.length >= 3 ? "critical"
@@ -160,15 +217,22 @@ export function useIntradayPace(overrideDate?: string) {
         results.push({
           name,
           site: info.site,
-          hour: row.scrape_hour,
-          metrics: { combinedDials, talkTime, longCalls, poolDials },
+          hour: row?.scrape_hour ?? 0,
+          metrics: { combinedDials, talkTime, longCalls, poolDials, ibLeads },
           behindMetrics,
           status,
+          presence,
         });
       }
 
-      // Sort: critical first, then behind, then on_pace; within each group, most behind first
+      // Sort: active agents first (critical → behind → on_pace by deficit),
+      // then idle, then not_started. Keeps the LeadsPool PaceTracker visually
+      // unchanged for working agents while keeping absent ones visible at the bottom.
       results.sort((a, b) => {
+        const presenceRank = { active: 0, idle: 1, not_started: 2 };
+        if (presenceRank[a.presence] !== presenceRank[b.presence]) {
+          return presenceRank[a.presence] - presenceRank[b.presence];
+        }
         const rank = { critical: 0, behind: 1, on_pace: 2 };
         if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
         return a.behindMetrics.length === b.behindMetrics.length
@@ -201,17 +265,32 @@ export function useIntradayPace(overrideDate?: string) {
     return () => clearTimeout(timeout);
   }, [fetchPace, isLive]);
 
-  const summary = useMemo<PaceSummary>(() => ({
-    totalAgents: agents.length,
-    onPace: agents.filter(a => a.status === "on_pace").length,
-    behind: agents.filter(a => a.status === "behind").length,
-    critical: agents.filter(a => a.status === "critical").length,
-    currentHour: getCentralHour(),
-    isBusinessHours: isBusinessHrs,
-    scrapeDate: getCentralDate(),
-  }), [agents, isBusinessHrs]);
+  const summary = useMemo<PaceSummary>(() => {
+    // Org-level IB pace math only counts agents who actually showed up.
+    // Including idle/not_started would understate everyone else's effort.
+    const activeAgents = agents.filter(a => a.presence === "active");
+    const ibLeadsActual = activeAgents.reduce((s, a) => s + a.metrics.ibLeads.actual, 0);
+    const ibLeadsExpected = activeAgents.reduce((s, a) => s + a.metrics.ibLeads.expected, 0);
+    const ibLeadsProjected = activeAgents.reduce((s, a) => s + a.metrics.ibLeads.projected, 0);
 
-  const behindAgents = useMemo(() => agents.filter(a => a.status !== "on_pace"), [agents]);
+    return {
+      totalAgents: agents.length,
+      onPace: activeAgents.filter(a => a.status === "on_pace").length,
+      behind: activeAgents.filter(a => a.status === "behind").length,
+      critical: activeAgents.filter(a => a.status === "critical").length,
+      idle: agents.filter(a => a.presence === "idle").length,
+      notStarted: agents.filter(a => a.presence === "not_started").length,
+      currentHour: getCentralHour(),
+      isBusinessHours: isBusinessHrs,
+      scrapeDate: getCentralDate(),
+      ibLeadsActual,
+      ibLeadsExpected,
+      ibLeadsProjected,
+      ibLeadsActiveAgents: activeAgents.length,
+    };
+  }, [agents, isBusinessHrs]);
+
+  const behindAgents = useMemo(() => agents.filter(a => a.status !== "on_pace" && a.presence === "active"), [agents]);
 
   return { agents, behindAgents, summary, loading, lastRefresh, refresh: fetchPace };
 }
