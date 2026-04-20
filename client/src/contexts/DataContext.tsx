@@ -239,7 +239,7 @@ function buildFunnelMap(perfRows: AgentPerfRow[]): Map<string, FunnelMetrics> {
 
 function buildPulseAgents(
   rows: DailyScrapeRow[],
-  agentMap: Map<string, { name: string; site: string; tier: string; manager?: string | null }>,
+  agentMap: Map<string, { name: string; site: string; tier: string; manager?: string | null; hired_date?: string | null }>,
   mtdMap: Map<string, { mtdSales: number; mtdDays: number; mtdPremium: number }>,
   daysActiveMap?: Map<string, number>,
   poolMap?: Map<string, PoolMetrics>,
@@ -293,6 +293,7 @@ function buildPulseAgents(
       site,
       tier,
       manager: agent?.manager ?? null,
+      hiredDate: agent?.hired_date ?? null,
       ibCalls: ibLeads || undefined,
       ibSales: trueIBSales || undefined,
       obLeads: obLeads || undefined,
@@ -333,6 +334,7 @@ function buildPulseAgents(
         site: agent.site ?? "RMT",
         tier,
         manager: agent.manager ?? null,
+        hiredDate: agent.hired_date ?? null,
         salesToday: 0,
         premiumToday: 0,
         totalPremium: 0,
@@ -429,7 +431,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const fetchAgentMap = useCallback(async () => {
     const { data: agents } = await supabase
       .from("agents")
-      .select("name, site, tier, is_active, terminated_date, manager");
+      .select("name, site, tier, is_active, terminated_date, manager, hired_date");
 
     const targetDate = isRangeMode ? dateRange.end : selectedDate;
     const filtered = (agents ?? []).filter((a: { is_active: boolean; terminated_date: string | null }) => {
@@ -438,7 +440,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return false;
     });
 
-    return new Map(filtered.map((a: { name: string; site: string; tier: string; manager: string | null }) => [a.name, a]));
+    return new Map(filtered.map((a: { name: string; site: string; tier: string; manager: string | null; hired_date: string | null }) => [a.name, a]));
   }, [selectedDate, isRangeMode, dateRange]);
 
   const fetchMtdMap = useCallback(async (endDate: string) => {
@@ -665,7 +667,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         { data: PipelineComplianceRow[] | null },
         { data: ProductionRow[] | null },
         { data: PipelinePoolRow[] | null },
-        Map<string, { name: string; site: string; tier: string }>,
+        Map<string, { name: string; site: string; tier: string; manager?: string | null; hired_date?: string | null }>,
         { data: Array<{ agent_name: string; ib_leads_delivered: number; ob_leads_delivered: number; ib_sales: number; ob_sales: number; custom_sales: number; ib_premium: number; ob_premium: number; custom_premium: number; scrape_date: string }> | null },
         { data: Array<{ agent_name: string; past_due_follow_ups: number }> | null },
       ];

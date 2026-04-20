@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Radar,
   Target,
+  Zap,
 } from "lucide-react";
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { path: "/coaching", label: "Coaching Map", icon: Target, description: "Skill x effort quadrant + momentum" },
   { path: "/pipeline", label: "Pipeline", icon: Radar, description: "Health scores and coaching actions" },
   { path: "/leads-pool", label: "Leads Pool", icon: Users, description: "Pool activity and self-assigns" },
+  { path: "/activity", label: "Activity Profiles", icon: Zap, description: "Tenure-cohort baselines + anomalies" },
   { path: "/trends", label: "Trends", icon: TrendingUp, description: "Agent analytics and stack rank" },
   { path: "/settings", label: "Settings", icon: Settings, description: "Roster, aliases, and data import" },
 ];

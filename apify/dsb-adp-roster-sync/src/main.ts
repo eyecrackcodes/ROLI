@@ -26,6 +26,16 @@ interface Input {
   adpKeyPem: string;
   linkedOids?: string[];
   salesTitleKeywords?: string[];
+  /**
+   * ADP company code allowlist. Workers whose primary assignment positionID
+   * does NOT start with one of these prefixes are excluded from the dataset.
+   * Defaults to ["XAJ"] (Digital Senior Benefits) — the only company we
+   * actively manage in ROLI. Brokerage and other ADP entities under the same
+   * client credentials are filtered out.
+   *
+   * Empty array = no filter (return everyone).
+   */
+  companyCodeAllowlist?: string[];
   tokenUrl?: string;
   apiBase?: string;
   pageSize?: number;
@@ -46,11 +56,25 @@ interface AdpAssignment {
   jobTitle?: string;
   jobCode?: { codeValue?: string; shortName?: string };
   workerTypeCode?: { codeValue?: string; shortName?: string };
+  /**
+   * Position ID — typically formatted "<COMPANY_CODE><NNNNNN>" in ADP
+   * (e.g. "XAJ000381"). Used to derive the company code for tenant filtering.
+   */
+  positionID?: string;
   assignmentStatus?: {
     statusCode?: { codeValue?: string; shortName?: string };
     effectiveDate?: string;
   };
   homeOrganizationalUnits?: Array<{
+    nameCode?: { codeValue?: string; shortName?: string };
+    typeCode?: { codeValue?: string };
+  }>;
+  /**
+   * Some ADP tenants expose company code as a separate field on the assignment
+   * (under assignedOrganizationalUnits w/ typeCode "BusinessUnit"). We check
+   * positionID first since it's universally populated.
+   */
+  assignedOrganizationalUnits?: Array<{
     nameCode?: { codeValue?: string; shortName?: string };
     typeCode?: { codeValue?: string };
   }>;
@@ -92,6 +116,10 @@ interface OutputItem {
   original_hire_date: string;
   work_email: string;
   is_sales_role: boolean;
+  /** Raw position ID (e.g. "XAJ000381") — used downstream for company filtering + audit. */
+  position_id: string;
+  /** Derived company code (3-char prefix of positionID, or BusinessUnit lookup). */
+  company_code: string;
 }
 
 const SUMMARY_KEY = "adp_roster_sync_summary";
@@ -109,6 +137,35 @@ function pickWorkEmail(worker: AdpWorker): string {
   const emails = worker.businessCommunication?.emails ?? [];
   const work = emails.find((e) => trim(e.nameCode?.codeValue).toLowerCase().includes("work"));
   return trim((work ?? emails[0])?.emailUri);
+}
+
+/**
+ * Derive the ADP company code from a worker's primary assignment.
+ *
+ * Priority order:
+ *   1. Explicit BusinessUnit / Company in assignedOrganizationalUnits
+ *   2. First 3 chars of positionID (e.g. "XAJ000381" → "XAJ")
+ *
+ * Returns "" when neither source is available — those workers are excluded
+ * from a non-empty allowlist (fail closed).
+ */
+function deriveCompanyCode(assignment: AdpAssignment): string {
+  const orgs = assignment.assignedOrganizationalUnits ?? [];
+  for (const o of orgs) {
+    const t = trim(o.typeCode?.codeValue).toLowerCase();
+    if (t === "businessunit" || t === "company" || t === "companycode") {
+      const code = trim(o.nameCode?.codeValue);
+      if (code) return code.toUpperCase();
+    }
+  }
+  const pid = trim(assignment.positionID);
+  if (pid.length >= 3) {
+    const prefix = pid.slice(0, 3).toUpperCase();
+    // Only treat the prefix as a company code when it's all letters — guards
+    // against tenants that use numeric position IDs.
+    if (/^[A-Z]{3}$/.test(prefix)) return prefix;
+  }
+  return "";
 }
 
 function isSalesRole(assignment: AdpAssignment, keywords: string[]): boolean {
@@ -156,7 +213,28 @@ function normalize(worker: AdpWorker, salesKeywords: string[]): OutputItem | nul
     original_hire_date: trim(worker.workerDates?.originalHireDate),
     work_email: pickWorkEmail(worker),
     is_sales_role: isSalesRole(primary, salesKeywords),
+    position_id: trim(primary.positionID),
+    company_code: deriveCompanyCode(primary),
   };
+}
+
+/**
+ * Decide whether to keep a worker given the company allowlist.
+ *
+ * - Empty/undefined allowlist → keep everyone (no-op filter).
+ * - Worker company_code in allowlist → keep.
+ * - Linked workers (already in ROLI) are ALWAYS kept regardless of company,
+ *   because removing them silently would orphan agent rows. If the company
+ *   genuinely changed, that's a coaching/HR conversation — surfaced via Slack.
+ */
+function passesCompanyFilter(
+  item: OutputItem,
+  allowlist: string[],
+  isLinked: boolean,
+): boolean {
+  if (allowlist.length === 0) return true;
+  if (isLinked) return true;
+  return allowlist.includes(item.company_code);
 }
 
 async function getToken(
@@ -257,6 +335,14 @@ try {
     (o): o is string => typeof o === "string" && o.length > 0,
   );
   const salesKeywords = input.salesTitleKeywords ?? ["agent", "sales", "producer"];
+  const companyAllowlist = (input.companyCodeAllowlist ?? ["XAJ"])
+    .map((c) => trim(c).toUpperCase())
+    .filter((c) => c.length > 0);
+  if (companyAllowlist.length > 0) {
+    log.info(`[ADP] Company allowlist active: [${companyAllowlist.join(", ")}] (linked workers always kept)`);
+  } else {
+    log.warning(`[ADP] companyCodeAllowlist is empty — no company filter applied`);
+  }
 
   if (!input.adpClientId || !input.adpClientSecret) {
     throw new Error("Missing adpClientId / adpClientSecret in actor input.");
@@ -314,8 +400,9 @@ try {
 
   // Emit:
   //   - linked OIDs always (so terminations propagate even if status=T was paged out of the active hydration set)
-  //   - unlinked workers only when is_sales_role=true (so n8n Slacks "new sales hire")
+  //   - unlinked workers only when is_sales_role=true AND in companyAllowlist (so n8n only Slacks "new sales hire" for our tenant)
   const emitted: OutputItem[] = [];
+  let filteredByCompany = 0;
   for (const oid of detailTargets) {
     const source = detailedByOid.get(oid) ?? byOid.get(oid);
     if (!source) continue;
@@ -323,6 +410,10 @@ try {
     if (!item) continue;
 
     const isLinked = linkedOids.includes(oid);
+    if (!passesCompanyFilter(item, companyAllowlist, isLinked)) {
+      filteredByCompany += 1;
+      continue;
+    }
     if (isLinked || item.is_sales_role) {
       emitted.push(item);
     }
@@ -330,13 +421,17 @@ try {
 
   // Also re-hydrate any linked OID that was filtered out by the "Active only"
   // gate above (e.g. someone got terminated yesterday — we still need the row
-  // to flip is_active=false in ROLI).
+  // to flip is_active=false in ROLI). Linked workers bypass the company filter.
   for (const oid of linkedOids) {
     if (detailedByOid.has(oid)) continue;
     const detail = await fetchWorkerDetail(dispatcher, apiBase, token, oid);
     if (!detail) continue;
     const item = normalize(detail, salesKeywords);
     if (item) emitted.push(item);
+  }
+
+  if (companyAllowlist.length > 0) {
+    log.info(`[ADP] Company filter dropped ${filteredByCompany} unlinked workers (kept ${emitted.length})`);
   }
 
   const dataset = await Actor.openDataset();
@@ -356,6 +451,8 @@ try {
     emitted_unlinked_sales: emitted.filter(
       (e) => !linkedOids.includes(e.associate_oid) && e.is_sales_role,
     ).length,
+    company_allowlist: companyAllowlist,
+    company_filter_dropped: filteredByCompany,
   };
   await dataset.pushData(summary as unknown as Record<string, unknown>);
   await Actor.setValue(SUMMARY_KEY, summary);

@@ -61,6 +61,8 @@ export interface DailyPulseAgent {
   site: string;
   tier: Tier;
   manager?: string | null;
+  /** ADP-sourced original hire date (YYYY-MM-DD). Drives tenure cohorts. */
+  hiredDate?: string | null;
   // Inbound metrics
   ibCalls?: number;
   ibSales?: number;

@@ -31,6 +31,8 @@ import { calcLeadCost, calcROLI } from "@/lib/types";
 import type { Tier, FunnelMetrics } from "@/lib/types";
 import type { PipelineAgent } from "@/lib/pipelineIntelligence";
 import { FLAG_META, getGradeColor, getGradeBg } from "@/lib/pipelineIntelligence";
+import { computeTenure, cohortBadgeClasses } from "@/lib/tenure";
+import { ActivityProfileSection } from "@/components/ActivityProfileSection";
 
 interface AgentDrillDownProps {
   agentName: string | null;
@@ -310,6 +312,23 @@ export function AgentDrillDown({
                 {tier}
               </span>
             )}
+            {(() => {
+              const pulseAgent = data.dailyT1.concat(data.dailyT2, data.dailyT3).find(a => a.name === agentName);
+              const hiredDate = pipelineAgent?.hiredDate ?? pulseAgent?.hiredDate ?? null;
+              const t = computeTenure(hiredDate);
+              if (t.unknown) return null;
+              return (
+                <span
+                  className={cn(
+                    "px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border",
+                    cohortBadgeClasses(t.cohort),
+                  )}
+                  title={`Hired ${t.hiredDate} · ${t.days} days · ${t.cohort}`}
+                >
+                  {t.cohort.toUpperCase()} · {t.label}
+                </span>
+              );
+            })()}
           </div>
         </DialogHeader>
 
@@ -321,6 +340,9 @@ export function AgentDrillDown({
           </div>
         ) : (
           <div className="space-y-6 pt-5">
+            {/* Activity Profile (cohort-aware) */}
+            {agentName && <ActivityProfileSection agentName={agentName} />}
+
             {/* Today's Stats */}
             <div>
               <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground mb-2">

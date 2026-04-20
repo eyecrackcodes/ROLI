@@ -47,6 +47,14 @@
       "default": ["agent", "sales", "producer"],
       "items": { "type": "string" }
     },
+    "companyCodeAllowlist": {
+      "title": "Company code allowlist",
+      "type": "array",
+      "description": "ADP company codes (3-letter prefix of positionID) to include. Defaults to ['XAJ'] (Digital Senior Benefits). Brokerage and other tenants under the same client credentials are filtered out. Already-linked ROLI agents bypass this filter so terminations always propagate. Empty array disables filtering.",
+      "editor": "json",
+      "default": ["XAJ"],
+      "items": { "type": "string" }
+    },
     "tokenUrl": {
       "title": "ADP Token URL",
       "type": "string",
