@@ -1,0 +1,20 @@
+{
+  "name": "dsb-adp-punches-sync",
+  "version": "1.0.0",
+  "description": "Pulls clock-in / clock-out punches from ADP Time & Labor (/time/v2/punches) for a date range. Today returns 404 because the Time & Labor API product is not yet provisioned in ADP Marketplace; once enabled the actor automatically starts emitting per-worker punch summaries that the ROLI Lead Pacer uses to replace its absence-inference heuristic with hard truth.",
+  "type": "module",
+  "main": "src/main.ts",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "start:dev": "apify run"
+  },
+  "dependencies": {
+    "apify": "^3.1.0",
+    "tsx": "^4.7.0",
+    "undici": "^6.19.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
+}

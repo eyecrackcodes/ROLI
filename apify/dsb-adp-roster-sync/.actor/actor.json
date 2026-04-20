@@ -1,0 +1,10 @@
+{
+  "actorSpecification": 1,
+  "name": "dsb-adp-roster-sync",
+  "title": "DSB ADP Roster Sync",
+  "description": "Authenticates to ADP Workforce Now via OAuth client_credentials + mTLS, paginates /hr/v2/workers, fetches per-worker detail for the agents we care about, and emits a normalized dataset (one item per agent) for n8n to upsert into the ROLI agents table. Used to auto-deactivate terminated agents and flag new sales hires.",
+  "version": "1.0",
+  "buildTag": "latest",
+  "input": "./INPUT_SCHEMA.json",
+  "dockerfile": "./Dockerfile"
+}

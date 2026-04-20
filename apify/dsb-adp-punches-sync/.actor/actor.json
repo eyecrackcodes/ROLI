@@ -1,0 +1,10 @@
+{
+  "actorSpecification": 1,
+  "name": "dsb-adp-punches-sync",
+  "title": "DSB ADP Time & Labor Punches Sync",
+  "description": "Pulls /time/v2/punches from ADP for a date window. Currently returns NOT_PROVISIONED (404) until the Time & Labor API product is enabled in ADP Marketplace. Once enabled, emits per-worker { first_in, last_out, total_hours, on_clock } records consumed by the ROLI Lead Pacer.",
+  "version": "1.0",
+  "buildTag": "latest",
+  "input": "./INPUT_SCHEMA.json",
+  "dockerfile": "./Dockerfile"
+}

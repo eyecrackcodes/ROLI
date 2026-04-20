@@ -1,0 +1,20 @@
+{
+  "name": "dsb-adp-roster-sync",
+  "version": "1.0.0",
+  "description": "Pulls the full ADP Workforce Now /hr/v2/workers roster via mTLS, fetches detailed records for every linked ROLI agent (and any active sales-titled worker not yet linked), and emits a per-agent dataset with status/title/email/effective-date that n8n upserts into agents.adp_*.",
+  "type": "module",
+  "main": "src/main.ts",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "start:dev": "apify run"
+  },
+  "dependencies": {
+    "apify": "^3.1.0",
+    "tsx": "^4.7.0",
+    "undici": "^6.19.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
+}

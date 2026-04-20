@@ -1,0 +1,144 @@
+{
+  "name": "DSB ADP Roster Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 7 * * 1-5" }
+          ]
+        }
+      },
+      "id": "adp-trig-nightly",
+      "name": "Trigger 7am CST (Mon-Fri)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-1800, -100]
+    },
+    {
+      "parameters": {},
+      "id": "adp-trig-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1800, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch the linked roster from Supabase. Each linked agent has an\n// adp_associate_oid we can hand to the Apify actor; the actor uses\n// it to make sure the per-worker /hr/v2/workers/{oid} detail call\n// happens for every linked person (otherwise terminated agents who\n// fall off the active list never get hydrated).\nconst apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base = 'https://YOUR_SUPABASE_PROJECT.supabase.co/rest/v1';\nconst hdr = { apikey };\n\nconst rows = await this.helpers.httpRequest({\n  method: 'GET',\n  url: base + '/agents?select=id,name,is_active,adp_associate_oid,adp_status,adp_status_effective_date,adp_job_title,adp_work_email,terminated_date',\n  headers: hdr,\n  json: true,\n});\n\nif (!Array.isArray(rows) || rows.length === 0) {\n  return [{ json: { error: true, message: 'No agents in Supabase' } }];\n}\n\nconst linked = rows.filter((r) => r.adp_associate_oid);\nconst linkedOids = linked.map((r) => r.adp_associate_oid);\n\n// Snapshot the current state so the post-actor diff node can compare\n// without re-querying Supabase.\nconst preState = {};\nfor (const r of rows) {\n  if (r.adp_associate_oid) {\n    preState[r.adp_associate_oid] = {\n      id: r.id,\n      name: r.name,\n      is_active: r.is_active,\n      adp_status: r.adp_status,\n      adp_status_effective_date: r.adp_status_effective_date,\n      adp_job_title: r.adp_job_title,\n      adp_work_email: r.adp_work_email,\n      terminated_date: r.terminated_date,\n    };\n  }\n}\n\nreturn [{\n  json: {\n    totalAgents: rows.length,\n    linkedCount: linked.length,\n    unlinkedCount: rows.length - linked.length,\n    linkedOids,\n    preState,\n    apifyBody: JSON.stringify({\n      adpClientId: 'YOUR_ADP_CLIENT_ID',\n      adpClientSecret: 'YOUR_ADP_CLIENT_SECRET',\n      adpCertPem: 'YOUR_ADP_CERT_PEM',\n      adpKeyPem: 'YOUR_ADP_KEY_PEM',\n      linkedOids,\n      salesTitleKeywords: ['agent', 'sales', 'producer'],\n      pageSize: 100,\n      requestDelayMs: 250,\n    }),\n  },\n}];"
+      },
+      "id": "adp-fetch-roster",
+      "name": "Fetch Linked Roster + Build Apify Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1560, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/YOUR_ADP_ROSTER_ACTOR_ID/runs?token=YOUR_APIFY_TOKEN",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.apifyBody }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "adp-start-apify",
+      "name": "Start ADP Roster Sync Actor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1320, 0]
+    },
+    {
+      "parameters": { "amount": 90, "unit": "seconds" },
+      "id": "adp-wait-1",
+      "name": "Wait 90s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-1080, 0],
+      "webhookId": "adp-wait-1-hook"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $node['Start ADP Roster Sync Actor'].json.data.id }}?token=YOUR_APIFY_TOKEN",
+        "options": { "timeout": 10000 }
+      },
+      "id": "adp-poll",
+      "name": "Poll Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-840, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            { "id": "succ", "leftValue": "={{ $json.data.status }}", "rightValue": "SUCCEEDED", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "adp-if-succeeded",
+      "name": "Run Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": { "amount": 60, "unit": "seconds" },
+      "id": "adp-wait-retry",
+      "name": "Wait & Retry Poll",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-600, 240],
+      "webhookId": "adp-wait-retry-hook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull dataset items, diff vs preState, PATCH agents rows, and\n// build the change list for Slack. One n8n item out: the Slack payload.\nconst runStatus = $input.first().json;\nconst datasetId = runStatus?.data?.defaultDatasetId;\nconst runId = runStatus?.data?.id || 'unknown';\nif (!datasetId) {\n  return [{ json: { error: true, message: 'No defaultDatasetId. runId=' + runId } }];\n}\n\nconst apifyToken = 'YOUR_APIFY_TOKEN';\nconst supaApikey = 'YOUR_SUPABASE_ANON_KEY';\nconst supaBase = 'https://YOUR_SUPABASE_PROJECT.supabase.co/rest/v1';\nconst supaHdr = {\n  apikey: supaApikey,\n  Authorization: 'Bearer ' + supaApikey,\n  'Content-Type': 'application/json',\n  Prefer: 'return=minimal',\n};\n\n// preState was computed in the Fetch node and we need it back here. n8n only\n// passes the latest item through, so we re-fetch instead of trying to thread\n// state through a 6-node chain. Same query, single round-trip.\nconst rows = await this.helpers.httpRequest({\n  method: 'GET',\n  url: supaBase + '/agents?select=id,name,is_active,adp_associate_oid,adp_status,adp_status_effective_date,adp_job_title,adp_work_email,terminated_date',\n  headers: { apikey: supaApikey },\n  json: true,\n});\nconst preState = {};\nfor (const r of (rows || [])) {\n  if (r.adp_associate_oid) preState[r.adp_associate_oid] = r;\n}\n\nconst datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}`;\nlet items;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    const raw = await this.helpers.httpRequest({\n      method: 'GET', url: datasetUrl, encoding: 'utf-8',\n      timeout: 60000, headers: { Accept: 'application/json' },\n    });\n    items = typeof raw === 'string' ? JSON.parse(raw) : raw;\n    if (Array.isArray(items)) break;\n  } catch (err) { if (attempt === 3) throw err; await new Promise((r) => setTimeout(r, 5000)); }\n}\nif (!Array.isArray(items)) {\n  return [{ json: { error: true, message: 'Dataset fetch returned non-array', datasetId } }];\n}\n\nconst workers = items.filter((i) => i._type === 'adp_worker');\nconst summary = items.find((i) => i._type === 'adp_roster_sync_summary') || {};\n\nconst todayUtc = new Date().toISOString();\nconst statusChanges = [];\nconst newSalesHires = [];\nconst patchErrors = [];\nlet patched = 0;\n\nfor (const w of workers) {\n  const oid = w.associate_oid;\n  const prev = preState[oid];\n\n  if (!prev) {\n    // Worker not yet linked to any ROLI agent. Only Slack-worthy if sales role.\n    if (w.is_sales_role) {\n      newSalesHires.push({\n        oid,\n        name: w.legal_full_name,\n        title: w.job_title || w.job_code,\n        hire_date: w.hire_date || w.original_hire_date,\n        status: w.status_code,\n        email: w.work_email,\n      });\n    }\n    continue;\n  }\n\n  // Detect material changes for Slack callouts\n  const before = prev.adp_status;\n  const after = w.status_code;\n  const goingTerminated = before !== 'T' && after === 'T';\n  const goingActive = before === 'T' && after === 'A';\n  const titleChanged = (prev.adp_job_title || '') !== (w.job_title || '');\n\n  if (goingTerminated || goingActive || titleChanged) {\n    statusChanges.push({\n      oid,\n      roli_name: prev.name,\n      adp_name: w.legal_full_name,\n      from_status: before || '(none)',\n      to_status: after || '(none)',\n      effective_date: w.status_effective_date || '',\n      title_change: titleChanged ? `${prev.adp_job_title || '(blank)'} -> ${w.job_title || '(blank)'}` : null,\n      kind: goingTerminated ? 'TERMINATED' : (goingActive ? 'REACTIVATED' : 'TITLE_CHANGE'),\n    });\n  }\n\n  // PATCH the agents row.\n  // - Always refresh adp_status, adp_status_effective_date, adp_job_title,\n  //   adp_work_email, adp_synced_at.\n  // - If TERMINATED in ADP, set is_active=false + terminated_date (only if\n  //   not already set so we don't overwrite a hand-entered date).\n  // - If REACTIVATED in ADP and our row is still inactive, leave is_active\n  //   alone — re-activating an agent has historical-data implications and\n  //   should be a human decision; the Slack alert prompts the action.\n  const patchBody = {\n    adp_status: w.status_code,\n    adp_status_effective_date: w.status_effective_date || null,\n    adp_job_title: w.job_title || null,\n    adp_work_email: w.work_email || null,\n    adp_synced_at: todayUtc,\n  };\n  if (goingTerminated) {\n    patchBody.is_active = false;\n    if (!prev.terminated_date) {\n      patchBody.terminated_date = w.status_effective_date || null;\n    }\n  }\n\n  try {\n    await this.helpers.httpRequest({\n      method: 'PATCH',\n      url: `${supaBase}/agents?adp_associate_oid=eq.${encodeURIComponent(oid)}`,\n      headers: supaHdr,\n      body: JSON.stringify(patchBody),\n    });\n    patched += 1;\n  } catch (err) {\n    patchErrors.push({ oid, name: prev.name, message: err.message || String(err) });\n  }\n}\n\n// Build Slack message\nconst lines = [];\nlines.push(`:adhesive_bandage: *ADP Roster Sync* — ${summary.total_workers_in_adp || '?'} workers in ADP, ${patched} ROLI agents refreshed`);\n\nif (statusChanges.length === 0 && newSalesHires.length === 0 && patchErrors.length === 0) {\n  lines.push(`· no changes — all linked agents healthy`);\n} else {\n  if (statusChanges.length > 0) {\n    lines.push(`*${statusChanges.length} status change(s):*`);\n    for (const c of statusChanges) {\n      const tag = c.kind === 'TERMINATED' ? ':warning: TERMINATED' : (c.kind === 'REACTIVATED' ? ':rotating_light: REACTIVATED' : ':pencil2: TITLE');\n      lines.push(`  ${tag} — ${c.roli_name} (${c.adp_name}) | ${c.from_status} → ${c.to_status}${c.effective_date ? ' eff ' + c.effective_date : ''}${c.title_change ? ' | ' + c.title_change : ''}`);\n    }\n  }\n  if (newSalesHires.length > 0) {\n    lines.push(`*${newSalesHires.length} unlinked sales worker(s) in ADP — onboard or alias:*`);\n    for (const n of newSalesHires) {\n      lines.push(`  :new: ${n.name} | ${n.title || '(no title)'} | hired ${n.hire_date || '?'} | OID=${n.oid}`);\n    }\n  }\n  if (patchErrors.length > 0) {\n    lines.push(`*:rotating_light: ${patchErrors.length} PATCH failure(s):*`);\n    for (const e of patchErrors) lines.push(`  ${e.name}: ${e.message}`);\n  }\n}\n\nreturn [{\n  json: {\n    text: lines.join('\\n'),\n    runId,\n    summary,\n    statusChanges,\n    newSalesHires,\n    patchErrors,\n    patched,\n  },\n}];"
+      },
+      "id": "adp-apply",
+      "name": "Apply Updates + Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-360, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "adp-slack",
+      "name": "Send Slack Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, -120]
+    }
+  ],
+  "connections": {
+    "Trigger 7am CST (Mon-Fri)": { "main": [[{ "node": "Fetch Linked Roster + Build Apify Body", "type": "main", "index": 0 }]] },
+    "Manual Trigger":            { "main": [[{ "node": "Fetch Linked Roster + Build Apify Body", "type": "main", "index": 0 }]] },
+    "Fetch Linked Roster + Build Apify Body": { "main": [[{ "node": "Start ADP Roster Sync Actor", "type": "main", "index": 0 }]] },
+    "Start ADP Roster Sync Actor": { "main": [[{ "node": "Wait 90s", "type": "main", "index": 0 }]] },
+    "Wait 90s":                  { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
+    "Poll Run Status":           { "main": [[{ "node": "Run Succeeded?", "type": "main", "index": 0 }]] },
+    "Run Succeeded?": {
+      "main": [
+        [{ "node": "Apply Updates + Build Summary", "type": "main", "index": 0 }],
+        [{ "node": "Wait & Retry Poll", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait & Retry Poll":         { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
+    "Apply Updates + Build Summary": { "main": [[{ "node": "Send Slack Summary", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true, "instanceId": "dsb-adp-roster-sync" }
+}

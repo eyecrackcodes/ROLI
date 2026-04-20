@@ -1,0 +1,83 @@
+{
+  "title": "DSB ADP Roster Sync Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "required": ["adpClientId", "adpClientSecret", "adpCertPem", "adpKeyPem"],
+  "properties": {
+    "adpClientId": {
+      "title": "ADP Client ID",
+      "type": "string",
+      "description": "OAuth client_id from ADP Marketplace (Luminary Life). Stored at the actor level as a default; n8n overrides per-run is unnecessary.",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "adpClientSecret": {
+      "title": "ADP Client Secret",
+      "type": "string",
+      "description": "OAuth client_secret from ADP Marketplace.",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "adpCertPem": {
+      "title": "ADP Client Certificate (PEM)",
+      "type": "string",
+      "description": "Full contents of adp.cert.pem (the public client certificate). Begins with -----BEGIN CERTIFICATE-----.",
+      "editor": "textarea",
+      "isSecret": true
+    },
+    "adpKeyPem": {
+      "title": "ADP Client Private Key (PEM)",
+      "type": "string",
+      "description": "Full contents of adp.key.pem (the private key paired with the certificate). Begins with -----BEGIN RSA PRIVATE KEY----- or -----BEGIN PRIVATE KEY-----.",
+      "editor": "textarea",
+      "isSecret": true
+    },
+    "linkedOids": {
+      "title": "Already-linked associateOIDs",
+      "type": "array",
+      "description": "ROLI agents that already have adp_associate_oid set. The actor fetches detail for these specifically so we always get fresh status/title/email even if they're outside the first 100-worker page.",
+      "editor": "json",
+      "default": []
+    },
+    "salesTitleKeywords": {
+      "title": "Job title keywords that mark a 'sales' worker",
+      "type": "array",
+      "description": "Lowercased substrings; if any matches the worker's jobTitle/jobCode.shortName, the worker is flagged as a candidate sales hire (so n8n can Slack you when an unlinked sales worker appears).",
+      "editor": "json",
+      "default": ["agent", "sales", "producer"],
+      "items": { "type": "string" }
+    },
+    "tokenUrl": {
+      "title": "ADP Token URL",
+      "type": "string",
+      "description": "OAuth token endpoint. Override only if ADP changes the URL.",
+      "editor": "textfield",
+      "default": "https://accounts.adp.com/auth/oauth/v2/token"
+    },
+    "apiBase": {
+      "title": "ADP API Base URL",
+      "type": "string",
+      "description": "Base URL for ADP REST endpoints. Override only for sandbox testing.",
+      "editor": "textfield",
+      "default": "https://api.adp.com"
+    },
+    "pageSize": {
+      "title": "Workers list page size",
+      "type": "integer",
+      "description": "Page size for the /hr/v2/workers list call. ADP supports up to 1000.",
+      "editor": "number",
+      "default": 100,
+      "minimum": 25,
+      "maximum": 1000
+    },
+    "requestDelayMs": {
+      "title": "Inter-request delay (ms)",
+      "type": "integer",
+      "description": "Pause between API requests to stay under ADP's ~100 RPM rate limit.",
+      "editor": "number",
+      "default": 250,
+      "minimum": 0,
+      "maximum": 5000
+    }
+  }
+}

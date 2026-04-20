@@ -1,0 +1,77 @@
+{
+  "title": "DSB ADP Punches Sync Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "required": ["adpClientId", "adpClientSecret", "adpCertPem", "adpKeyPem"],
+  "properties": {
+    "adpClientId": {
+      "title": "ADP Client ID",
+      "type": "string",
+      "description": "OAuth client_id registered with the Luminary Life ADP Marketplace app.",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "adpClientSecret": {
+      "title": "ADP Client Secret",
+      "type": "string",
+      "description": "OAuth client_secret paired with the client_id.",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "adpCertPem": {
+      "title": "ADP Client Certificate (PEM)",
+      "type": "string",
+      "description": "Full contents of adp.cert.pem. Begins with -----BEGIN CERTIFICATE-----.",
+      "editor": "textarea",
+      "isSecret": true
+    },
+    "adpKeyPem": {
+      "title": "ADP Client Private Key (PEM)",
+      "type": "string",
+      "description": "Full contents of adp.key.pem. Begins with -----BEGIN PRIVATE KEY----- (or RSA PRIVATE KEY).",
+      "editor": "textarea",
+      "isSecret": true
+    },
+    "startDate": {
+      "title": "Start date (ISO YYYY-MM-DD)",
+      "type": "string",
+      "description": "Inclusive start date for the punch window. Defaults to today (CST).",
+      "editor": "textfield"
+    },
+    "endDate": {
+      "title": "End date (ISO YYYY-MM-DD)",
+      "type": "string",
+      "description": "Inclusive end date for the punch window. Defaults to startDate.",
+      "editor": "textfield"
+    },
+    "associateOids": {
+      "title": "Filter to these associateOIDs",
+      "type": "array",
+      "description": "Optional whitelist; when provided, only punches for these workers are emitted (typically the linked ROLI agents).",
+      "editor": "json",
+      "default": [],
+      "items": { "type": "string" }
+    },
+    "punchesEndpoint": {
+      "title": "Punches endpoint path",
+      "type": "string",
+      "description": "Override if ADP changes the URL or you want to test /time/v1/punches as a fallback.",
+      "editor": "textfield",
+      "default": "/time/v2/punches"
+    },
+    "tokenUrl": {
+      "title": "ADP Token URL",
+      "type": "string",
+      "description": "OAuth token endpoint. Override only if ADP changes the URL.",
+      "editor": "textfield",
+      "default": "https://accounts.adp.com/auth/oauth/v2/token"
+    },
+    "apiBase": {
+      "title": "ADP API Base URL",
+      "type": "string",
+      "description": "Base URL for ADP REST endpoints.",
+      "editor": "textfield",
+      "default": "https://api.adp.com"
+    }
+  }
+}
