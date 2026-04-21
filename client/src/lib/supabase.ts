@@ -12,3 +12,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "");
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+
+// QAvOne (Conversation Intelligence source) — read-only
+const qavUrl = import.meta.env.VITE_QAV_SUPABASE_URL;
+const qavKey = import.meta.env.VITE_QAV_SUPABASE_ANON_KEY;
+
+export const supabaseQav = createClient(qavUrl ?? "", qavKey ?? "");
+export const isQavConfigured = Boolean(qavUrl && qavKey);

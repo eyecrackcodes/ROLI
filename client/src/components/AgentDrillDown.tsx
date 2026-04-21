@@ -33,6 +33,7 @@ import type { PipelineAgent } from "@/lib/pipelineIntelligence";
 import { FLAG_META, getGradeColor, getGradeBg } from "@/lib/pipelineIntelligence";
 import { computeTenure, cohortBadgeClasses } from "@/lib/tenure";
 import { ActivityProfileSection } from "@/components/ActivityProfileSection";
+import { CoachingBriefSection } from "@/components/CoachingBriefSection";
 
 interface AgentDrillDownProps {
   agentName: string | null;
@@ -342,6 +343,9 @@ export function AgentDrillDown({
           <div className="space-y-6 pt-5">
             {/* Activity Profile (cohort-aware) */}
             {agentName && <ActivityProfileSection agentName={agentName} />}
+
+            {/* Coaching Brief (Attention AI conversation intelligence) */}
+            {agentName && <CoachingBriefSection agentName={agentName} />}
 
             {/* Today's Stats */}
             <div>

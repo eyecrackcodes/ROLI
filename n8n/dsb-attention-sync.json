@@ -1,0 +1,124 @@
+{
+  "name": "DSB Attention Conversation Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 * * * 1-5" }
+          ]
+        }
+      },
+      "id": "attn-trig-cron",
+      "name": "Every Hour (Mon-Fri)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-1200, -100]
+    },
+    {
+      "parameters": {},
+      "id": "attn-trig-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1200, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ROLI_KEY = 'YOUR_ROLI_SUPABASE_ANON_KEY';\nconst ROLI = 'YOUR_ROLI_SUPABASE_URL/rest/v1';\nconst QAV_KEY = 'YOUR_QAVONE_SUPABASE_ANON_KEY';\nconst QAV = 'YOUR_QAVONE_SUPABASE_URL/rest/v1';\n\n// 1. Read sync cursor from ROLI\nlet lastCursor;\ntry {\n  const rows = await this.helpers.httpRequest({ method: 'GET', url: `${ROLI}/sync_cursors?source=eq.attention&select=last_cursor_iso`, headers: { apikey: ROLI_KEY }, json: true });\n  lastCursor = rows?.[0]?.last_cursor_iso || null;\n} catch (e) { lastCursor = null; }\nif (!lastCursor) {\n  const d = new Date(); d.setDate(d.getDate() - 60);\n  lastCursor = d.toISOString();\n}\n\n// 2. Read ROLI agents for email → id mapping\nconst agents = await this.helpers.httpRequest({ method: 'GET', url: `${ROLI}/agents?select=id,name,adp_work_email`, headers: { apikey: ROLI_KEY }, json: true });\nconst emailToId = {};\nfor (const a of (agents || [])) {\n  if (a.adp_work_email) emailToId[a.adp_work_email.toLowerCase()] = a.id;\n}\n\n// 3. Paginate QAvOne attention_conversations since cursor\nconst MIN_DURATION = 120;\nconst allRows = [];\nlet offset = 0;\nconst LIMIT = 500;\nlet latestImported = lastCursor;\n\nwhile (true) {\n  const url = `${QAV}/attention_conversations?imported_at=gt.${encodeURIComponent(lastCursor)}&duration_sec=gte.${MIN_DURATION}&ai_overall_score=not.is.null&select=attention_uuid,agent_email,agent_name,call_date,duration_sec,ai_overall_score,ai_scorecard_data,title,imported_at,has_been_scored&order=imported_at.asc&limit=${LIMIT}&offset=${offset}`;\n  const rows = await this.helpers.httpRequest({ method: 'GET', url, headers: { apikey: QAV_KEY }, json: true });\n  if (!Array.isArray(rows) || rows.length === 0) break;\n  allRows.push(...rows);\n  for (const r of rows) {\n    if (r.imported_at && r.imported_at > latestImported) latestImported = r.imported_at;\n  }\n  if (rows.length < LIMIT) break;\n  offset += LIMIT;\n}\n\n// 4. Transform to conversation_intelligence schema\nconst conversations = [];\nlet matched = 0;\nlet skipped = 0;\nfor (const r of allRows) {\n  const agentId = r.agent_email ? emailToId[r.agent_email.toLowerCase()] : null;\n  if (!agentId) { skipped++; continue; }\n  matched++;\n\n  const breakdown = {};\n  const scData = r.ai_scorecard_data;\n  const items = (scData && scData.items) || [];\n  for (const item of items) {\n    if (item.score === 0 && item.status === 'CALCULATED' && item.description && item.description.toLowerCase().includes('n/a')) continue;\n    const key = (item.title || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');\n    if (item.score != null) breakdown[key] = item.score;\n  }\n\n  const callDate = r.call_date ? r.call_date.slice(0, 10) : null;\n\n  conversations.push({\n    attention_uuid: r.attention_uuid,\n    attention_user_uuid: r.agent_email || '',\n    call_date: callDate,\n    call_started_at: r.call_date,\n    duration_seconds: Math.round(r.duration_sec || 0),\n    call_label: null,\n    outcome: null,\n    scorecard_name: (scData && scData.title) || null,\n    scorecard_total_score: r.ai_overall_score ? parseFloat(r.ai_overall_score) : null,\n    scorecard_breakdown: Object.keys(breakdown).length > 0 ? breakdown : null,\n    talk_ratio: null,\n    longest_monologue_sec: null,\n    sentiment_overall: null,\n    first_objection_type: null,\n    first_objection_at_seconds: null,\n    recovered_after_objection: null,\n    clip_url: `https://app.attention.tech/conversations/${r.attention_uuid}`,\n    transcript_summary: (scData && scData.summary && scData.summary.summaryText) || null,\n    ai_themes: [],\n    raw_payload: { source: 'qav1', qav_id: r.attention_uuid, agent_name: r.agent_name, title: r.title },\n  });\n}\n\nreturn [{ json: { conversationCount: conversations.length, matched, skipped, latestImported, conversations } }];"
+      },
+      "id": "attn-fetch-qav",
+      "name": "Fetch from QAvOne + Transform",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-900, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-conversations",
+              "leftValue": "={{ $json.conversationCount }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "attn-check-empty",
+      "name": "Has Conversations?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_ROLI_SUPABASE_URL/functions/v1/ingest-attention",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_ROLI_SUPABASE_ANON_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conversations: $json.conversations, update_cursor: $json.latestImported }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "attn-post-supabase",
+      "name": "POST to ingest-attention",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-300, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `✅ Attention Sync (QAvOne → ROLI)\\n• Ingested: ${$json.inserted || 0}\\n• Skipped (unmapped agent): ${$json.skipped || 0}\\n• Total: ${$json.total || 0}` }) }}",
+        "options": {}
+      },
+      "id": "attn-slack-success",
+      "name": "Slack Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `⚠️ Attention Sync: No new scored conversations in QAvOne since last cursor` }) }}",
+        "options": {}
+      },
+      "id": "attn-slack-empty",
+      "name": "Slack No Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-300, 100]
+    }
+  ],
+  "connections": {
+    "Every Hour (Mon-Fri)": { "main": [[{ "node": "Fetch from QAvOne + Transform", "type": "main", "index": 0 }]] },
+    "Manual Trigger": { "main": [[{ "node": "Fetch from QAvOne + Transform", "type": "main", "index": 0 }]] },
+    "Fetch from QAvOne + Transform": { "main": [[{ "node": "Has Conversations?", "type": "main", "index": 0 }]] },
+    "Has Conversations?": {
+      "main": [
+        [{ "node": "POST to ingest-attention", "type": "main", "index": 0 }],
+        [{ "node": "Slack No Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "POST to ingest-attention": { "main": [[{ "node": "Slack Success", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "executionTimeout": 300 },
+  "meta": { "instanceId": "89ecaea7644e2fc8bb00924fa95bf8f2f321b4752bc18483de9de5a764fee65c" }
+}

@@ -12,6 +12,7 @@ import {
   type AgentTrack,
   type QuadrantId,
 } from "@/hooks/useCoachingQuadrant";
+import type { ThemeSeverity } from "@/lib/conversationIntelligence";
 
 /* -----------------------------------------------------------------------------
  * CoachingQuadrant — 2D map of every active agent on Skill (close rate) ×
@@ -49,11 +50,23 @@ const fmtPct = (n: number) => (n * 100).toFixed(1) + "%";
 const fmtMin = (n: number) => Math.round(n) + "m";
 const firstLast = (full: string) => full.split(" ").slice(0, 2).join(" ");
 
-interface CoachingQuadrantProps {
-  data: CoachingQuadrantData;
+export interface AgentThemeBadge {
+  themeLabel: string;
+  severity: ThemeSeverity;
 }
 
-export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
+interface CoachingQuadrantProps {
+  data: CoachingQuadrantData;
+  agentThemes?: Map<string, AgentThemeBadge>;
+}
+
+const SEVERITY_RING: Record<ThemeSeverity, string> = {
+  high: "#ef4444",
+  med: "#f59e0b",
+  low: "#3b82f6",
+};
+
+export function CoachingQuadrant({ data, agentThemes }: CoachingQuadrantProps) {
   const {
     agents, lowActivity,
     medianCloseRate, medianTalkPerDay,
@@ -349,6 +362,15 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
                     animate={{ scale: 1 }}
                     transition={{ delay: i * 0.02, type: "spring", stiffness: 220, damping: 18 }}
                   />
+                  {/* Coaching theme severity ring */}
+                  {agentThemes?.has(a.name) && (() => {
+                    const badge = agentThemes.get(a.name)!;
+                    return (
+                      <circle cx={p7.x} cy={p7.y} r={isHover ? 12 : 10}
+                              fill="none" stroke={SEVERITY_RING[badge.severity]}
+                              strokeWidth={2} strokeDasharray="3 2" strokeOpacity={0.8} />
+                    );
+                  })()}
                   {/* Quadrant transition flag */}
                   {a.movedQuadrant && (
                     <circle cx={p7.x + 8} cy={p7.y - 8} r={3}
@@ -417,6 +439,16 @@ export function CoachingQuadrant({ data }: CoachingQuadrantProps) {
                     {a.momentum.dy >= 0 ? "+" : ""}{Math.round(a.momentum.dy)}m talk
                   </span>
                 </div>
+                {agentThemes?.has(a.name) && (() => {
+                  const badge = agentThemes.get(a.name)!;
+                  const ringColor = badge.severity === "high" ? "text-red-400" : badge.severity === "med" ? "text-amber-400" : "text-blue-400";
+                  return (
+                    <div className="mt-1 pt-1 border-t border-border/60">
+                      <span className="text-muted-foreground">Coaching:</span>{" "}
+                      <span className={cn("font-bold", ringColor)}>{badge.themeLabel}</span>
+                    </div>
+                  );
+                })()}
                 <div className="text-[9px] mt-1 text-muted-foreground/80">→ click dot to drill in</div>
               </div>
             );

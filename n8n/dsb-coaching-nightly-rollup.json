@@ -1,0 +1,94 @@
+{
+  "name": "DSB Coaching Themes Nightly Rollup",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 22 * * 1-5" }
+          ]
+        }
+      },
+      "id": "rollup-trig-cron",
+      "name": "Nightly 10pm CST (Mon-Fri)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-600, -100]
+    },
+    {
+      "parameters": {},
+      "id": "rollup-trig-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-600, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SUPABASE_PROJECT.supabase.co/functions/v1/rollup-coaching-themes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "rollup-invoke",
+      "name": "Invoke Rollup Edge Function",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-360, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `🧠 Coaching Rollup Complete\\n• Week: ${$json.weekStart} → ${$json.weekEnd}\\n• Agents: ${$json.agentsProcessed}\\n• Calls analyzed: ${$json.callsAnalyzed}\\n• Themes written: ${$json.themesWritten}` }) }}",
+        "options": {}
+      },
+      "id": "rollup-slack",
+      "name": "Slack Rollup Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SUPABASE_PROJECT.supabase.co/functions/v1/decay-coaching-themes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "decay-invoke",
+      "name": "Decay Stale Themes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [120, 0]
+    }
+  ],
+  "connections": {
+    "Nightly 10pm CST (Mon-Fri)": { "main": [[{ "node": "Invoke Rollup Edge Function", "type": "main", "index": 0 }]] },
+    "Manual Trigger": { "main": [[{ "node": "Invoke Rollup Edge Function", "type": "main", "index": 0 }]] },
+    "Invoke Rollup Edge Function": { "main": [[{ "node": "Slack Rollup Result", "type": "main", "index": 0 }]] },
+    "Slack Rollup Result": { "main": [[{ "node": "Decay Stale Themes", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "instanceId": "roli-coaching-rollup-v1" }
+}

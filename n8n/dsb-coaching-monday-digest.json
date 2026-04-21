@@ -1,0 +1,101 @@
+{
+  "name": "DSB Coaching Monday Digest (Slack)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 8 * * 1" }
+          ]
+        }
+      },
+      "id": "digest-trig-cron",
+      "name": "Monday 8am CST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-900, -100]
+    },
+    {
+      "parameters": {},
+      "id": "digest-trig-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-900, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch the prior week's coaching themes + agent names from Supabase\nconst apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base = 'https://YOUR_SUPABASE_PROJECT.supabase.co/rest/v1';\nconst hdr = { apikey };\n\n// Get the Monday of last week\nconst now = new Date();\nconst dayOfWeek = now.getUTCDay();\nconst lastMonday = new Date(now);\nlastMonday.setUTCDate(now.getUTCDate() - 7 - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));\nconst weekStart = lastMonday.toISOString().slice(0, 10);\n\nconst [themesResp, agentsResp] = await Promise.all([\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/coaching_themes_weekly?week_start_date=eq.${weekStart}&order=tier.asc,severity.desc`,\n    headers: hdr,\n    json: true,\n  }),\n  this.helpers.httpRequest({\n    method: 'GET',\n    url: `${base}/agents?select=id,name,site&is_active=eq.true`,\n    headers: hdr,\n    json: true,\n  }),\n]);\n\nif (!Array.isArray(themesResp) || themesResp.length === 0) {\n  return [{ json: { weekStart, hasThemes: false, message: 'No coaching themes for last week.' } }];\n}\n\nconst nameMap = {};\nfor (const a of agentsResp) nameMap[a.id] = { name: a.name, site: a.site };\n\n// Group by agent, max 3 per agent, sorted by tier then severity\nconst byAgent = {};\nfor (const t of themesResp) {\n  const agent = nameMap[t.agent_id];\n  if (!agent) continue;\n  const key = agent.name;\n  if (!byAgent[key]) byAgent[key] = { name: agent.name, site: agent.site, themes: [] };\n  if (byAgent[key].themes.length < 3) {\n    byAgent[key].themes.push({\n      label: t.theme_label,\n      severity: t.severity,\n      tier: t.tier,\n      action: t.suggested_action,\n      agentValue: t.agent_value,\n      benchmarkValue: t.benchmark_value,\n    });\n  }\n}\n\n// Build Slack blocks\nconst sevEmoji = { high: '🔴', med: '🟡', low: '🔵' };\nconst tierLabel = { 1: 'Process', 2: 'Behavioral', 3: 'Strategic' };\n\nconst blocks = [\n  {\n    type: 'header',\n    text: { type: 'plain_text', text: `🧠 Weekly Coaching Digest — ${weekStart}` },\n  },\n  {\n    type: 'section',\n    text: { type: 'mrkdwn', text: `*${Object.keys(byAgent).length} agents* with coaching themes this week. Top 3 themes per agent, ordered by impact.` },\n  },\n  { type: 'divider' },\n];\n\nconst agents = Object.values(byAgent).sort((a, b) => {\n  // Sort by highest severity first\n  const sevOrd = { high: 3, med: 2, low: 1 };\n  const aMax = Math.max(...a.themes.map(t => sevOrd[t.severity] || 0));\n  const bMax = Math.max(...b.themes.map(t => sevOrd[t.severity] || 0));\n  return bMax - aMax;\n});\n\nfor (const agent of agents) {\n  const themeLines = agent.themes.map(t => {\n    const emoji = sevEmoji[t.severity] || '⚪';\n    const tier = tierLabel[t.tier] || 'Unknown';\n    let line = `${emoji} *${t.label}* (${tier})`;\n    if (t.agentValue !== null && t.benchmarkValue !== null) {\n      line += ` — Agent: ${t.agentValue}% vs Peer: ${t.benchmarkValue}%`;\n    }\n    line += `\\n   → _${t.action}_`;\n    return line;\n  }).join('\\n');\n\n  blocks.push({\n    type: 'section',\n    text: { type: 'mrkdwn', text: `*${agent.name}* (${agent.site})\\n${themeLines}` },\n  });\n  blocks.push({ type: 'divider' });\n}\n\nblocks.push({\n  type: 'context',\n  elements: [{ type: 'mrkdwn', text: `_Open ROLI → Coaching Digest for full details and clip links_` }],\n});\n\nreturn [{ json: { weekStart, hasThemes: true, agentCount: Object.keys(byAgent).length, blocks: JSON.stringify(blocks) } }];"
+      },
+      "id": "digest-build",
+      "name": "Build Slack Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-themes",
+              "leftValue": "={{ $json.hasThemes }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "digest-check",
+      "name": "Has Themes?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-420, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ blocks: JSON.parse($json.blocks) }) }}",
+        "options": {}
+      },
+      "id": "digest-post-slack",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-180, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: '📋 Monday Coaching Digest: No themes generated for last week. Attention data may not be flowing yet.' }) }}",
+        "options": {}
+      },
+      "id": "digest-slack-empty",
+      "name": "Slack No Themes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-180, 100]
+    }
+  ],
+  "connections": {
+    "Monday 8am CST": { "main": [[{ "node": "Build Slack Digest", "type": "main", "index": 0 }]] },
+    "Manual Trigger": { "main": [[{ "node": "Build Slack Digest", "type": "main", "index": 0 }]] },
+    "Build Slack Digest": { "main": [[{ "node": "Has Themes?", "type": "main", "index": 0 }]] },
+    "Has Themes?": {
+      "main": [
+        [{ "node": "Post to Slack", "type": "main", "index": 0 }],
+        [{ "node": "Slack No Themes", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "instanceId": "roli-coaching-monday-digest-v1" }
+}

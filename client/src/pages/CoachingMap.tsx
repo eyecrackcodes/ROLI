@@ -11,14 +11,17 @@
 // `hooks/useCoachingQuadrant.ts`. This page is just the chrome around it:
 // page header, anchor date controls, and a brief "how to read this" panel.
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Zap, Target, BookOpen } from "lucide-react";
 import { useData } from "@/contexts/DataContext";
 import { useCoachingQuadrant, QUADRANT_META, type QuadrantId } from "@/hooks/useCoachingQuadrant";
-import { CoachingQuadrant } from "@/components/CoachingQuadrant";
+import { CoachingQuadrant, type AgentThemeBadge } from "@/components/CoachingQuadrant";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { supabase, isSupabaseConfigured, supabaseQav, isQavConfigured } from "@/lib/supabase";
+import { deriveCoachingThemes } from "@/lib/conversationIntelligence";
+import type { ThemeSeverity, ConversationRow } from "@/lib/conversationIntelligence";
 
 export default function CoachingMap() {
   const data = useData();
@@ -45,6 +48,89 @@ export default function CoachingMap() {
     for (const a of quadrant.agents) counts[a.quadrant]++;
     return counts;
   }, [quadrant.agents]);
+
+  // Derive top coaching theme per agent from QAvOne for badge overlay
+  const [agentThemes, setAgentThemes] = useState<Map<string, AgentThemeBadge>>(new Map());
+  useEffect(() => {
+    if (!isSupabaseConfigured || !isQavConfigured) return;
+    (async () => {
+      try {
+        const { data: agents } = await supabase
+          .from("agents")
+          .select("id, name, adp_work_email");
+        if (!agents) return;
+
+        const emailToAgent = new Map<string, { id: string; name: string }>();
+        for (const a of agents as Array<{ id: string; name: string; adp_work_email: string | null }>) {
+          if (a.adp_work_email) emailToAgent.set(a.adp_work_email.toLowerCase(), a);
+        }
+
+        const twoWeeksAgo = new Date();
+        twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+        const since = twoWeeksAgo.toISOString().slice(0, 10);
+
+        const { data: qavRows } = await supabaseQav
+          .from("attention_conversations")
+          .select("attention_uuid, agent_email, call_date, duration_sec, ai_overall_score, ai_scorecard_data")
+          .gte("call_date", since)
+          .gte("duration_sec", 120)
+          .not("ai_overall_score", "is", null)
+          .order("call_date", { ascending: false })
+          .limit(2000);
+
+        if (!qavRows || qavRows.length === 0) return;
+
+        // Group by agent and derive themes
+        const agentCalls = new Map<string, { name: string; calls: ConversationRow[] }>();
+        for (const r of qavRows) {
+          if (!r.agent_email) continue;
+          const agent = emailToAgent.get(r.agent_email.toLowerCase());
+          if (!agent) continue;
+
+          const breakdown: Record<string, number> = {};
+          for (const item of r.ai_scorecard_data?.items ?? []) {
+            if (item.score == null) continue;
+            if (item.score === 0 && item.status === "CALCULATED" && item.description?.toLowerCase().includes("n/a")) continue;
+            const key = (item.title || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+            const max = item.max ?? 5;
+            if (key) breakdown[key] = max > 0 ? Math.round((item.score / max) * 100) : item.score;
+          }
+
+          const call: ConversationRow = {
+            attention_uuid: r.attention_uuid,
+            agent_id: agent.id,
+            call_date: r.call_date?.slice(0, 10) ?? "",
+            call_started_at: r.call_date ?? "",
+            duration_seconds: Math.round(r.duration_sec ?? 0),
+            call_label: null, outcome: null,
+            scorecard_name: r.ai_scorecard_data?.title ?? null,
+            scorecard_total_score: r.ai_overall_score ? parseFloat(String(r.ai_overall_score)) : null,
+            scorecard_breakdown: Object.keys(breakdown).length > 0 ? breakdown : null,
+            talk_ratio: null, longest_monologue_sec: null, sentiment_overall: null,
+            first_objection_type: null, first_objection_at_seconds: null, recovered_after_objection: null,
+            clip_url: null, transcript_summary: null, ai_themes: null,
+          };
+
+          const existing = agentCalls.get(agent.id) ?? { name: agent.name, calls: [] };
+          existing.calls.push(call);
+          agentCalls.set(agent.id, existing);
+        }
+
+        const now = new Date();
+        const weekStart = (() => { const d = now.getUTCDay(); const diff = now.getUTCDate() - d + (d === 0 ? -6 : 1); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff)).toISOString().slice(0, 10); })();
+
+        const map = new Map<string, AgentThemeBadge>();
+        for (const [agentId, { name, calls }] of agentCalls) {
+          const themes = deriveCoachingThemes(calls, agentId, weekStart, null);
+          if (themes.length === 0) continue;
+          map.set(name, { themeLabel: themes[0].themeLabel, severity: themes[0].severity as ThemeSeverity });
+        }
+        setAgentThemes(map);
+      } catch {
+        // Non-critical — map just won't show badges
+      }
+    })();
+  }, [selectedDate]);
 
   return (
     <div className="space-y-6">
@@ -133,7 +219,7 @@ export default function CoachingMap() {
       )}
 
       {/* The quadrant itself ------------------------------------------- */}
-      <CoachingQuadrant data={quadrant} />
+      <CoachingQuadrant data={quadrant} agentThemes={agentThemes.size > 0 ? agentThemes : undefined} />
 
       {/* How-to-read footer -------------------------------------------- */}
       <div className="rounded-md border border-border/60 bg-card/30 p-3">

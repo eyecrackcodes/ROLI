@@ -12,12 +12,14 @@ import {
   Radar,
   Target,
   Zap,
+  Brain,
 } from "lucide-react";
 import { LiveStatusIndicator } from "@/components/LiveStatusIndicator";
 
 const navItems = [
   { path: "/", label: "Production", icon: Activity, description: "Daily sales, CR, and gate status" },
   { path: "/coaching", label: "Coaching Map", icon: Target, description: "Skill x effort quadrant + momentum" },
+  { path: "/coaching/digest", label: "Coaching Digest", icon: Brain, description: "Weekly call coaching themes per agent" },
   { path: "/pipeline", label: "Pipeline", icon: Radar, description: "Health scores and coaching actions" },
   { path: "/leads-pool", label: "Leads Pool", icon: Users, description: "Pool activity and self-assigns" },
   { path: "/activity", label: "Activity Profiles", icon: Zap, description: "Tenure-cohort baselines + anomalies" },
