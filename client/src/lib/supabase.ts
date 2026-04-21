@@ -17,5 +17,7 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 const qavUrl = import.meta.env.VITE_QAV_SUPABASE_URL;
 const qavKey = import.meta.env.VITE_QAV_SUPABASE_ANON_KEY;
 
-export const supabaseQav = createClient(qavUrl ?? "", qavKey ?? "");
 export const isQavConfigured = Boolean(qavUrl && qavKey);
+export const supabaseQav = isQavConfigured
+  ? createClient(qavUrl!, qavKey!)
+  : (null as unknown as ReturnType<typeof createClient>);
