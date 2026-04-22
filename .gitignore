@@ -139,3 +139,5 @@ mcp_args_part*.json
 mcp_payload_part*.json
 mcp_split_part*.json
 mcp_split_part*.sql
+
+.vercel
