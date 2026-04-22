@@ -316,7 +316,12 @@ try {
     .catch(() => 0);
   if (successRows === 0) {
     await Actor.fail("ICD scrape produced 0 successful date items — treating as failure");
-    return;
+    // Belt-and-braces: Actor.fail should terminate the process, but we can't
+    // use a bare `return` here — this try/catch is at module top level and
+    // ESM forbids top-level return. process.exit guarantees termination
+    // without falling through to the trailing `await Actor.exit()` (which
+    // would otherwise mark the run SUCCEEDED).
+    process.exit(1);
   }
 
   await Actor.exit();
