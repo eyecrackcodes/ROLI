@@ -135,11 +135,34 @@ export function useIntradayPace(overrideDate?: string) {
         agentInfo.set(a.name, { site: a.site, tier: a.tier });
       }
 
-      const latestByAgent = new Map<string, IntradayRow>();
+      // Roll up each agent's day with MAX across all snapshot rows.
+      // Every column we read is cumulative (monotonically non-decreasing), so
+      // MAX is the correct aggregation. This also makes us robust to "stub"
+      // rows written by cross-source ingest paths — e.g. the hourly ICD
+      // scraper inserts a row at hour H+1 with the CRM-side columns defaulted
+      // to 0 before the CRM scraper has reached hour H+1. A naive "latest
+      // row wins" picks that stub and momentarily shows every agent as having
+      // zero dials / zero talk / zero leads. MAX-rollup ignores those stubs
+      // because cumulative numbers can never legitimately decrease.
+      const aggregateByAgent = new Map<string, IntradayRow>();
       for (const r of snapRows as IntradayRow[]) {
-        if (!latestByAgent.has(r.agent_name)) {
-          latestByAgent.set(r.agent_name, r);
+        const prev = aggregateByAgent.get(r.agent_name);
+        if (!prev) {
+          aggregateByAgent.set(r.agent_name, { ...r });
+          continue;
         }
+        aggregateByAgent.set(r.agent_name, {
+          agent_name: r.agent_name,
+          scrape_hour: Math.max(prev.scrape_hour, r.scrape_hour),
+          total_dials: Math.max(prev.total_dials ?? 0, r.total_dials ?? 0),
+          talk_time_minutes: Math.max(Number(prev.talk_time_minutes ?? 0), Number(r.talk_time_minutes ?? 0)),
+          ib_leads_delivered: Math.max(prev.ib_leads_delivered ?? 0, r.ib_leads_delivered ?? 0),
+          ib_sales: Math.max(prev.ib_sales ?? 0, r.ib_sales ?? 0),
+          pool_dials: Math.max(prev.pool_dials ?? 0, r.pool_dials ?? 0),
+          pool_talk_minutes: Math.max(Number(prev.pool_talk_minutes ?? 0), Number(r.pool_talk_minutes ?? 0)),
+          pool_long_calls: Math.max(prev.pool_long_calls ?? 0, r.pool_long_calls ?? 0),
+          pool_self_assigned: Math.max(prev.pool_self_assigned ?? 0, r.pool_self_assigned ?? 0),
+        });
       }
 
       const curveHour = Math.min(Math.max(hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END);
@@ -151,7 +174,7 @@ export function useIntradayPace(overrideDate?: string) {
       // Iterate over the active roster (not the snapshot rows) so absent agents
       // remain visible in the pacer instead of silently disappearing.
       for (const [name, info] of agentInfo) {
-        const row = latestByAgent.get(name);
+        const row = aggregateByAgent.get(name);
 
         // Determine presence first — short-circuits behind-flag noise for
         // agents who weren't here to perform.

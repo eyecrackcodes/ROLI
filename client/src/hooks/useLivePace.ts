@@ -93,13 +93,29 @@ export function useLivePace(windowDays = 30): UseLivePaceResult {
   }, [scrapeDate, lastUpdatedAt]);
 
   const { agents, hour } = useMemo(() => {
-    // Build per-agent latest cumulative (max scrape_hour wins per agent).
+    // Build per-agent cumulative rollup using MAX across all snapshot rows.
+    // Every column we read is monotonically non-decreasing through the day,
+    // so MAX is the correct aggregation. It's also robust to "stub" rows
+    // written by the hourly ICD scraper at hour H+1 before the CRM scraper
+    // reaches H+1 — those stubs have CRM-side columns defaulted to 0 and
+    // would otherwise zero out an agent's totals if we picked latest-row.
     const latestByAgent = new Map<string, IntradayRow>();
     let maxHour = 0;
     for (const row of intradayRows) {
-      const existing = latestByAgent.get(row.agent_name);
-      if (!existing || row.scrape_hour > existing.scrape_hour) {
-        latestByAgent.set(row.agent_name, row);
+      const prev = latestByAgent.get(row.agent_name);
+      if (!prev) {
+        latestByAgent.set(row.agent_name, { ...row });
+      } else {
+        latestByAgent.set(row.agent_name, {
+          agent_name: row.agent_name,
+          scrape_hour: Math.max(prev.scrape_hour, row.scrape_hour),
+          total_dials: Math.max(prev.total_dials ?? 0, row.total_dials ?? 0),
+          talk_time_minutes: Math.max(Number(prev.talk_time_minutes ?? 0), Number(row.talk_time_minutes ?? 0)),
+          pool_dials: Math.max(prev.pool_dials ?? 0, row.pool_dials ?? 0),
+          pool_talk_minutes: Math.max(Number(prev.pool_talk_minutes ?? 0), Number(row.pool_talk_minutes ?? 0)),
+          pool_long_calls: Math.max(prev.pool_long_calls ?? 0, row.pool_long_calls ?? 0),
+          pool_self_assigned: Math.max(prev.pool_self_assigned ?? 0, row.pool_self_assigned ?? 0),
+        });
       }
       if (row.scrape_hour > maxHour) maxHour = row.scrape_hour;
     }

@@ -283,8 +283,27 @@ export function useIntradayHeartbeat(
     // Group rows by hour. For aggregate mode, multiple agent rows per hour;
     // they get summed inside buildCells. For per-agent mode, at most one
     // row per hour.
+    //
+    // Defensive: skip rows that are pure "stubs" — every CRM-side column is
+    // zero. The hourly ICD intraday scraper inserts such rows for hours the
+    // CRM scraper hasn't reached yet. Including them in the per-hour sum
+    // would break cumulative monotonicity for the aggregate heartbeat
+    // (some agents real → big numbers, then a later hour adds a stub → sum
+    // drops → negative delta clamped to 0 → looks like the floor flatlined).
+    // Truly-zero-activity agents simply don't contribute, which is correct.
+    const isCrmStub = (r: IntradayRow): boolean =>
+      (r.total_dials ?? 0) === 0
+      && Number(r.talk_time_minutes ?? 0) === 0
+      && (r.ib_sales ?? 0) === 0
+      && (r.ob_sales ?? 0) === 0
+      && (r.custom_sales ?? 0) === 0
+      && (r.pool_dials ?? 0) === 0
+      && Number(r.pool_talk_minutes ?? 0) === 0
+      && (r.pool_self_assigned ?? 0) === 0;
+
     const rowsByHour = new Map<number, IntradayRow[]>();
     for (const r of rows) {
+      if (isCrmStub(r)) continue;
       const arr = rowsByHour.get(r.scrape_hour) ?? [];
       arr.push(r);
       rowsByHour.set(r.scrape_hour, arr);

@@ -154,11 +154,31 @@ export function useIntradayRpaPace(overrideDate?: string) {
         agentInfo.set(a.name, { site: a.site });
       }
 
-      // Latest snapshot per agent. Cumulative numbers — last row of the day
-      // is end-of-day total; current hour's row is "now".
-      const latestByAgent = new Map<string, RpaRow>();
+      // Roll up each agent's day with MAX across all snapshot rows.
+      // Every column we read is cumulative (monotonically non-decreasing), so
+      // MAX is the correct aggregation. Critically, this is robust to the
+      // two scrapers writing different hours: the CRM scraper writes a row
+      // at hour H with ICD cols defaulted to 0, then the ICD intraday
+      // scraper writes a row at hour H+1 with CRM cols defaulted to 0.
+      // A naive "latest hour wins" would zero out whichever side hadn't yet
+      // landed for the latest hour. MAX-rollup picks the highest cumulative
+      // value seen for each column regardless of which row it came from.
+      const aggregateByAgent = new Map<string, RpaRow>();
       for (const r of snapRows as RpaRow[]) {
-        if (!latestByAgent.has(r.agent_name)) latestByAgent.set(r.agent_name, r);
+        const prev = aggregateByAgent.get(r.agent_name);
+        if (!prev) {
+          aggregateByAgent.set(r.agent_name, { ...r });
+          continue;
+        }
+        aggregateByAgent.set(r.agent_name, {
+          agent_name: r.agent_name,
+          scrape_hour: Math.max(prev.scrape_hour, r.scrape_hour),
+          total_dials: Math.max(prev.total_dials ?? 0, r.total_dials ?? 0),
+          talk_time_minutes: Math.max(n(prev.talk_time_minutes), n(r.talk_time_minutes)),
+          queue_minutes: Math.max(n(prev.queue_minutes), n(r.queue_minutes)),
+          inbound_talk_minutes: Math.max(n(prev.inbound_talk_minutes), n(r.inbound_talk_minutes)),
+          ib_leads_delivered: Math.max(prev.ib_leads_delivered ?? 0, r.ib_leads_delivered ?? 0),
+        });
       }
 
       const curveHour = Math.min(Math.max(hour, BUSINESS_HOURS.START), BUSINESS_HOURS.END);
@@ -169,7 +189,7 @@ export function useIntradayRpaPace(overrideDate?: string) {
       const out: AgentRpaStatus[] = [];
 
       for (const [name, info] of agentInfo) {
-        const row = latestByAgent.get(name);
+        const row = aggregateByAgent.get(name);
 
         let presence: RpaPresence;
         if (!row) {

@@ -152,22 +152,29 @@ export function useActionCenter(overrideDate?: string) {
         });
       }
 
-      // Build intraday map (latest snapshot per agent)
+      // Build intraday map. Roll up each agent with MAX across all of today's
+      // snapshot rows. Every column is cumulative, so MAX is the correct
+      // aggregation and is robust to ICD-only stub rows that have CRM cols
+      // defaulted to 0 (which would zero out an agent's totals if we used
+      // "latest hour wins").
       const intradayMap = new Map<string, IntradaySnapshot>();
       for (const r of intradayData ?? []) {
-        if (!intradayMap.has(r.agent_name) && rosterMap.has(r.agent_name)) {
-          intradayMap.set(r.agent_name, {
-            agentName: r.agent_name,
-            totalDials: r.total_dials ?? 0,
-            talkTimeMin: r.talk_time_minutes ?? 0,
-            ibLeadsDelivered: r.ib_leads_delivered ?? 0,
-            ibSales: r.ib_sales ?? 0,
-            obLeads: r.ob_leads_delivered ?? 0,
-            obSales: r.ob_sales ?? 0,
-            totalPremium:
-              (r.ib_premium ?? 0) + (r.ob_premium ?? 0) + (r.custom_premium ?? 0),
-          });
-        }
+        if (!rosterMap.has(r.agent_name)) continue;
+        const prev = intradayMap.get(r.agent_name);
+        const ibPrem = r.ib_premium ?? 0;
+        const obPrem = r.ob_premium ?? 0;
+        const cuPrem = r.custom_premium ?? 0;
+        const next: IntradaySnapshot = {
+          agentName: r.agent_name,
+          totalDials: Math.max(prev?.totalDials ?? 0, r.total_dials ?? 0),
+          talkTimeMin: Math.max(prev?.talkTimeMin ?? 0, Number(r.talk_time_minutes ?? 0)),
+          ibLeadsDelivered: Math.max(prev?.ibLeadsDelivered ?? 0, r.ib_leads_delivered ?? 0),
+          ibSales: Math.max(prev?.ibSales ?? 0, r.ib_sales ?? 0),
+          obLeads: Math.max(prev?.obLeads ?? 0, r.ob_leads_delivered ?? 0),
+          obSales: Math.max(prev?.obSales ?? 0, r.ob_sales ?? 0),
+          totalPremium: Math.max(prev?.totalPremium ?? 0, ibPrem + obPrem + cuPrem),
+        };
+        intradayMap.set(r.agent_name, next);
       }
 
       // Build pipeline map
