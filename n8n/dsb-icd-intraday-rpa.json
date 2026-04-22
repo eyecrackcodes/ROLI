@@ -95,12 +95,50 @@
       "position": [-360, 0]
     },
     {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            { "id": "f1", "leftValue": "={{ $json.data.status }}", "rightValue": "FAILED",    "operator": { "type": "string", "operation": "equals" } },
+            { "id": "f2", "leftValue": "={{ $json.data.status }}", "rightValue": "ABORTED",   "operator": { "type": "string", "operation": "equals" } },
+            { "id": "f3", "leftValue": "={{ $json.data.status }}", "rightValue": "TIMED-OUT", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "rpa-if-failed",
+      "name": "Run Terminal Failure?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-120, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Apify run hit a terminal failure (FAILED / ABORTED / TIMED-OUT). Throw so\n// this n8n execution is marked FAILED in the executions list (instead of\n// silently completing) and any failure-workflow alerts fire.\nconst data = $input.first().json.data || {};\nthrow new Error(`ICD run ${data.id || '?'} ended with status=${data.status || 'UNKNOWN'}. Aborting intraday RPA scrape.`);"
+      },
+      "id": "rpa-fail-loud",
+      "name": "Fail Loudly on Apify Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [120, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Hard cap: bail out of the poll loop if the Apify run has been alive\n// longer than MAX_MINUTES. Without this, a stuck run (network blip, hung\n// browser, etc.) would loop Wait→Poll→Wait→Poll indefinitely and pile up\n// n8n executions. Apify normally transitions to TIMED-OUT on its own — this\n// is defense-in-depth.\nconst MAX_MINUTES = 30;\nconst data = $input.first().json.data || {};\nconst status = data.status || 'UNKNOWN';\nconst startedAt = data.startedAt;\nif (startedAt) {\n  const elapsedMin = (Date.now() - new Date(startedAt).getTime()) / 60000;\n  if (elapsedMin > MAX_MINUTES) {\n    throw new Error(`ICD run ${data.id || '?'} exceeded ${MAX_MINUTES}min cap (status=${status}, elapsed=${elapsedMin.toFixed(1)}min). Aborting poll loop.`);\n  }\n}\nreturn $input.all();"
+      },
+      "id": "rpa-cap-time",
+      "name": "Cap Poll Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-360, 240]
+    },
+    {
       "parameters": { "amount": 90, "unit": "seconds" },
       "id": "rpa-wait-retry",
       "name": "Wait & Retry Poll",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [-360, 240],
+      "position": [-600, 240],
       "webhookId": "rpa-wait-retry-hook"
     },
     {
@@ -153,22 +191,29 @@
     }
   ],
   "connections": {
-    "Trigger Hourly 9-5 CST (Weekdays)": { "main": [[{ "node": "Compute Today + Hour (CST)", "type": "main", "index": 0 }]] },
-    "Manual Trigger":                    { "main": [[{ "node": "Compute Today + Hour (CST)", "type": "main", "index": 0 }]] },
-    "Compute Today + Hour (CST)":        { "main": [[{ "node": "Fetch Roster + Build Apify Body", "type": "main", "index": 0 }]] },
-    "Fetch Roster + Build Apify Body":   { "main": [[{ "node": "Start ICD Scraper", "type": "main", "index": 0 }]] },
-    "Start ICD Scraper":                 { "main": [[{ "node": "Wait 3 Minutes", "type": "main", "index": 0 }]] },
-    "Wait 3 Minutes":                    { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
-    "Poll Run Status":                   { "main": [[{ "node": "Run Succeeded?", "type": "main", "index": 0 }]] },
+    "Trigger Hourly 9-5 CST (Weekdays)": { "main": [[{ "node": "Compute Today + Hour (CST)",       "type": "main", "index": 0 }]] },
+    "Manual Trigger":                    { "main": [[{ "node": "Compute Today + Hour (CST)",       "type": "main", "index": 0 }]] },
+    "Compute Today + Hour (CST)":        { "main": [[{ "node": "Fetch Roster + Build Apify Body",  "type": "main", "index": 0 }]] },
+    "Fetch Roster + Build Apify Body":   { "main": [[{ "node": "Start ICD Scraper",                "type": "main", "index": 0 }]] },
+    "Start ICD Scraper":                 { "main": [[{ "node": "Wait 3 Minutes",                   "type": "main", "index": 0 }]] },
+    "Wait 3 Minutes":                    { "main": [[{ "node": "Poll Run Status",                  "type": "main", "index": 0 }]] },
+    "Poll Run Status":                   { "main": [[{ "node": "Run Succeeded?",                   "type": "main", "index": 0 }]] },
     "Run Succeeded?": {
       "main": [
         [{ "node": "Fetch Dataset & Build Payload", "type": "main", "index": 0 }],
-        [{ "node": "Wait & Retry Poll", "type": "main", "index": 0 }]
+        [{ "node": "Run Terminal Failure?",         "type": "main", "index": 0 }]
       ]
     },
-    "Wait & Retry Poll":                 { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
-    "Fetch Dataset & Build Payload":     { "main": [[{ "node": "Data OK?", "type": "main", "index": 0 }]] },
-    "Data OK?":                          { "main": [[{ "node": "Ingest (icd_intraday)", "type": "main", "index": 0 }], []] }
+    "Run Terminal Failure?": {
+      "main": [
+        [{ "node": "Fail Loudly on Apify Failure", "type": "main", "index": 0 }],
+        [{ "node": "Cap Poll Time",                "type": "main", "index": 0 }]
+      ]
+    },
+    "Cap Poll Time":                     { "main": [[{ "node": "Wait & Retry Poll",                "type": "main", "index": 0 }]] },
+    "Wait & Retry Poll":                 { "main": [[{ "node": "Poll Run Status",                  "type": "main", "index": 0 }]] },
+    "Fetch Dataset & Build Payload":     { "main": [[{ "node": "Data OK?",                        "type": "main", "index": 0 }]] },
+    "Data OK?":                          { "main": [[{ "node": "Ingest (icd_intraday)",            "type": "main", "index": 0 }], []] }
   },
   "active": false,
   "settings": { "executionOrder": "v1" },
