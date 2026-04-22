@@ -1,0 +1,177 @@
+{
+  "name": "DSB ICD Intraday RPA",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "10 9-17 * * 1-5" }
+          ]
+        }
+      },
+      "id": "rpa-trig-hourly",
+      "name": "Trigger Hourly 9-5 CST (Weekdays)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-1800, -100]
+    },
+    {
+      "parameters": {},
+      "id": "rpa-trig-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1800, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolve today's date in CST and the current CST hour (0-23). The hour is\n// stamped on the ingest payload so the edge function writes the snapshot to\n// the right (scrape_date, scrape_hour, agent_name) row in intraday_snapshots.\n//\n// We always scrape TODAY (not yesterday). The ICD actor returns cumulative\n// numbers up to the current point in the day, so each hourly run is a\n// monotonically growing snapshot — same shape the CRM scraper writes.\nfunction nowCST() {\n  const now = new Date();\n  const central = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));\n  const date = central.getFullYear() + '-' + String(central.getMonth() + 1).padStart(2, '0') + '-' + String(central.getDate()).padStart(2, '0');\n  return { date, hour: central.getHours() };\n}\n\nconst { date, hour } = nowCST();\nreturn [{ json: { dates: [date], scrape_hour: hour, mode: 'icd_intraday' } }];"
+      },
+      "id": "rpa-compute-now",
+      "name": "Compute Today + Hour (CST)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1560, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch active roster + aliases from Supabase. Build the Apify input.\n// Identical to the nightly workflow's roster fetch so they stay in sync if\n// the agent table changes mid-day.\nconst ctx = $input.first().json;\nconst apikey = 'YOUR_SUPABASE_ANON_KEY';\nconst base = 'https://YOUR_SUPABASE_PROJECT.supabase.co/rest/v1';\nconst hdr = { apikey };\n\nconst [roster, aliases] = await Promise.all([\n  this.helpers.httpRequest({ method: 'GET', url: base + '/agents?select=name,is_active&is_active=eq.true', headers: hdr, json: true }),\n  this.helpers.httpRequest({ method: 'GET', url: base + '/agent_name_aliases?select=canonical_name,crm_name', headers: hdr, json: true })\n]);\n\nif (!roster || roster.length === 0) {\n  return [{ json: { error: true, message: 'No active agents found in Supabase', ...ctx } }];\n}\n\nconst targetAgents = roster.map((a) => a.name);\nconst nameAliases = {};\nfor (const a of (aliases || [])) {\n  if (a.crm_name && a.canonical_name && a.crm_name !== a.canonical_name) {\n    nameAliases[a.crm_name] = a.canonical_name;\n  }\n}\n\nreturn [{\n  json: {\n    ...ctx,\n    agentCount: roster.length,\n    targetAgents,\n    nameAliases,\n    apifyBody: JSON.stringify({\n      icdUsername: 'YOUR_ICD_USERNAME',\n      icdPassword: 'YOUR_ICD_PASSWORD',\n      agencyId: '1428',\n      backfillDates: ctx.dates,\n      targetAgents,\n      nameAliases,\n      requestDelay: 1500\n    })\n  }\n}];"
+      },
+      "id": "rpa-fetch-roster",
+      "name": "Fetch Roster + Build Apify Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1320, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/YOUR_ICD_ACTOR_ID/runs?token=YOUR_APIFY_TOKEN",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.apifyBody }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "rpa-start-apify",
+      "name": "Start ICD Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1080, 0]
+    },
+    {
+      "parameters": { "amount": 3, "unit": "minutes" },
+      "id": "rpa-wait-1",
+      "name": "Wait 3 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-840, 0],
+      "webhookId": "rpa-wait-1-hook"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $node['Start ICD Scraper'].json.data.id }}?token=YOUR_APIFY_TOKEN",
+        "options": { "timeout": 10000 }
+      },
+      "id": "rpa-poll",
+      "name": "Poll Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            { "id": "succ", "leftValue": "={{ $json.data.status }}", "rightValue": "SUCCEEDED", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "rpa-if-succeeded",
+      "name": "Run Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-360, 0]
+    },
+    {
+      "parameters": { "amount": 90, "unit": "seconds" },
+      "id": "rpa-wait-retry",
+      "name": "Wait & Retry Poll",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-360, 240],
+      "webhookId": "rpa-wait-retry-hook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull the dataset from the Apify run and build the icd_intraday payload.\n// Threads scrape_hour from the upstream Compute node so the edge function\n// writes to the correct hour bucket in intraday_snapshots.\nconst statusItem = $input.first().json;\nconst datasetId = statusItem?.data?.defaultDatasetId;\nconst runId = statusItem?.data?.id || 'unknown';\nconst scrape_hour = $node['Compute Today + Hour (CST)'].json.scrape_hour;\n\nif (!datasetId) {\n  return [{ json: { error: true, message: 'No defaultDatasetId. runId=' + runId } }];\n}\n\nconst token = 'YOUR_APIFY_TOKEN';\nconst url = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${token}`;\nlet items;\nfor (let attempt = 1; attempt <= 3; attempt++) {\n  try {\n    const raw = await this.helpers.httpRequest({\n      method: 'GET',\n      url,\n      encoding: 'utf-8',\n      timeout: 60000,\n      headers: { Accept: 'application/json' },\n    });\n    items = typeof raw === 'string' ? JSON.parse(raw) : raw;\n    if (Array.isArray(items) && items.length > 0) break;\n  } catch (err) {\n    if (attempt === 3) throw err;\n    await new Promise((r) => setTimeout(r, 5000));\n  }\n}\n\nif (!items || !Array.isArray(items) || items.length === 0) {\n  return [{ json: { error: true, message: 'Dataset empty', datasetId, runId } }];\n}\n\nconst out = [];\nfor (const item of items) {\n  if (item._type === 'icd_calls_report' && Array.isArray(item.agents)) {\n    out.push({\n      json: {\n        scrape_date: item.scrape_date,\n        scrape_hour,\n        agent_count: item.agents.length,\n        unmatched: (item.unmatched_agents || []).length,\n        ingestBody: JSON.stringify({\n          mode: 'icd_intraday',\n          scrape_date: item.scrape_date,\n          scrape_hour,\n          agents: item.agents.map((a) => ({\n            agent_name: a.agent_name,\n            queue_minutes: a.queue_minutes ?? 0,\n            inbound_talk_minutes: a.talk_minutes ?? 0,\n            avg_wait_minutes: a.avg_wait_minutes ?? 0,\n          })),\n        }),\n      },\n    });\n  } else if (item._type === 'icd_calls_report_error') {\n    out.push({ json: { error: true, scrape_date: item.scrape_date, message: item.error } });\n  }\n}\nif (out.length === 0) return [{ json: { error: true, message: 'No icd_calls_report items in dataset', datasetId, runId } }];\nreturn out;"
+      },
+      "id": "rpa-fetch-dataset",
+      "name": "Fetch Dataset & Build Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-120, -120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "strict" },
+          "conditions": [
+            { "id": "ok", "leftValue": "={{ $json.error }}", "rightValue": true, "operator": { "type": "boolean", "operation": "false" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "rpa-if-data-ok",
+      "name": "Data OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [120, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SUPABASE_PROJECT.supabase.co/functions/v1/ingest-daily-scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.ingestBody }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "rpa-ingest",
+      "name": "Ingest (icd_intraday)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [360, -200]
+    }
+  ],
+  "connections": {
+    "Trigger Hourly 9-5 CST (Weekdays)": { "main": [[{ "node": "Compute Today + Hour (CST)", "type": "main", "index": 0 }]] },
+    "Manual Trigger":                    { "main": [[{ "node": "Compute Today + Hour (CST)", "type": "main", "index": 0 }]] },
+    "Compute Today + Hour (CST)":        { "main": [[{ "node": "Fetch Roster + Build Apify Body", "type": "main", "index": 0 }]] },
+    "Fetch Roster + Build Apify Body":   { "main": [[{ "node": "Start ICD Scraper", "type": "main", "index": 0 }]] },
+    "Start ICD Scraper":                 { "main": [[{ "node": "Wait 3 Minutes", "type": "main", "index": 0 }]] },
+    "Wait 3 Minutes":                    { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
+    "Poll Run Status":                   { "main": [[{ "node": "Run Succeeded?", "type": "main", "index": 0 }]] },
+    "Run Succeeded?": {
+      "main": [
+        [{ "node": "Fetch Dataset & Build Payload", "type": "main", "index": 0 }],
+        [{ "node": "Wait & Retry Poll", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait & Retry Poll":                 { "main": [[{ "node": "Poll Run Status", "type": "main", "index": 0 }]] },
+    "Fetch Dataset & Build Payload":     { "main": [[{ "node": "Data OK?", "type": "main", "index": 0 }]] },
+    "Data OK?":                          { "main": [[{ "node": "Ingest (icd_intraday)", "type": "main", "index": 0 }], []] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true, "instanceId": "dsb-icd-intraday-rpa" }
+}

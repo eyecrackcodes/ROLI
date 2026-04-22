@@ -43,5 +43,14 @@ export const UNIFIED_INTRADAY_TARGETS = {
   IB_LEADS: 7,
   POOL_FOLLOWUPS: 5,
   TALK_TIME: 120,
+  /**
+   * Daily Revenue Producing Activity target in minutes.
+   * 300 min = 5 hours of "on the floor" time per the unified SOP.
+   * Components: queue + inbound talk + outbound talk + (dials × 0.5 overhead).
+   * See docs/sops/Agent-Activity-SOP.md.
+   */
+  RPA_MINUTES: 300,
+  /** Inferred dial overhead (min/dial) used to fold dials into the RPA total. */
+  DIAL_OVERHEAD_MIN: 0.5,
   BEHIND_THRESHOLD: 0.80,
 } as const;

@@ -8,6 +8,7 @@ import { useData } from "@/contexts/DataContext";
 import { MetricCard } from "@/components/MetricCard";
 import { AgentDrillDown } from "@/components/AgentDrillDown";
 import { LeadPacer } from "@/components/LeadPacer";
+import { RpaPacer } from "@/components/RpaPacer";
 import { LiveCohortPulse } from "@/components/LiveCohortPulse";
 import { UNIFIED_CONFIG, UNIFIED_POOL } from "@/lib/unifiedTargets";
 
@@ -671,6 +672,7 @@ export default function DailyPulse() {
         return (
           <>
             <LeadPacer />
+            <RpaPacer />
             <LiveCohortPulse spotlightLimit={5} />
           </>
         );
