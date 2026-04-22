@@ -19,6 +19,12 @@ interface AgentPayload {
   custom_premium?: number;
   total_dials?: number;
   talk_time_minutes?: number;
+  // ICD-sourced activity fields (used by ib_leads_only mode for RPAs).
+  // CRM Calls Report supplies talk_time_minutes (= outbound talk); ICD
+  // supplies the three fields below. They are additive — no overlap.
+  queue_minutes?: number;
+  inbound_talk_minutes?: number;
+  avg_wait_minutes?: number;
 }
 
 interface IngestPayload {
@@ -131,6 +137,11 @@ Deno.serve(async (req) => {
         custom_premium: a.custom_premium ?? 0,
         total_dials: a.total_dials ?? 0,
         talk_time_minutes: a.talk_time_minutes ?? 0,
+        // NOTE: queue_minutes / inbound_talk_minutes / avg_wait_minutes are
+        // intentionally NOT included here. They are ICD-sourced and only
+        // written by the ib_leads_only branch (which reads them off the
+        // original payload). Including them here with default 0 would cause
+        // the DSB `full` scraper to overwrite ICD's values with zeros.
       };
     });
 
@@ -202,12 +213,27 @@ Deno.serve(async (req) => {
         existingMap.set(row.agent_name as string, row);
       }
 
+      // Re-index the original payload by alias-resolved name so we can read
+      // ICD's RPA fields directly from the source. They aren't in
+      // dailyRecords (intentionally — see note in the mapping above) so the
+      // DSB `full` scraper can't accidentally zero them out later.
+      const payloadByName = new Map<string, AgentPayload>();
+      for (const a of validAgents) {
+        const resolved = aliasMap.get(a.agent_name) ?? a.agent_name;
+        payloadByName.set(resolved, a);
+      }
+
       const merged = dailyRecords.map((r) => {
         const prev = existingMap.get(r.agent_name);
+        const src = payloadByName.get(r.agent_name);
         if (prev) {
           updated++;
           const out: Record<string, unknown> = { ...prev };
           out.ib_leads_delivered = r.ib_leads_delivered;
+          // ICD is source of truth for these — overwrite only when present.
+          if (src?.queue_minutes        !== undefined) out.queue_minutes        = src.queue_minutes;
+          if (src?.inbound_talk_minutes !== undefined) out.inbound_talk_minutes = src.inbound_talk_minutes;
+          if (src?.avg_wait_minutes     !== undefined) out.avg_wait_minutes     = src.avg_wait_minutes;
           out.scrape_date = r.scrape_date;
           out.agent_name = r.agent_name;
           if (!out.tier) out.tier = r.tier;
@@ -216,8 +242,14 @@ Deno.serve(async (req) => {
           delete (out as { updated_at?: unknown }).updated_at;
           return out;
         } else {
+          // Inserting a fresh row. Include ICD activity fields when present
+          // so the brand-new row carries them; column defaults handle absent.
           inserted++;
-          return r;
+          const out: Record<string, unknown> = { ...r };
+          if (src?.queue_minutes        !== undefined) out.queue_minutes        = src.queue_minutes;
+          if (src?.inbound_talk_minutes !== undefined) out.inbound_talk_minutes = src.inbound_talk_minutes;
+          if (src?.avg_wait_minutes     !== undefined) out.avg_wait_minutes     = src.avg_wait_minutes;
+          return out;
         }
       });
 
