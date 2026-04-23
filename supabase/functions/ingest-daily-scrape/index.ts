@@ -138,7 +138,12 @@ Deno.serve(async (req) => {
         scrape_date: payload.scrape_date,
         agent_name: name,
         tier: a.tier ?? "T2",
-        ib_leads_delivered: a.ib_leads_delivered ?? 0,
+        // NOTE: ib_leads_delivered is intentionally OMITTED. ICD is the source
+        // of truth (billable_leads), not CRM Calls Report. The icd_intraday
+        // and ib_leads_only modes write this column. Omitting it from the
+        // `full` upsert payload means it's defaulted to 0 on INSERT (column
+        // default) and untouched on UPDATE (Supabase only generates
+        // EXCLUDED.col SET clauses for keys present in the row dict).
         ob_leads_delivered: a.ob_leads_delivered ?? 0,
         custom_leads: a.custom_leads ?? 0,
         ib_sales: a.ib_sales ?? 0,
@@ -151,9 +156,7 @@ Deno.serve(async (req) => {
         talk_time_minutes: a.talk_time_minutes ?? 0,
         // NOTE: queue_minutes / inbound_talk_minutes / avg_wait_minutes are
         // intentionally NOT included here. They are ICD-sourced and only
-        // written by the ib_leads_only branch (which reads them off the
-        // original payload). Including them here with default 0 would cause
-        // the DSB `full` scraper to overwrite ICD's values with zeros.
+        // written by the ib_leads_only / icd_intraday branches.
       };
     });
 
@@ -270,14 +273,21 @@ Deno.serve(async (req) => {
         .upsert(merged, { onConflict: "scrape_date,agent_name" });
       if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
     } else if (mode === "icd_intraday") {
-      // icd_intraday mode: hourly ICD scrape feeds the three RPA fields
-      // (queue_minutes, inbound_talk_minutes, avg_wait_minutes) into
-      // intraday_snapshots so the RpaPacer can pace minutes throughout the
-      // day. Critically, we do NOT touch any CRM-owned column on existing
-      // rows — pull the row, splice in our three values, upsert it back.
-      // For brand-new rows (ICD ran before CRM scraper this hour) we
-      // insert a minimal stub with default zeros for CRM columns; the CRM
-      // scraper's later upsert for the same hour will fill them in.
+      // icd_intraday mode: hourly ICD scrape is the SOURCE OF TRUTH for
+      // ib_leads_delivered (billable_leads), queue_minutes,
+      // inbound_talk_minutes, and avg_wait_minutes. CRM's "inbound calls"
+      // count is not the same as ICD's billable_leads — they routinely
+      // diverge by 1-3 leads per agent. To prevent CRM `full` mode from
+      // overwriting ICD's authoritative values, the `full` mode payload
+      // omits ib_leads_delivered entirely (Supabase upsert only emits
+      // EXCLUDED.col SET clauses for keys present in the row dict).
+      //
+      // This branch writes ICD values to BOTH:
+      //   1. intraday_snapshots — for the per-hour RpaPacer + LeadPacer
+      //   2. daily_scrape_data  — for the day-to-date Daily Pulse + tables
+      //
+      // Both writes use SELECT-merge so any CRM-owned columns already on
+      // the row (dials, talk_time, sales, premiums, etc.) are preserved.
 
       const targetHour = (() => {
         const h = payload.scrape_hour;
@@ -289,30 +299,33 @@ Deno.serve(async (req) => {
       const resolved = validAgents.map((a) => ({
         agent_name: aliasMap.get(a.agent_name) ?? a.agent_name,
         tier: a.tier ?? "T2",
+        ib_leads_delivered: a.ib_leads_delivered ?? 0,
         queue_minutes: a.queue_minutes ?? 0,
         inbound_talk_minutes: a.inbound_talk_minutes ?? 0,
         avg_wait_minutes: a.avg_wait_minutes ?? 0,
       }));
       const names = resolved.map((r) => r.agent_name);
 
-      const { data: existing, error: fetchErr } = await supabase
+      // ───── intraday_snapshots SELECT-merge ─────
+      const { data: existingIntra, error: fetchIntraErr } = await supabase
         .from("intraday_snapshots")
         .select("*")
         .eq("scrape_date", payload.scrape_date)
         .eq("scrape_hour", targetHour)
         .in("agent_name", names);
-      if (fetchErr) errors.push({ source: "intraday_snapshots.select", error: fetchErr.message });
+      if (fetchIntraErr) errors.push({ source: "intraday_snapshots.select", error: fetchIntraErr.message });
 
-      const existingMap = new Map<string, Record<string, unknown>>();
-      for (const row of (existing ?? []) as Array<Record<string, unknown>>) {
-        existingMap.set(row.agent_name as string, row);
+      const existingIntraMap = new Map<string, Record<string, unknown>>();
+      for (const row of (existingIntra ?? []) as Array<Record<string, unknown>>) {
+        existingIntraMap.set(row.agent_name as string, row);
       }
 
-      const merged = resolved.map((r) => {
-        const prev = existingMap.get(r.agent_name);
+      const mergedIntra = resolved.map((r) => {
+        const prev = existingIntraMap.get(r.agent_name);
         if (prev) {
           updated++;
           const out: Record<string, unknown> = { ...prev };
+          out.ib_leads_delivered = r.ib_leads_delivered;
           out.queue_minutes = r.queue_minutes;
           out.inbound_talk_minutes = r.inbound_talk_minutes;
           out.avg_wait_minutes = r.avg_wait_minutes;
@@ -321,12 +334,13 @@ Deno.serve(async (req) => {
           return out;
         }
         inserted++;
-        // Minimal stub — defaults handle every CRM column.
+        // Minimal stub — defaults handle every CRM-owned column.
         return {
           scrape_date: payload.scrape_date,
           scrape_hour: targetHour,
           agent_name: r.agent_name,
           tier: r.tier,
+          ib_leads_delivered: r.ib_leads_delivered,
           queue_minutes: r.queue_minutes,
           inbound_talk_minutes: r.inbound_talk_minutes,
           avg_wait_minutes: r.avg_wait_minutes,
@@ -335,9 +349,58 @@ Deno.serve(async (req) => {
 
       const { error: intradayError } = await supabase
         .from("intraday_snapshots")
-        .upsert(merged, { onConflict: "scrape_date,scrape_hour,agent_name" });
+        .upsert(mergedIntra, { onConflict: "scrape_date,scrape_hour,agent_name" });
       if (intradayError) errors.push({ source: "intraday_snapshots", error: intradayError.message });
-      else intradayCount = merged.length;
+      else intradayCount = mergedIntra.length;
+
+      // ───── daily_scrape_data SELECT-merge ─────
+      // Same idea: pull existing row, splice in ICD-owned columns, upsert
+      // back. New rows (ICD ran before CRM today) get a minimal stub with
+      // defaults for everything CRM owns; the next CRM `full` upsert fills
+      // dials/talk/sales without touching the ICD columns.
+      const { data: existingDaily, error: fetchDailyErr } = await supabase
+        .from("daily_scrape_data")
+        .select("*")
+        .eq("scrape_date", payload.scrape_date)
+        .in("agent_name", names);
+      if (fetchDailyErr) errors.push({ source: "daily_scrape_data.select", error: fetchDailyErr.message });
+
+      const existingDailyMap = new Map<string, Record<string, unknown>>();
+      for (const row of (existingDaily ?? []) as Array<Record<string, unknown>>) {
+        existingDailyMap.set(row.agent_name as string, row);
+      }
+
+      const mergedDaily = resolved.map((r) => {
+        const prev = existingDailyMap.get(r.agent_name);
+        if (prev) {
+          const out: Record<string, unknown> = { ...prev };
+          out.ib_leads_delivered = r.ib_leads_delivered;
+          out.queue_minutes = r.queue_minutes;
+          out.inbound_talk_minutes = r.inbound_talk_minutes;
+          out.avg_wait_minutes = r.avg_wait_minutes;
+          delete (out as { id?: unknown }).id;
+          delete (out as { created_at?: unknown }).created_at;
+          delete (out as { updated_at?: unknown }).updated_at;
+          return out;
+        }
+        // Brand-new daily row: ICD ran first today. Stub the row so the
+        // billable count isn't lost; CRM's later `full` upsert fills the
+        // rest (dials, talk, sales) without overwriting these four ICD cols.
+        return {
+          scrape_date: payload.scrape_date,
+          agent_name: r.agent_name,
+          tier: r.tier,
+          ib_leads_delivered: r.ib_leads_delivered,
+          queue_minutes: r.queue_minutes,
+          inbound_talk_minutes: r.inbound_talk_minutes,
+          avg_wait_minutes: r.avg_wait_minutes,
+        };
+      });
+
+      const { error: dailyError } = await supabase
+        .from("daily_scrape_data")
+        .upsert(mergedDaily, { onConflict: "scrape_date,agent_name" });
+      if (dailyError) errors.push({ source: "daily_scrape_data", error: dailyError.message });
     } else {
       // Full mode: original behavior. Upsert + intraday snapshot.
       const intradayRecords = dailyRecords.map((r) => ({ ...r, scrape_hour: cstHour }));
