@@ -10,6 +10,8 @@ import { AgentDrillDown } from "@/components/AgentDrillDown";
 import { LeadPacer } from "@/components/LeadPacer";
 import { RpaPacer } from "@/components/RpaPacer";
 import { LiveCohortPulse } from "@/components/LiveCohortPulse";
+import { CoachingActionBadge, CoachingActionTallies } from "@/components/CoachingActionBadge";
+import { useCoachingActions } from "@/hooks/useCoachingActions";
 import { UNIFIED_CONFIG, UNIFIED_POOL } from "@/lib/unifiedTargets";
 
 import { getPaceColor } from "@/lib/types";
@@ -209,11 +211,13 @@ function GateDots({ agent }: { agent: DailyPulseAgent }) {
   );
 }
 
-function UnifiedTable({ agents, onAgentClick }: {
+function UnifiedTable({ agents, onAgentClick, scrapeDate }: {
   agents: DailyPulseAgent[];
   onAgentClick?: (agent: DailyPulseAgent) => void;
+  scrapeDate: string;
 }) {
   const { sort, toggle } = useSort("totalPremium");
+  const { byAgent: actionsByAgent, tallies: actionTallies } = useCoachingActions(scrapeDate);
 
   const sorted = useMemo(() => sortAgents(agents, sort), [agents, sort]);
   const hasFunnel = agents.some(a => a.funnel && a.funnel.dials > 0);
@@ -231,6 +235,21 @@ function UnifiedTable({ agents, onAgentClick }: {
 
   return (
     <div className="space-y-4">
+      {/* Coaching action breakdown — what does the floor need today? */}
+      {actionTallies.total > 0 && (
+        <div>
+          <div className="flex items-baseline justify-between mb-1.5">
+            <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
+              Today's coaching queue
+            </h3>
+            <span className="text-[10px] font-mono text-muted-foreground/70">
+              {actionTallies.total} active agents — sorted by priority
+            </span>
+          </div>
+          <CoachingActionTallies tallies={actionTallies} />
+        </div>
+      )}
+
       {/* Summary metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         <MetricCard label="Total Premium" value={formatCurrency(totalPremium)} color="blue" />
@@ -290,6 +309,7 @@ function UnifiedTable({ agents, onAgentClick }: {
                     <Link href={`/agent-profile/${encodeURIComponent(agent.name)}`} className="hover:text-blue-400 hover:underline transition-colors text-left">{agent.name}</Link>
                     <button onClick={(e) => { e.stopPropagation(); onAgentClick?.(agent); }} className="text-muted-foreground/40 hover:text-blue-400 transition-colors print:hidden" title="Quick view"><Eye className="h-3 w-3" /></button>
                     <PoolBadge pool={agent.pool} />
+                    <CoachingActionBadge action={actionsByAgent.get(agent.name)} />
                   </span>
                 </td>
                 <td className="px-3 py-2.5 font-mono text-right tabular-nums">{agent.ibCalls ?? 0}</td>
@@ -683,7 +703,11 @@ export default function DailyPulse() {
           <p className="text-sm font-mono text-muted-foreground animate-pulse">Loading data...</p>
         </div>
       ) : hasData ? (
-        <UnifiedTable agents={allAgents} onAgentClick={handleAgentClick} />
+        <UnifiedTable
+          agents={allAgents}
+          onAgentClick={handleAgentClick}
+          scrapeDate={data.isRangeMode ? data.dateRange.end : data.selectedDate}
+        />
       ) : (
         <div className="border border-dashed border-border rounded-md p-12 flex flex-col items-center justify-center gap-3 bg-card/30">
           <div className="text-4xl font-mono text-muted-foreground/20">---</div>

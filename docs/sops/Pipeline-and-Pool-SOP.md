@@ -378,7 +378,7 @@ Total estimated monthly commission at target: **~$9,400/month ($113k annualized)
 | Org close rate (15% target) | 19.6% actual | `company_daily_metrics.sales_rate_pct` |
 | ROAS | 2.94× | `company_daily_metrics.roas` |
 | Daily org spend | $28,032 | `company_daily_metrics.total_cost` |
-| Active agents | 60 (16 RMT + 44 CHA) | `agents` where `is_active = true` |
+| Active agents | All RMT (Charlotte deprecated) | `agents` where `is_active = true` |
 
 ---
 

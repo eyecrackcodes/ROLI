@@ -1,7 +1,7 @@
 # Agent Standard Operating Procedure
 
 **Effective:** April 2026
-**Applies to:** All agents — Remote & Charlotte
+**Applies to:** All active agents
 
 ---
 

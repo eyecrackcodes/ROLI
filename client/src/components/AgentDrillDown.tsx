@@ -34,6 +34,8 @@ import { FLAG_META, getGradeColor, getGradeBg } from "@/lib/pipelineIntelligence
 import { computeTenure, cohortBadgeClasses } from "@/lib/tenure";
 import { ActivityProfileSection } from "@/components/ActivityProfileSection";
 import { CoachingBriefSection } from "@/components/CoachingBriefSection";
+import { CoachingActionCard } from "@/components/CoachingActionBadge";
+import { useCoachingActions } from "@/hooks/useCoachingActions";
 
 interface AgentDrillDownProps {
   agentName: string | null;
@@ -141,6 +143,12 @@ export function AgentDrillDown({
     () => agentName ? data.pipelineAgents.find(a => a.name === agentName) : undefined,
     [data.pipelineAgents, agentName]
   );
+
+  // Pull today's coaching action for this agent. Use the same scrape date the
+  // Daily Pulse is anchored on so the badge stays consistent with the table.
+  const coachingDate = data.isRangeMode ? data.dateRange.end : data.selectedDate;
+  const { byAgent: coachingByAgent } = useCoachingActions(open && agentName ? coachingDate : null);
+  const coachingAction = agentName ? coachingByAgent.get(agentName) : undefined;
 
   const [idDates, setIdDates] = useState<string[]>([]);
   const [idDate, setIdDate] = useState("");
@@ -341,6 +349,9 @@ export function AgentDrillDown({
           </div>
         ) : (
           <div className="space-y-6 pt-5">
+            {/* Today's coaching action — derived from agent_coaching_actions_daily */}
+            {coachingAction && <CoachingActionCard action={coachingAction} />}
+
             {/* Activity Profile (cohort-aware) */}
             {agentName && <ActivityProfileSection agentName={agentName} />}
 

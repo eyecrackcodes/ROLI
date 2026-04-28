@@ -1,0 +1,235 @@
+{
+  "name": "DSB Dialpad Intraday RPA",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "20 9-17 * * 1-5" }
+          ]
+        }
+      },
+      "id": "dp-trig-hourly",
+      "name": "Trigger Hourly 9-5 CST (Weekdays)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-1800, -100]
+    },
+    {
+      "parameters": {},
+      "id": "dp-trig-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1800, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolve today's date in CST and the current CST hour (0-23). The hour\n// is stamped on the ingest payload so the edge function writes the\n// snapshot to the right (scrape_date, scrape_hour, agent_name) row in\n// intraday_snapshots. Same shape as the ICD intraday workflow.\nfunction nowCST() {\n  const now = new Date();\n  const central = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));\n  const date = central.getFullYear() + '-' + String(central.getMonth() + 1).padStart(2, '0') + '-' + String(central.getDate()).padStart(2, '0');\n  return { date, hour: central.getHours() };\n}\nconst { date, hour } = nowCST();\nreturn [{ json: { scrape_date: date, scrape_hour: hour } }];"
+      },
+      "id": "dp-compute-now",
+      "name": "Compute Today + Hour (CST)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1560, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://dialpad.com/api/v2/stats",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_DIALPAD_API_TOKEN" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  stat_type: 'calls',\n  export_type: 'records',\n  is_today: true,\n  days_ago_start: 0,\n  days_ago_end: 0,\n  timezone: 'America/Chicago'\n}) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "dp-stats-create",
+      "name": "POST /stats (initiate)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1320, 0]
+    },
+    {
+      "parameters": { "amount": 30, "unit": "seconds" },
+      "id": "dp-wait-initial",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-1080, 0],
+      "webhookId": "dp-wait-initial-hook"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://dialpad.com/api/v2/stats/{{ $node['POST /stats (initiate)'].json.request_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_DIALPAD_API_TOKEN" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "dp-stats-poll",
+      "name": "GET /stats/{id}",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-840, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "complete",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "complete",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dp-if-complete",
+      "name": "Stats Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "f1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "f2",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "error",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "dp-if-failed",
+      "name": "Stats Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-360, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dialpad Stats job reported a terminal failure. Throw so this n8n\n// execution is marked FAILED and any failure-workflow alerts fire.\n// Avoids silent infinite polling when the upstream is broken.\nconst payload = $input.first().json || {};\nthrow new Error(`Dialpad stats job ${payload.request_id || '?'} ended with status=${payload.status || 'UNKNOWN'}.`);"
+      },
+      "id": "dp-fail-loud",
+      "name": "Fail Loudly",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-120, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Defense-in-depth: cap the poll loop at 8 minutes. Dialpad caches\n// is_today=true results for 30 min so most jobs return in <1 min.\n// Anything past 8 min means upstream is hung; bail loudly so we don't\n// pile up stuck n8n executions.\nconst MAX_MINUTES = 8;\nconst startedAt = $node['POST /stats (initiate)'].json.created_at\n  || $node['Compute Today + Hour (CST)'].json.scrape_date;\nconst startMs = $execution.startedAt ? new Date($execution.startedAt).getTime() : Date.now();\nconst elapsedMin = (Date.now() - startMs) / 60000;\nif (elapsedMin > MAX_MINUTES) {\n  throw new Error(`Dialpad poll loop exceeded ${MAX_MINUTES}min cap (elapsed=${elapsedMin.toFixed(1)}min). Aborting.`);\n}\nreturn $input.all();"
+      },
+      "id": "dp-cap-time",
+      "name": "Cap Poll Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-360, 120]
+    },
+    {
+      "parameters": { "amount": 30, "unit": "seconds" },
+      "id": "dp-wait-retry",
+      "name": "Wait 30s & Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-600, 120],
+      "webhookId": "dp-wait-retry-hook"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.download_url || $json.file_url }}",
+        "options": { "timeout": 60000, "response": { "response": { "responseFormat": "text" } } }
+      },
+      "id": "dp-download-csv",
+      "name": "Download CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-360, -120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the Dialpad calls CSV (export_type=records) and normalize into\n// the shape ingest-dialpad-calls expects.\n//\n// Column names verified against the live Dialpad API on 2026-04-27:\n//   call_id            — per-LEG unique id (use this as primary key)\n//   master_call_id     — shared across all legs of the same call\n//   target_type        — 'user' | 'office' | 'department' | 'call_center'\n//   target_id          — id of the target (user_id when target_type='user')\n//   name               — human name of the target (e.g. 'Eric Marrs')\n//   talk_duration      — talk time in MINUTES (decimal, e.g. 56.61)\n//   ringing_duration   — ring time in MINUTES (decimal, e.g. 0.08)\n//   direction          — 'inbound' | 'outbound'\n//\n// IMPORTANT: durations are decimal MINUTES, not seconds. Multiply by 60\n// before sending to the edge function (which expects seconds in its DB\n// schema). Cross-checked against (date_ended − date_connected) / 1000\n// against talk_duration × 60 — matches within ±1s.\n//\n// We FILTER to target_type === 'user' rows only. The CSV also returns\n// office/department/call_center rows for the same calls; counting them\n// would multiply talk-time by the number of legs. Only the user row is\n// the agent leg we want to attribute.\n//\n// Each hourly run rebuilds today's full picture (the edge function\n// merges aggregates by overwriting the dialpad_* columns), so this is\n// idempotent regardless of whether Dialpad returns deltas or cumulative.\n\nconst raw = typeof $input.first().json.data === 'string'\n  ? $input.first().json.data\n  : (typeof $input.first().json.body === 'string' ? $input.first().json.body : '');\n\nconst body = raw || $input.first().json.body || '';\nif (!body || typeof body !== 'string') {\n  return [{ json: { error: true, message: 'No CSV body in download response' } }];\n}\n\nfunction parseCSVLine(line) {\n  const out = [];\n  let cur = '';\n  let inQ = false;\n  for (let i = 0; i < line.length; i++) {\n    const ch = line[i];\n    if (ch === '\"') {\n      if (inQ && line[i + 1] === '\"') { cur += '\"'; i++; }\n      else { inQ = !inQ; }\n    } else if (ch === ',' && !inQ) {\n      out.push(cur);\n      cur = '';\n    } else {\n      cur += ch;\n    }\n  }\n  out.push(cur);\n  return out;\n}\n\nconst lines = body.split(/\\r?\\n/).filter((l) => l.length > 0);\nif (lines.length < 2) {\n  return [{ json: { error: true, message: 'CSV has no data rows', lineCount: lines.length } }];\n}\n\nconst headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().trim());\nconst H = (name) => headers.indexOf(name);\n\nfunction pick(row, aliases) {\n  for (const a of aliases) {\n    const idx = H(a);\n    if (idx >= 0) {\n      const v = row[idx];\n      if (v !== undefined && v !== '') return v;\n    }\n  }\n  return null;\n}\n\n// Decimal minutes -> integer seconds. Returns 0 for null/empty/non-numeric.\nfunction minToSec(v) {\n  if (v === null || v === undefined || v === '') return 0;\n  const n = parseFloat(String(v));\n  if (!Number.isFinite(n) || n <= 0) return 0;\n  return Math.round(n * 60);\n}\n\nconst ctx = $node['Compute Today + Hour (CST)'].json;\nconst calls = [];\nlet skippedNonUser = 0;\nlet skippedNoCallId = 0;\n\nfor (let i = 1; i < lines.length; i++) {\n  const cells = parseCSVLine(lines[i]);\n  if (cells.length < 3) continue;\n\n  // Filter to per-user rows only. Office/department/call_center rows are\n  // duplicate legs of the same call and would inflate talk minutes if\n  // counted. The edge function's user-id mapping needs target_type='user'\n  // anyway.\n  const targetType = (pick(cells, ['target_type']) || '').toString().toLowerCase();\n  if (targetType !== 'user') { skippedNonUser++; continue; }\n\n  // call_id is the per-leg unique id; master_call_id is shared across\n  // legs. We dedupe by call_id at the DB level (UNIQUE constraint).\n  const callId = pick(cells, ['call_id']);\n  if (!callId) { skippedNoCallId++; continue; }\n\n  const directionRaw = (pick(cells, ['direction', 'call_direction']) || '').toString().toLowerCase();\n  const direction = directionRaw.startsWith('out') ? 'outbound'\n                   : directionRaw.startsWith('in') ? 'inbound'\n                   : null;\n  if (!direction) continue;\n\n  const dateStarted = pick(cells, ['date_started', 'date_rang', 'started_at', 'call_start_time']);\n  if (!dateStarted) continue;\n\n  const dateConnected = pick(cells, ['date_connected', 'connected_at']);\n  const dateEnded = pick(cells, ['date_ended', 'ended_at']);\n\n  // Dialpad CSV: talk_duration + ringing_duration are MINUTES. Convert\n  // to seconds so the edge function's INTEGER columns store sane values.\n  const talkSec = minToSec(pick(cells, ['talk_duration', 'duration_talk', 'talk_minutes']));\n  let ringSec = minToSec(pick(cells, ['ringing_duration', 'ring_duration', 'duration_ring', 'ring_minutes']));\n\n  // Fallback: derive ring from timestamps if column missing/empty.\n  if (!ringSec && dateStarted && dateConnected) {\n    const a = new Date(dateStarted).getTime();\n    const b = new Date(dateConnected).getTime();\n    if (Number.isFinite(a) && Number.isFinite(b) && b > a) {\n      ringSec = Math.round((b - a) / 1000);\n    }\n  }\n\n  const totalSec = talkSec + ringSec;\n\n  const targetId = pick(cells, ['target_id', 'user_id']);\n  const targetName = pick(cells, ['name', 'target_name', 'user_name']);\n  const externalNumber = pick(cells, ['external_number', 'external_phone', 'caller_number']);\n\n  const rawObj = {};\n  for (let h = 0; h < headers.length; h++) rawObj[headers[h]] = cells[h];\n\n  calls.push({\n    call_id: callId,\n    master_call_id: pick(cells, ['master_call_id']) || null,\n    direction,\n    date_started: dateStarted,\n    date_connected: dateConnected || null,\n    date_ended: dateEnded || null,\n    talk_seconds: talkSec,\n    ring_seconds: ringSec,\n    total_seconds: totalSec,\n    target_id: targetId ? String(targetId) : null,\n    target_type: targetType,\n    target_name: targetName || null,\n    external_number: externalNumber || null,\n    was_recorded: pick(cells, ['was_recorded', 'recorded']) === 'true',\n    disposition: pick(cells, ['category', 'disposition', 'call_disposition']) || null,\n    raw: rawObj\n  });\n}\n\nreturn [{ json: {\n  scrape_date: ctx.scrape_date,\n  scrape_hour: ctx.scrape_hour,\n  totalRows: lines.length - 1,\n  callCount: calls.length,\n  skippedNonUser,\n  skippedNoCallId,\n  calls\n}}];"
+      },
+      "id": "dp-parse-csv",
+      "name": "Parse CSV → calls[]",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-120, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SUPABASE_PROJECT.supabase.co/functions/v1/ingest-dialpad-calls",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ scrape_date: $json.scrape_date, scrape_hour: $json.scrape_hour, calls: $json.calls }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "dp-ingest",
+      "name": "POST /ingest-dialpad-calls",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [120, -120]
+    }
+  ],
+  "connections": {
+    "Trigger Hourly 9-5 CST (Weekdays)": { "main": [[{ "node": "Compute Today + Hour (CST)", "type": "main", "index": 0 }]] },
+    "Manual Trigger":                    { "main": [[{ "node": "Compute Today + Hour (CST)", "type": "main", "index": 0 }]] },
+    "Compute Today + Hour (CST)":        { "main": [[{ "node": "POST /stats (initiate)",     "type": "main", "index": 0 }]] },
+    "POST /stats (initiate)":            { "main": [[{ "node": "Wait 30s",                   "type": "main", "index": 0 }]] },
+    "Wait 30s":                          { "main": [[{ "node": "GET /stats/{id}",            "type": "main", "index": 0 }]] },
+    "GET /stats/{id}":                   { "main": [[{ "node": "Stats Complete?",            "type": "main", "index": 0 }]] },
+    "Stats Complete?": {
+      "main": [
+        [{ "node": "Download CSV",   "type": "main", "index": 0 }],
+        [{ "node": "Stats Failed?",  "type": "main", "index": 0 }]
+      ]
+    },
+    "Stats Failed?": {
+      "main": [
+        [{ "node": "Fail Loudly",   "type": "main", "index": 0 }],
+        [{ "node": "Cap Poll Time", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cap Poll Time":      { "main": [[{ "node": "Wait 30s & Retry", "type": "main", "index": 0 }]] },
+    "Wait 30s & Retry":   { "main": [[{ "node": "GET /stats/{id}",  "type": "main", "index": 0 }]] },
+    "Download CSV":       { "main": [[{ "node": "Parse CSV → calls[]", "type": "main", "index": 0 }]] },
+    "Parse CSV → calls[]": { "main": [[{ "node": "POST /ingest-dialpad-calls", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false, "instanceId": "dialpad-rpa-template" }
+}

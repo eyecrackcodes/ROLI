@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Business Domain
 
-Life insurance sales operations for Digital Senior Benefits (DSB). All agents operate under a unified flat model (no tier distinctions) across two sites (RMT/CHA). Every agent receives 7 inbound leads/day at $60/lead with supplemental pool access. The platform tracks production, pipeline health, leads pool activity, and contest rankings.
+Life insurance sales operations for Digital Senior Benefits (DSB). All agents operate under a unified flat model (no tier distinctions) on a single Remote (RMT) roster — Charlotte (CHA) is deprecated; historical CHA records remain in `agents` for tenure / historical reporting only. Every agent receives 7 inbound leads/day at $60/lead with supplemental pool access. The platform tracks production, pipeline health, leads pool activity, and contest rankings.
 
 ## Tech Stack
 

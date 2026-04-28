@@ -3,7 +3,7 @@
 > **SUPERSEDED:** This document has been replaced by **[Agent-SOP.md](Agent-SOP.md)**, which includes comprehensive pipeline discipline, leads pool standards, compliance scorecard, and escalation framework. This file is retained for reference only.
 
 **Effective:** April 10, 2026
-**Applies to:** All active agents (Remote & Charlotte)
+**Applies to:** All active agents
 
 ---
 
@@ -130,20 +130,19 @@ All missed inbound calls are sent to agents. Agents should:
 
 | Site | Agency ID | Description |
 |---|---|---|
-| Remote (RMT) | 12912 | All remote agents (formerly Austin) |
-| Charlotte (CHA) | 4798 | Charlotte call center |
+| Remote (RMT) | 12912 | All active agents (single remote roster, formerly Austin) |
 
-All CRM reports and scraping filter by these agency IDs.
+All CRM reports and scraping filter by this agency ID. The Charlotte (CHA, 4798) call center is no longer part of the operation; historical CHA records remain in the database for tenure / historical reporting only.
 
 ---
 
 ## Key Differences from Prior Model
 
-| Prior (T1/T2/T3) | Current (Unified) |
+| Prior (T1/T2/T3, multi-site) | Current (Unified, Remote-only) |
 |---|---|
 | 3 tiers with different lead volumes and costs | Single model: 7 leads at $60 |
 | T1: 10 IB leads at $83, T2: 7 IB at $73, T3: 25 OB at $15 | Everyone: 7 IB at $60 + pool access |
 | T3 outbound-only with queue dialer focus | Pool supplemental to inbound for all agents |
 | Tier-specific CR targets (25%/20%/5%) | Unified CR target: 15% |
-| Austin office (AUS) + Charlotte (CHA) | Remote (RMT) + Charlotte (CHA) |
+| Austin (AUS) + Charlotte (CHA) | Remote (RMT) — single roster |
 | Pipeline max: 25/40/80 by tier | Pipeline max: 30 for all |

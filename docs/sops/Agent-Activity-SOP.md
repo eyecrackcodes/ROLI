@@ -1,7 +1,7 @@
 # Agent Daily Activity SOP
 
 **Effective:** April 2026
-**Applies to:** All agents — Remote & Charlotte
+**Applies to:** All active agents
 **Purpose:** A simple, clear playbook for what a great day looks like. Hit these activities consistently and the production takes care of itself.
 
 ---
